@@ -17,10 +17,13 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/*/go.sum
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.13.0
@@ -34,6 +37,10 @@ jobs:
           sh stub/windows/build.sh
       - name: go vet
         run: go vet ./...
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          [ -z "$out" ] || { echo "These files need gofmt:"; echo "$out"; exit 1; }
 
   # The full suite runs on linux/amd64, the primary platform. Cross-platform
   # runtime is validated separately on real hardware by the gates (macos/gate
@@ -44,10 +51,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/*/go.sum
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.13.0
@@ -70,10 +80,13 @@ jobs:
     name: build all targets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/*/go.sum
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.13.0
