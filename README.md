@@ -29,7 +29,7 @@ sandbox, exposing only the files and network access it needs.
 Use it as a standalone binary, behind a container client, through MCP, or
 embedded in your own program. The same Linux guest behavior is provided across
 Linux, macOS, and Windows, subject to the documented
-[platform limits](#permissions-and-limits). laboon is newer, with a small host
+[platform limits](docs/permissions-and-limits.md). laboon is newer, with a small host
 surface by design; its daemon and OCI runtime should not be read as claims
 of production maturity or complete engine compatibility.
 
@@ -171,28 +171,13 @@ separate host-op thread that never executes guest code. The guest thread's
 seccomp filter does not grant those operations merely because the stub needs
 them. [AGENTS.md](AGENTS.md) defines these boundaries.
 
-### Permissions and limits
+### Security defaults
 
-Networking is off by default: the guest has loopback only, like
-`docker --network none`. `WithNet()` enables egress through supervisor-proxied
-host sockets. Add `WithAllowDomains`, `WithAllowCIDRs`, and `WithAllowPorts` to
-bound access; enabling networking alone does not create a restrictive
-allowlist. Domain rules include subdomains, CIDRs add directly reachable
-addresses, and port rules restrict destination ports.
-
-`WithNoNet()` removes loopback too when `WithNet` is absent. The current
-Windows exception is that guest `AF_INET` sockets require `WithNet`, even for
-loopback.
-
-`WithMount(host, guest)` exposes a host directory read-write, confined to that
-subtree. It can also expose host Unix sockets beneath the mount, so a mount
-is an explicit grant of access. Writable-plus-executable guest memory is
-allowed by default for JITs such as V8; `WithRejectRWX()` refuses it.
-
-There is no default memory cap. `WithMaxMemory` limits mapped address space on
-Linux and stub-process committed memory on Windows; **macOS does not enforce
-it yet**. These controls and their semantics are documented in
-[options.go](options.go) and [sandbox/config.go](sandbox/config.go).
+laboon is confined by default: the guest gets loopback-only networking, no view
+of the host filesystem, and no shared memory — every grant (`WithNet`,
+`WithMount`, `WithMountReadOnly`, …) is explicit. The full set of controls and
+their current limits is in
+[docs/permissions-and-limits.md](docs/permissions-and-limits.md).
 
 ### Where it fits
 
@@ -222,7 +207,7 @@ handling, data copies, and process startup still cost time.
 Apple M4, macOS 26.5, warm images and Docker Desktop's VM already running;
 median end-to-end wall time. The comparison was `docker run --rm <img> <cmd>`
 versus `laboon -image <img> <cmd>`, with 15 iterations per workload and six
-for the CPU loop. See [PERF.md](PERF.md#vs-docker-desktop-macos).
+for the CPU loop. See [docs/PERF.md](docs/PERF.md#vs-docker-desktop-macos).
 
 | Warm workload | Docker Desktop | laboon | Docker time / laboon time |
 |---|---|---|---|
@@ -248,14 +233,14 @@ describe that rig, not a bare-metal Windows prediction.
 | Node CPU loop | ~1.9× |
 
 The shape matches macOS: the largest advantage is startup, with a smaller
-CPU-loop difference. These Windows results are recorded here; PERF.md does
+CPU-loop difference. These Windows results are recorded here; docs/PERF.md does
 not yet include their method or results.
 
 ### Linux
 
 Docker already uses namespaces and cgroups without a VM on Linux, so laboon
 is in the same class. The following measurements compare laboon with native
-execution, **not Docker**. [PERF.md](PERF.md#measured-linux-build-real-workloads)
+execution, **not Docker**. [docs/PERF.md](docs/PERF.md#measured-linux-build-real-workloads)
 contains the workload results.
 
 | Measurement | Recorded result |
