@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/samyfodil/laboon/actions/workflows/ci.yml"><img src="https://github.com/samyfodil/laboon/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/samyfodil/laboon/releases/latest"><img src="https://img.shields.io/github/v/release/samyfodil/laboon" alt="Latest release"></a>
   <a href="https://pkg.go.dev/github.com/samyfodil/laboon"><img src="https://pkg.go.dev/badge/github.com/samyfodil/laboon.svg" alt="Go reference"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20macOS%20Windows-informational" alt="Platforms">
@@ -33,9 +34,32 @@ Linux, macOS, and Windows, subject to the documented
 surface by design; its daemon and OCI runtime should not be read as claims
 of production maturity or complete engine compatibility.
 
-[Get started](#get-started) · [Ways to run it](#ways-to-run-it) ·
+[Install](#install) · [Get started](#get-started) · [Ways to run it](#ways-to-run-it) ·
 [How it works](#how-it-works) · [Performance](#performance) ·
 [AI agents and desktop sandboxes](#ai-agents-and-desktop-sandboxes)
+
+## Install
+
+**Homebrew** (macOS, Linux):
+
+```sh
+brew install samyfodil/laboon/laboon
+```
+
+**Scoop** (Windows):
+
+```powershell
+scoop bucket add laboon https://github.com/samyfodil/scoop-laboon
+scoop install laboon
+```
+
+Prebuilt binaries for every platform are on the
+[latest release](https://github.com/samyfodil/laboon/releases/latest). To embed
+laboon as a Go library:
+
+```sh
+go get github.com/samyfodil/laboon
+```
 
 ## Ways to run it
 
