@@ -79,9 +79,9 @@ func (f *synthFS) ReadDir(dir Node) ([]Dirent, error) {
 }
 
 func (f *synthFS) Create(Node, string, CreateSpec) (Node, error) { return nil, errROFS("create") }
-func (f *synthFS) Link(Node, string, Node) (Node, error)        { return nil, errROFS("link") }
-func (f *synthFS) Remove(Node, string, bool) error              { return errROFS("remove") }
-func (f *synthFS) Rename(Node, string, Node, string) error      { return errROFS("rename") }
+func (f *synthFS) Link(Node, string, Node) (Node, error)         { return nil, errROFS("link") }
+func (f *synthFS) Remove(Node, string, bool) error               { return errROFS("remove") }
+func (f *synthFS) Rename(Node, string, Node, string) error       { return errROFS("rename") }
 
 func errROFS(op string) error { return &fs.PathError{Op: op, Path: "", Err: fs.ErrPermission} }
 
@@ -96,8 +96,8 @@ func (n *synthNode) Stat() (Attr, error) {
 	return a, nil
 }
 
-func (n *synthNode) SetAttr(AttrUpdate) error { return errROFS("setattr") }
-func (n *synthNode) Readlink() (string, error)      { return n.n.Target, nil }
+func (n *synthNode) SetAttr(AttrUpdate) error  { return errROFS("setattr") }
+func (n *synthNode) Readlink() (string, error) { return n.n.Target, nil }
 
 func (n *synthNode) Open(flags int) (File, error) {
 	if flags&(os.O_WRONLY|os.O_RDWR) != 0 {

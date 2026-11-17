@@ -25,9 +25,9 @@ import (
 
 // runInfo is what starting and serving the run's stub processes needs.
 type runInfo struct {
-	stubFile *os.File // the stub binary (a memfd)
-	chanFile *os.File // the shared channel region (a memfd), the stubs' fd 3
-	life     *os.File // the stubs' fd 4: EOF when the supervisor is gone
+	stubFile *os.File    // the stub binary (a memfd)
+	chanFile *os.File    // the shared channel region (a memfd), the stubs' fd 3
+	life     *os.File    // the stubs' fd 4: EOF when the supervisor is gone
 	entryOff stubEntries // the stub entry-point offsets from its image base
 	entry    uint64      // lc_syscall_entry's absolute address, resolved at boot
 	entryGs  uint64      // lc_syscall_entry_gs's, the %gs-anchor fast path

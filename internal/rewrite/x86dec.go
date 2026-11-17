@@ -120,8 +120,8 @@ func init() {
 	t[0xf1] = opEntry(false, imNone)   // INT1
 	t[0xf4] = opEntry(false, imNone)   // HLT
 	t[0xf5] = opEntry(false, imNone)   // CMC
-	t[0xf6] = opEntry(true, imGrp3b)    // grp3 rm (TEST has imm8)
-	t[0xf7] = opEntry(true, imGrp3z)    // grp3 rm (TEST has immZ)
+	t[0xf6] = opEntry(true, imGrp3b)   // grp3 rm (TEST has imm8)
+	t[0xf7] = opEntry(true, imGrp3z)   // grp3 rm (TEST has immZ)
 	set(t, 0xf8, 0xfd, false, imNone)  // CLC..STD
 	t[0xfe] = opEntry(true, imNone)    // grp4 INC/DEC rm
 	t[0xff] = opEntry(true, imNone)    // grp5 INC/DEC/CALL/JMP/PUSH rm
@@ -169,7 +169,7 @@ func init() {
 	f[0xa7] = opEntry(false, imNone)
 }
 
-func x86s8(b byte) int    { return int(int8(b)) }
+func x86s8(b byte) int { return int(int8(b)) }
 func x86s32(b []byte) int {
 	return int(int32(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24))
 }
@@ -412,7 +412,7 @@ func x86destAX(op byte, is0F, is3A bool, reg, rm int, modIsReg, opsize16, rexR, 
 		}
 		return false
 	}
-	regDst := reg == 0 && !rexR    // ModRM.reg is (r)ax
+	regDst := reg == 0 && !rexR           // ModRM.reg is (r)ax
 	rmDst := modIsReg && rm == 0 && !rexB // ModRM.rm is a register and (r)ax
 	switch {
 	case op&0xc7 == 0x03: // odd ALU r,rm (03,0b,13,1b,23,2b,33,3b): reg dest

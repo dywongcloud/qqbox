@@ -34,12 +34,12 @@ type Action struct {
 	N    int
 }
 
-func LeftClick(x, y int) Action    { return Action{Kind: "click", X: x, Y: y} }
-func DoubleClick(x, y int) Action  { return Action{Kind: "doubleclick", X: x, Y: y} }
-func MoveMouse(x, y int) Action    { return Action{Kind: "move", X: x, Y: y} }
-func TypeText(text string) Action  { return Action{Kind: "type", Text: text} }
-func PressKey(key string) Action   { return Action{Kind: "key", Text: key} }
-func Wait(seconds int) Action      { return Action{Kind: "sleep", N: seconds} }
+func LeftClick(x, y int) Action   { return Action{Kind: "click", X: x, Y: y} }
+func DoubleClick(x, y int) Action { return Action{Kind: "doubleclick", X: x, Y: y} }
+func MoveMouse(x, y int) Action   { return Action{Kind: "move", X: x, Y: y} }
+func TypeText(text string) Action { return Action{Kind: "type", Text: text} }
+func PressKey(key string) Action  { return Action{Kind: "key", Text: key} }
+func Wait(seconds int) Action     { return Action{Kind: "sleep", N: seconds} }
 
 // NewDesktop returns a desktop sandbox with sensible defaults.
 func NewDesktop() *Desktop {
@@ -79,7 +79,7 @@ func (d *Desktop) Run(ctx context.Context, actions []Action) ([]byte, error) {
 		laboon.WithEntrypoint("bash", "-c", desktopScript(w, h, boot, actions)),
 		laboon.WithMount(out, "/out"),
 		laboon.WithNet(),
-		laboon.WithUser("root"), // prebuilt desktop images often default to a non-root user
+		laboon.WithUser("root"),      // prebuilt desktop images often default to a non-root user
 		laboon.WithStderr(os.Stderr), // apt / session progress for the caller
 	)
 	if rerr != nil {

@@ -72,7 +72,7 @@ type pstate struct {
 	exitCode int
 	killSig  int // host-side kill cause, reported as WIFSIGNALED
 	zombie   bool
-	status   int // Linux wait status, valid once zombie
+	status   int    // Linux wait status, valid once zombie
 	mask     []byte // the leader's CPU affinity as last set or inherited, for a zombie (Linux)
 
 	stopSig     int  // a stop not yet reported to a WUNTRACED waiter

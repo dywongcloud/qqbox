@@ -61,9 +61,9 @@ const (
 	lxMsgWaitforone  = 0x10000
 	lxMsgCmsgCloexec = 0x40000000
 
-	lxScmRights       = 1
-	lxScmCredentials  = 2
-	lxSoPasscred      = 16
+	lxScmRights      = 1
+	lxScmCredentials = 2
+	lxSoPasscred     = 16
 
 	msghdrSize  = 56 // struct msghdr on arm64
 	mmsghdrSize = 64 // struct mmsghdr: msghdr + u32 msg_len, padded
@@ -95,8 +95,8 @@ const (
 
 	lxIPMulticastIf  = 32
 	lxIPMulticastAll = 49
-	lxIPAddMember   = 35
-	lxIPDropMember  = 36
+	lxIPAddMember    = 35
+	lxIPDropMember   = 36
 )
 
 func init() {

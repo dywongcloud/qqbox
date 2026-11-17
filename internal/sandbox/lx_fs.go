@@ -59,11 +59,11 @@ type dfs struct {
 	cgOnce  sync.Once // builds cgroups on first /sys/fs/cgroup use
 	cgroups *cgStore  // the sandbox's shared writable cgroup v2 hierarchy
 
-	nsBindMu sync.Mutex      // guards nsBinds
+	nsBindMu sync.Mutex       // guards nsBinds
 	nsBinds  map[string]int32 // namespace bind-mount path -> pinned network namespace
 
 	usedSlots []bool
-	hops      hopTable // each stub process's host-op entry (Linux)
+	hops      hopTable              // each stub process's host-op entry (Linux)
 	exited    map[int]chan struct{} // host pid -> closed once that stub process has ended (watchStub)
 	nextPid   int
 	initNs    *pidns          // the host pid namespace (id 0, identity)
@@ -555,10 +555,10 @@ type dguest struct {
 	tgid int    // thread-group id: the process pid getpid returns (== pid for a process)
 	ppid int
 
-	ft  *ftable        // open-file table: shared across a thread group (CLONE_FILES), copied by fork
-	pfs *procFs        // umask and cwd: shared by threads, copied by fork
-	mp  *memProc       // host-fd pairing with the stub: shared by threads, new per fork
-	pi  *procInfo      // what /proc shows of this process; shared by its threads
+	ft       *ftable        // open-file table: shared across a thread group (CLONE_FILES), copied by fork
+	pfs      *procFs        // umask and cwd: shared by threads, copied by fork
+	mp       *memProc       // host-fd pairing with the stub: shared by threads, new per fork
+	pi       *procInfo      // what /proc shows of this process; shared by its threads
 	pns      *vfs.Namespace // this guest's namespace view (overlay + its own /proc,/sys); built lazily by vns
 	pnsGen   uint64         // dfs.dynGen when pns was built; a mismatch rebuilds it to track mount/umount
 	pnsBuild bool           // vns is building pns; guards re-entry (a mount point that walks a /proc fd link)

@@ -30,7 +30,7 @@ const (
 // pointer at the current syscall.
 const (
 	stubRecOff     = 128
-	stubBusy       = stubRecOff + 0  // Thread.busy
+	stubBusy       = stubRecOff + 0 // Thread.busy
 	stubHostTid    = stubRecOff + 4
 	stubSp         = stubRecOff + 8
 	stubKicked     = stubRecOff + 52 // Thread.kicked

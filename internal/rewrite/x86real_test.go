@@ -19,7 +19,9 @@ func realX86Text(t testing.TB) []byte {
 		t.Skipf("amd64 build unavailable: %v\n%s", err, out)
 	}
 	f, err := elf.Open(bin)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer f.Close()
 	b, _ := f.Section(".text").Data()
 	return b

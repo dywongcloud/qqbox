@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	macstub "github.com/samyfodil/laboon/stub/macos"
 	"github.com/samyfodil/laboon/internal/rewrite"
+	macstub "github.com/samyfodil/laboon/stub/macos"
 )
 
 // The macOS supervisor is a syscall broker: it coordinates the guest processes

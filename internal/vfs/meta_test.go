@@ -7,12 +7,12 @@ import "testing"
 // (a space, a tab, a newline) and a path with no recorded override (dropped).
 func TestMetaCodec(t *testing.T) {
 	in := map[string]*Override{
-		"etc/passwd":          {Uid: 1000, Gid: 1000, HasOwner: true},
-		"bin/ro":              {Mode: 0o400, HasMode: true},
-		"root/setuid":         {Uid: 0, Gid: 0, HasOwner: true, Mode: 0o4755, HasMode: true},
-		"dev/initctl":         {Special: true, Kind: Fifo, Rdev: 0, Mode: 0o600, HasMode: true},
+		"etc/passwd":           {Uid: 1000, Gid: 1000, HasOwner: true},
+		"bin/ro":               {Mode: 0o400, HasMode: true},
+		"root/setuid":          {Uid: 0, Gid: 0, HasOwner: true, Mode: 0o4755, HasMode: true},
+		"dev/initctl":          {Special: true, Kind: Fifo, Rdev: 0, Mode: 0o600, HasMode: true},
 		"weird path\twith\nnl": {Uid: 7, Gid: 8, HasOwner: true},
-		"nothing":             {}, // no flags set -> omitted
+		"nothing":              {}, // no flags set -> omitted
 	}
 	got := map[string]Override{}
 	decodeMeta(encodeMeta(in), func(p string, o Override) { got[p] = o })

@@ -156,10 +156,10 @@ func TestParseSock(t *testing.T) {
 	global[0] = 0x20 // 2000::/3 global unicast
 
 	cases := []struct {
-		name       string
-		raw        []byte
-		ip         uint32
-		v6, ok     bool
+		name   string
+		raw    []byte
+		ip     uint32
+		v6, ok bool
 	}{
 		{"v4", sockaddrIn4(ip4(10, 88, 0, 6), 80), ip4(10, 88, 0, 6), false, true},
 		{"::", in6(unspec, 80), 0, true, true},

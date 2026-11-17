@@ -30,11 +30,11 @@ const (
 
 // expression attribute types (within NFTA_EXPR_DATA), per expression.
 const (
-	nftaListElem = 1
-	nftaExprName = 1
-	nftaExprData = 2
-	nftaDataValue   = 1
-	nftaDataVerdict = 2
+	nftaListElem     = 1
+	nftaExprName     = 1
+	nftaExprData     = 2
+	nftaDataValue    = 1
+	nftaDataVerdict  = 2
 	nftaVerdictCode  = 1
 	nftaVerdictChain = 2
 
@@ -48,12 +48,12 @@ const (
 	nftaCmpSReg = 1
 	nftaCmpOp   = 2
 	nftaCmpData = 3
-	cmpEq  = 0
-	cmpNeq = 1
-	cmpLt  = 2
-	cmpLte = 3
-	cmpGt  = 4
-	cmpGte = 5
+	cmpEq       = 0
+	cmpNeq      = 1
+	cmpLt       = 2
+	cmpLte      = 3
+	cmpGt       = 4
+	cmpGte      = 5
 
 	nftaBitwiseSReg = 1
 	nftaBitwiseDReg = 2
@@ -63,16 +63,16 @@ const (
 
 	nftaMetaDReg = 1
 	nftaMetaKey  = 2
-	metaMark    = 3
-	metaNFProto = 15
-	metaL4Proto = 16
+	metaMark     = 3
+	metaNFProto  = 15
+	metaL4Proto  = 16
 
 	nftaCtDReg = 1
 	nftaCtKey  = 2
 	ctStateKey = 0
 
-	nftaFibDReg   = 1
-	nftaFibResult = 2
+	nftaFibDReg       = 1
+	nftaFibResult     = 2
 	fibResultAddrType = 3
 
 	nftaLookupSet   = 1
@@ -83,11 +83,11 @@ const (
 	nftaImmediateDReg = 1
 	nftaImmediateData = 2
 
-	nftaNatType       = 1
-	nftaNatRegAddrMin = 3
+	nftaNatType        = 1
+	nftaNatRegAddrMin  = 3
 	nftaNatRegProtoMin = 5
-	natTypeSNAT = 0
-	natTypeDNAT = 1
+	natTypeSNAT        = 0
+	natTypeDNAT        = 1
 
 	// xtables-compat target/match expressions (how iptables-nft carries an
 	// extension such as MASQUERADE or a conntrack match).
@@ -123,12 +123,12 @@ type nftPkt struct {
 
 // nftResult is the outcome of evaluating a base chain for a packet.
 type nftResult struct {
-	drop      bool
-	masq      bool
-	dnat      bool
-	dnatAddr  []byte
-	dnatPort  uint16
-	mark      uint32 // mark set during evaluation
+	drop     bool
+	masq     bool
+	dnat     bool
+	dnatAddr []byte
+	dnatPort uint16
+	mark     uint32 // mark set during evaluation
 }
 
 // evalHook evaluates every base chain hooked at hook, across all tables of the

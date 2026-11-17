@@ -834,7 +834,6 @@ func (g *dguest) fchmodat(dirfd int64, pathAddr uint64, mode uint32, flags int64
 	return 0
 }
 
-
 func (g *dguest) fchmod(fd int64, mode uint32) int64 {
 	d, ok := g.ft.get(int(fd))
 	if !ok || d.fx.opath {

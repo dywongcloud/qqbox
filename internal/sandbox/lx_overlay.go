@@ -21,7 +21,7 @@ import (
 // the supervisor does not.
 
 type ovState struct {
-	inodeMeta // guest modes and owners, plus the copy-up origin map (a vfs.MetaStore)
+	inodeMeta       // guest modes and owners, plus the copy-up origin map (a vfs.MetaStore)
 	mk        makes // paths being created, until their owner is recorded
 
 	filesMu sync.Mutex

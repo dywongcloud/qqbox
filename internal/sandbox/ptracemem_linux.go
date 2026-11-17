@@ -45,8 +45,8 @@ func ptraceAccess(g *dguest, addr uint64, b []byte, write bool) error {
 
 // Stub-layout facts ptrace needs, as the Linux stub lays them out.
 var (
-	ptStubLo    = stubLo
-	ptStubHi    = stubHi
+	ptStubLo     = stubLo
+	ptStubHi     = stubHi
 	ptraceStepOK = true // x86 TF single-step is supported on Linux
 )
 
