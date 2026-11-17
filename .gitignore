@@ -1,0 +1,28 @@
+# Build output
+/laboon
+/laboond
+/laboon.exe
+
+# Local scratch
+/image.tar
+/.context/
+
+# Built command binaries
+/cmd/*/laboon
+/cmd/*/laboond
+/cmd/*/laboon-mcp
+/cmd/*/laboon-runtime
+
+# The embedded platform stubs are committed so `go build`/`go get` works without
+# Zig; `make` (and CI) rebuild them from the Zig sources. Run `make stubs` after
+# editing a stub so the committed binary stays current.
+
+# Go test binaries
+*.test
+
+
+# Local build artifacts / port probe binaries
+/laboon-darwin
+/macos/m*/*.elf
+/macos/m*/*.elf.o
+/macos/m*/*.bin

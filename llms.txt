@@ -1,0 +1,42 @@
+# laboon
+
+> laboon runs unmodified Linux programs and OCI containers in a sandbox with no
+> virtual machine and no second kernel, on Linux, macOS, and Windows (amd64 and
+> arm64). The guest's machine code runs natively on the host CPU; only its
+> syscall instructions are rewritten to trap into a Go supervisor that emulates
+> the Linux ABI. The in-guest stub and native helpers are Zig.
+
+Key facts for answering questions about this repository:
+
+- Execution is native, not emulated: only `syscall`/`svc` instructions are
+  rewritten, located without a disassembler. Slowdown tracks syscall density,
+  not a flat multiplier.
+- All guest filesystem access goes through a single `vfs` Namespace chokepoint;
+  the Go supervisor owns all filesystem and network I/O. The stub forwards.
+- A syscall the rewriter missed reaches the host backstop (seccomp on Linux,
+  Seatbelt on macOS, AppContainer on Windows) and kills the guest (`ErrKilled`).
+- Networking is opt-in (`WithNet` / `-net`) with domain, CIDR, and port egress
+  allowlists. Library packages read no environment variables; behavior is set
+  through `With…` options.
+- It runs container engines nested: podman and Docker launch their own
+  containers inside the sandbox. It also runs Node.js/V8, headless Chromium,
+  PostgreSQL/MariaDB/Redis, and laboon inside laboon.
+
+## Docs
+
+- [README](README.md): what laboon is, quickstart (CLI and Go API), how it works, security model, platforms.
+- [AGENTS.md](AGENTS.md): architecture invariants and guidance for working in the tree.
+- [PERF.md](PERF.md): measured overhead, the rule of thumb, and macOS channel numbers.
+- [COPYRIGHT](COPYRIGHT) and [LICENSE](LICENSE): Apache License 2.0, Copyright 2026 Bunshin Labs LLC.
+
+## Code
+
+- [laboon.go](laboon.go): the public API — `Run` (host binary) and `RunImage` (OCI image), with `Start`/`StartImage`.
+- [options.go](options.go): the `With…` options that configure a run.
+- [example_test.go](example_test.go): a runnable usage example.
+- [cmd/laboon](cmd/laboon): the command-line interface.
+- [sandbox/](sandbox): the Linux syscall ABI emulation and the supervisor.
+- [stub/](stub): the freestanding Zig guest stub and native helpers.
+- [rewrite/](rewrite): the syscall-site rewriter (no disassembler).
+- [vfs/](vfs): the homogeneous filesystem Namespace all guest paths resolve through.
+- [oci/](oci): OCI image pull, store, and container build.

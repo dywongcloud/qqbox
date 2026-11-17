@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Resolve version
+        id: v
+        run: echo "tag=${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}" >> "$GITHUB_OUTPUT"
+
+      # The stubs are cross-built by Zig, so one Linux runner produces every
+      # target's binary. They are embedded into the CLI at `go build` time.
+      - name: Build every stub
+        env:
+          ZIG: zig
+        run: |
+          sh stub/build.sh
+          sh stub/macos/build.sh
+          sh stub/windows/build.sh
+
+      - name: Build and package every target
+        env:
+          VERSION: ${{ steps.v.outputs.tag }}
+        run: |
+          set -e
+          mkdir -p dist
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${t%/*}; arch=${t#*/}
+            ext=""; [ "$os" = windows ] && ext=.exe
+            echo "== building $t"
+            (cd cmd/laboon && GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$GITHUB_WORKSPACE/dist/laboon$ext" .)
+            base="laboon_${VERSION}_${os}_${arch}"
+            cp LICENSE* COPYRIGHT* README.md dist/ 2>/dev/null || true
+            if [ "$os" = windows ]; then
+              (cd dist && zip -q "$base.zip" "laboon$ext" README.md LICENSE* COPYRIGHT* 2>/dev/null || zip -q "$base.zip" "laboon$ext")
+            else
+              (cd dist && tar -czf "$base.tar.gz" "laboon$ext" README.md LICENSE* COPYRIGHT* 2>/dev/null || tar -czf "$base.tar.gz" "laboon$ext")
+            fi
+            rm -f "dist/laboon$ext"
+          done
+          (cd dist && sha256sum laboon_*.tar.gz laboon_*.zip > checksums.txt 2>/dev/null || true)
+          ls -l dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/laboon_*.tar.gz
+            dist/laboon_*.zip
+            dist/checksums.txt

@@ -1,0 +1,1422 @@
+// sig.zig — Linux signal delivery. The stub owns every guest thread's CPU
+// state, so it is the one that builds the arm64 rt_sigframe, redirects a thread
+// into its handler and restores it on rt_sigreturn. The supervisor (Go) owns
+// routing and policy: it posts signals into the shared signal area and kicks
+// the stub process with a Darwin SIGUSR1.
+//
+// Signal state lives in the signal area, a shared region after the channel
+// slots, one record per slot: the thread's mask and sigaltstack, and a copy of
+// its pending bits and (at the thread-group leader's slot) its process's. The
+// pending sets themselves and the actions are the supervisor's, out of the
+// guest's reach: the stub takes a signal, with its action, by a call
+// (LC_SIGTAKE), and sigaction is the supervisor's.
+//
+// Every context switch into a handler, and back out on rt_sigreturn, goes
+// through a Darwin signal handler: it receives the interrupted Darwin context
+// and whatever it leaves there is what the kernel restores, every register
+// included. From a syscall return the stub traps itself into that handler with
+// a `brk` (lc_sig_switch). A thread is never redirected while busy in the stub
+// (between its trampoline entry and exit); a kick then only wakes a local wait,
+// and the pending signal is taken on the way out of the syscall.
+
+const std = @import("std");
+const chan = @import("chan.zig");
+const futex = @import("futex.zig");
+const jit = @import("jit.zig");
+const mem = @import("mem.zig");
+const wx = @import("wx.zig");
+const ool = @import("ool.zig");
+const hwcap = @import("hwcap.zig");
+const service = @import("service.zig");
+
+pub const AREA_OFF: usize = chan.SLOT_SIZE * chan.MAX_SLOTS;
+pub const STRIDE: usize = 0x4000;
+pub const AREA_LEN: usize = STRIDE * chan.MAX_SLOTS;
+const PROC_OFF: usize = 0x1000;
+
+// Info is the first 32 bytes of a Linux siginfo_t: a and b are its bytes 16..32
+// (the union), laid out by the sender exactly as Linux does.
+pub const Info = extern struct { signo: i32, errno: i32, code: i32, pad: i32, a: u64, b: u64 };
+pub const Act = extern struct { handler: u64, flags: u64, restorer: u64, mask: u64 };
+
+pub const Thread = extern struct {
+    _res: u32,
+    proc: u32, // slot of the thread-group leader (its Proc record)
+    mask: u64,
+    pending: u64,
+    waitset: u64, // signals that wake a sigtimedwait although blocked
+    ss_sp: u64,
+    ss_size: u64, // 0 = no alternate stack
+    ss_flags: u32, // SS_AUTODISARM only
+    tid: u32,
+    tgid: u32,
+    // saved: a syscall (pselect, ppoll, epoll_pwait) runs under a temporary
+    // mask; saved_mask is the real one, put back on the way out.
+    saved: u32,
+    saved_mask: u64,
+};
+
+pub const Proc = extern struct {
+    _res: u64,
+    pending: u64, // the process-directed pending bits
+};
+
+comptime {
+    std.debug.assert(@offsetOf(Thread, "mask") == 8);
+    std.debug.assert(@offsetOf(Thread, "pending") == 16);
+    std.debug.assert(@offsetOf(Thread, "waitset") == 24);
+    std.debug.assert(@offsetOf(Thread, "ss_sp") == 32);
+    std.debug.assert(@offsetOf(Thread, "ss_size") == 40);
+    std.debug.assert(@offsetOf(Thread, "ss_flags") == 48);
+    std.debug.assert(@offsetOf(Thread, "tid") == 52);
+    std.debug.assert(@offsetOf(Thread, "tgid") == 56);
+    std.debug.assert(@offsetOf(Thread, "saved") == 60);
+    std.debug.assert(@offsetOf(Thread, "saved_mask") == 64);
+    std.debug.assert(@offsetOf(Proc, "pending") == 8);
+    std.debug.assert(@sizeOf(Thread) <= PROC_OFF);
+    std.debug.assert(@sizeOf(Proc) <= STRIDE - PROC_OFF);
+}
+
+// Linux arm64 syscall numbers served here, and the stub->supervisor calls a
+// default action needs (outside the Linux range).
+pub const NR_SIGALTSTACK: u64 = 132;
+pub const NR_RT_SIGSUSPEND: u64 = 133;
+pub const NR_RT_SIGPROCMASK: u64 = 135;
+pub const NR_RT_SIGPENDING: u64 = 136;
+pub const NR_RT_SIGTIMEDWAIT: u64 = 137;
+pub const NR_RT_SIGRETURN: u64 = 139;
+const NR_RESTART_SYSCALL: u64 = 128;
+const NR_WRITE: u64 = 64;
+const NR_WRITEV: u64 = 66;
+const NR_SENDTO: u64 = 206;
+const NR_SENDMSG: u64 = 211;
+const NR_SENDMMSG: u64 = 269;
+const LC_SIGDIE: u64 = 0x4c430010; // after mem.zig's 0x4c4300xx
+const LC_SIGSTOP: u64 = 0x4c430011;
+const LC_SIGTAKE: u64 = 0x4c430012;
+const LC_SIGSETTLE: u64 = 0x4c430013;
+const LC_SIGFAULT: u64 = 0x4c430014;
+const LC_SIGRAISE: u64 = 0x4c430015;
+
+// Linux signals.
+const SIGILL: u32 = 4;
+const SIGTRAP: u32 = 5;
+const SIGBUS: u32 = 7;
+const SIGFPE: u32 = 8;
+const SIGKILL: u32 = 9;
+const SIGSEGV: u32 = 11;
+const SIGPIPE: u32 = 13;
+const SIGCHLD: u32 = 17;
+const SIGCONT: u32 = 18;
+const SIGSTOP: u32 = 19;
+const SIGTSTP: u32 = 20;
+const SIGTTIN: u32 = 21;
+const SIGTTOU: u32 = 22;
+const SIGURG: u32 = 23;
+const SIGWINCH: u32 = 28;
+const SIGSYS: u32 = 31;
+
+const SIG_DFL: u64 = 0;
+const SIG_IGN: u64 = 1;
+
+const SA_RESTORER: u64 = 0x04000000;
+const SA_ONSTACK: u64 = 0x08000000;
+const SA_RESTART: u64 = 0x10000000;
+const SA_NODEFER: u64 = 0x40000000;
+
+const SS_ONSTACK: u32 = 1;
+const SS_DISABLE: u32 = 2;
+const SS_AUTODISARM: u32 = 1 << 31;
+const MINSIGSTKSZ: u64 = 5120;
+
+// si_code values.
+const SI_USER: i32 = 0;
+const SEGV_MAPERR: i32 = 1;
+const SEGV_ACCERR: i32 = 2;
+const BUS_ADRALN: i32 = 1;
+const BUS_ADRERR: i32 = 2;
+const ILL_ILLOPC: i32 = 1;
+const TRAP_BRKPT: i32 = 1;
+
+// Linux errnos (negated on return) and the restart codes a supervisor-served
+// or stub-local syscall returns when a signal interrupts it.
+const EPERM: i64 = 1;
+const EINTR: i64 = 4;
+const EFAULT: i64 = 14;
+const EAGAIN: i64 = 11;
+const ENOMEM: i64 = 12;
+const EINVAL: i64 = 22;
+const EPIPE: i64 = 32;
+const ERESTARTSYS: i64 = 512;
+const ERESTARTNOINTR: i64 = 513;
+const ERESTARTNOHAND: i64 = 514;
+const ERESTART_RESTARTBLOCK: i64 = 516;
+
+const KILLSTOP: u64 = bit(SIGKILL) | bit(SIGSTOP);
+
+// rt_sigframe: siginfo (128) + ucontext (4560); the sigcontext sits at
+// ucontext+176 and its __reserved area at sigcontext+288.
+const FRAME_SIZE: u64 = 128 + 4560;
+const UC_MCONTEXT: u64 = 176;
+const SC_RESERVED: u64 = 288;
+const FPSIMD_MAGIC: u32 = 0x46508001;
+const FPSIMD_SIZE: u32 = 528;
+const ESR_MAGIC: u32 = 0x45535201;
+
+// Darwin.
+const DW_SIGILL: c_int = 4;
+const DW_SIGTRAP: c_int = 5;
+const DW_SIGFPE: c_int = 8;
+const DW_SIGBUS: c_int = 10;
+const DW_SIGSEGV: c_int = 11;
+const DW_SIGPIPE: c_int = 13;
+const DW_SIGUSR1: c_int = 30; // supervisor -> process: route pending signals
+const DW_SIGUSR2: c_int = 31; // stub thread -> thread: take your signals
+const DW_SA_ONSTACK: c_int = 0x1;
+const DW_SA_SIGINFO: c_int = 0x40;
+const DW_SIG_DFL: usize = 0;
+const DW_SIG_IGN: usize = 1;
+const ALT_SIZE: usize = 0x10000;
+const PAGEZERO_END: u64 = 0x100000000;
+
+const DwHandler = *const fn (c_int, *std.c.siginfo_t, ?*anyopaque) callconv(.C) void;
+const DwSigaction = extern struct { handler: DwHandler, mask: u32, flags: c_int };
+const DwStack = extern struct { sp: u64, size: u64, flags: c_int };
+
+extern "c" fn sigaction(sig: c_int, act: *const DwSigaction, old: ?*DwSigaction) c_int;
+extern "c" fn signal(sig: c_int, handler: usize) usize;
+extern "c" fn sigaltstack(ss: *const DwStack, old: ?*DwStack) c_int;
+extern "c" fn mmap(addr: ?*anyopaque, len: usize, prot: c_int, flags: c_int, fd: c_int, off: i64) ?*anyopaque;
+extern "c" fn pthread_self() usize;
+extern "c" fn pthread_mach_thread_np(t: usize) c_uint;
+extern "c" fn _exit(code: c_int) noreturn;
+extern "c" fn sched_yield() c_int;
+
+// Ctx is a guest thread's full user state, the currency between the trap frame,
+// the Darwin signal context and the Linux sigcontext.
+pub const Ctx = extern struct {
+    x: [31]u64,
+    sp: u64,
+    pc: u64,
+    pstate: u64,
+    v: [32]u128,
+    fpsr: u32,
+    fpcr: u32,
+    fault: u64,
+    esr: u64,
+};
+
+var g_area: [*]u8 = undefined;
+// g_ports holds each live guest thread's Mach thread port by slot, for the
+// router to kick it.
+var g_ports: [chan.MAX_SLOTS]u32 = [_]u32{0} ** chan.MAX_SLOTS;
+// g_restorer is the sigreturn trampoline used when a handler has none.
+pub var g_restorer: u64 = 0;
+
+// Per-thread state, one thread-local block (each access to a Darwin
+// thread-local is a call, so hot paths take its address once).
+const Tls = struct {
+    slot: usize = 0,
+    rec: *Thread = undefined,
+    prec: *Proc = undefined,
+    ready: bool = false,
+    // busy: in stub code with the channel or stub state in use; never redirect.
+    busy: bool = true,
+    in_handler: bool = false,
+    // A local wait (sigsuspend, sigtimedwait, nanosleep) sleeps on word, which
+    // a kick sets; a futex wait sleeps on the guest's word, which a kick wakes.
+    word: u32 = 0,
+    waiting: bool = false,
+    futex: u64 = 0,
+    // kicked: a kick came while busy, since this syscall began (cpSys).
+    kicked: u32 = 0,
+    // The pending switch handed to the brk trap: the guest state to load and
+    // the signal to deliver onto it first.
+    switch_ctx: Ctx = undefined,
+    first_sig: u32 = 0,
+    first_info: Info = undefined,
+    first_act: Act = undefined,
+    first_mask: u64 = 0,
+    alt: u64 = 0, // this thread's Darwin alternate stack
+};
+threadlocal var tl: Tls = .{};
+
+fn bit(sig: u32) u64 {
+    return @as(u64, 1) << @intCast(sig - 1);
+}
+
+fn neg(e: i64) u64 {
+    return @bitCast(-e);
+}
+
+// runProcs is how many processes the run has (sandbox/lx_signal.go's
+// sigRunOff, in slot 0's stride).
+pub fn runProcs() u32 {
+    return @atomicLoad(u32, @as(*const u32, @ptrCast(@alignCast(g_area + 0x2000))), .acquire);
+}
+
+fn thrAt(slot: usize) *Thread {
+    return @ptrCast(@alignCast(g_area + slot * STRIDE));
+}
+
+fn thr() *Thread {
+    return tl.rec;
+}
+
+fn procOf(t: *Thread) *Proc {
+    return @ptrCast(@alignCast(g_area + @as(usize, @atomicLoad(u32, &t.proc, .acquire)) * STRIDE + PROC_OFF));
+}
+
+// Trace frame: the guest register image a tracer reads, published at offset 256
+// of this thread's record (past the Thread struct, before PROC_OFF). The layout
+// matches the Linux stub's trace.State and the supervisor's traceFrame: a kind
+// and dirty word, then the arm64 NT_PRSTATUS registers (x0..x30, sp, pc,
+// pstate).
+pub const TraceRegs = extern struct { x: [31]u64, sp: u64, pc: u64, pstate: u64 };
+pub const TraceState = extern struct { kind: u64, dirty: u64, regs: TraceRegs };
+
+comptime {
+    std.debug.assert(256 + @sizeOf(TraceState) <= PROC_OFF);
+}
+
+pub fn traceState() *TraceState {
+    return @ptrFromInt(@intFromPtr(thr()) + 256);
+}
+
+// publishFrame records a traced thread's guest state at a trapped syscall:
+// x0..x30 from the trap frame, the guest sp just above it (the 784-byte frame
+// plus the island's two 16-byte pushes), the resume pc, and NZCV. The
+// supervisor reads this for the syscall stop and GETREGS.
+pub fn publishFrame(frame: [*]u64, pc: u64) void {
+    const s = traceState();
+    s.kind = 1;
+    s.dirty = 0;
+    for (0..31) |i| s.regs.x[i] = frame[i];
+    s.regs.sp = @intFromPtr(frame) + 816;
+    s.regs.pc = pc;
+    s.regs.pstate = frame[31] & 0xf0000000;
+}
+
+// traceRestore applies a tracer's register edits (SETREGS/POKEUSER) to the
+// trap frame before the guest resumes: x1..x30, the resume pc and NZCV go back
+// into the frame the trampoline epilogue restores, and the edited x0 is
+// returned (x0 is the handler's return value, not restored from the frame).
+// The guest sp cannot be moved here (the frame sits on it), matching the
+// supervisor's refusal to relocate it.
+pub fn traceRestore(frame: [*]u64) u64 {
+    const s = traceState();
+    s.dirty = 0;
+    for (1..31) |i| frame[i] = s.regs.x[i];
+    frame[33] = s.regs.pc;
+    frame[31] = (frame[31] & ~@as(u64, 0xf0000000)) | (s.regs.pstate & 0xf0000000);
+    return s.regs.x[0];
+}
+
+fn ld(p: *const u64) u64 {
+    return @atomicLoad(u64, p, .acquire);
+}
+
+// ---- setup ----------------------------------------------------------------------
+
+// install maps the area base and installs the Darwin handlers; it must run
+// before Seatbelt, which forbids sigaction.
+pub fn install(chan_base: [*]u8) void {
+    g_area = chan_base + AREA_OFF;
+    const block: u32 = (1 << (DW_SIGUSR1 - 1)) | (1 << (DW_SIGUSR2 - 1));
+    const flags = DW_SA_SIGINFO | DW_SA_ONSTACK;
+    const fault = DwSigaction{ .handler = onFault, .mask = block, .flags = flags };
+    for ([_]c_int{ DW_SIGSEGV, DW_SIGBUS, DW_SIGILL, DW_SIGFPE, DW_SIGTRAP }) |s| _ = sigaction(s, &fault, null);
+    _ = sigaction(DW_SIGUSR1, &.{ .handler = onRoute, .mask = block, .flags = flags }, null);
+    _ = sigaction(DW_SIGUSR2, &.{ .handler = onKick, .mask = block, .flags = flags }, null);
+    // EPIPE comes back to the guest, which then gets its own (Linux) SIGPIPE.
+    _ = signal(DW_SIGPIPE, DW_SIG_IGN);
+}
+
+// startThread binds the calling OS thread to its slot and gives it the Darwin
+// alternate stack the handlers above run on (guest stacks may be tiny, and a
+// frame is built just below the guest sp).
+fn bind(slot: usize) void {
+    tl.slot = slot;
+    tl.rec = thrAt(slot);
+    tl.prec = procOf(tl.rec);
+}
+
+pub fn startThread(slot: usize) void {
+    bind(slot);
+    if (mmap(null, ALT_SIZE, 3, 0x1002, -1, 0)) |p| {
+        if (@intFromPtr(p) != std.math.maxInt(usize)) tl.alt = @intFromPtr(p);
+    }
+    setAltStack();
+    @atomicStore(u32, &g_ports[slot], pthread_mach_thread_np(pthread_self()), .release);
+    tl.ready = true;
+}
+
+fn setAltStack() void {
+    if (tl.alt != 0) _ = sigaltstack(&.{ .sp = tl.alt, .size = ALT_SIZE, .flags = 0 }, null);
+}
+
+pub fn endThread() void {
+    @atomicStore(u32, &g_ports[tl.slot], 0, .release);
+    tl.ready = false;
+}
+
+// enterGuest marks the thread as running guest code: from here a kick may
+// redirect it.
+pub fn enterGuest() void {
+    tl.busy = false;
+}
+
+pub fn enter() void {
+    @atomicStore(u32, &tl.kicked, 0, .seq_cst);
+    setBusy(&tl, true);
+}
+
+// clearKick answers the kicks so far: the caller looks for signals next.
+pub fn clearKick() void {
+    @atomicStore(u32, &tl.kicked, 0, .seq_cst);
+}
+
+// cpSys makes a Darwin syscall that may block, which a signal for this
+// thread must cut short with EINTR however close to it its kick lands: one
+// since this syscall began has set kicked, which lc_cp_sys checks; one
+// between that check and the svc is moved off it (cpCancel); one during it
+// interrupts it. It returns the result or the negated errno.
+pub fn cpSys(nr: u64, a: [6]u64) i64 {
+    return lc_cp_sys(a[0], a[1], a[2], a[3], a[4], a[5], &tl.kicked, nr);
+}
+
+comptime {
+    asm (
+        \\ .text
+        \\ .p2align 2
+        \\ .globl _lc_cp_sys
+        \\ .globl _lc_cp_begin
+        \\ .globl _lc_cp_end
+        \\ .globl _lc_cp_cancel
+        \\_lc_cp_sys:
+        \\ mov x16, x7
+        \\_lc_cp_begin:
+        \\ ldr w9, [x6]
+        \\ cbnz w9, 2f
+        \\ svc #0x80
+        \\_lc_cp_end:
+        \\ b.cc 1f
+        \\ neg x0, x0
+        \\1:
+        \\ ret
+        \\_lc_cp_cancel:
+        \\2:
+        \\ mov x0, #-4
+        \\ ret
+    );
+}
+extern fn lc_cp_sys(a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, kicked: *const u32, nr: u64) callconv(.C) i64;
+extern fn lc_cp_begin() callconv(.C) void;
+extern fn lc_cp_end() callconv(.C) void;
+extern fn lc_cp_cancel() callconv(.C) void;
+
+// cpCancel moves a kick that interrupted lc_cp_sys before its svc to the
+// cancelled exit.
+fn cpCancel(mc: anytype) void {
+    const pc = mc.ss.pc;
+    if (pc >= @intFromPtr(&lc_cp_begin) and pc < @intFromPtr(&lc_cp_end)) mc.ss.pc = @intFromPtr(&lc_cp_cancel);
+}
+
+// setBusy orders busy against this thread's own signal handlers only, which
+// needs a compiler barrier, not a hardware one.
+inline fn setBusy(s: *Tls, on: bool) void {
+    asm volatile ("" ::: "memory");
+    @atomicStore(bool, &s.busy, on, .monotonic);
+    asm volatile ("" ::: "memory");
+}
+
+// ---- pending sets ---------------------------------------------------------------
+
+fn pendingAllowed(allow: u64) u64 {
+    const t = thr();
+    return (ld(&t.pending) | ld(&tl.prec.pending)) & allow;
+}
+
+fn deliverableFor(t: *Thread) u64 {
+    const allow = ~ld(&t.mask) | ld(&t.waitset);
+    return (ld(&t.pending) | ld(&procOf(t).pending)) & allow;
+}
+
+// interrupted reports whether a signal is waiting for this thread to take it,
+// which ends a blocking stub-local wait.
+pub fn interrupted() bool {
+    return tl.ready and pendingAllowed(~ld(&thr().mask)) != 0;
+}
+
+// take dequeues the next signal in allow (thread-directed first) with its
+// action: for a delivery, the supervisor resets an SA_RESETHAND action as it
+// hands it over; for a wait (sigtimedwait) the action is not looked at.
+// Returns 0 if none.
+fn take(allow: u64, info: *Info, act: ?*Act) u32 {
+    const s: u32 = @truncate(goCall(LC_SIGTAKE, allow, @intFromBool(act == null)));
+    if (s == 0) return 0;
+    const r = replyOf(myChan());
+    info.* = r.info;
+    if (act) |a| a.* = r.act;
+    return s;
+}
+
+const Reply = extern struct { info: Info, act: Act };
+
+// replyOf is the supervisor's reply to a signal call, in the slot scratch.
+fn replyOf(ch: *chan.Chan) Reply {
+    return @as(*align(1) const Reply, @ptrFromInt(@intFromPtr(ch) + chan.SCRATCH_OFF)).*;
+}
+
+noinline fn raiseSelf(sig: u32, code: i32) void {
+    _ = goCall(LC_SIGRAISE, sig, @as(u32, @bitCast(code)));
+}
+
+const Kind = enum { ignore, stop, term, handler };
+
+fn classify(sig: u32, act: Act) Kind {
+    if (act.handler == SIG_IGN) return .ignore;
+    if (act.handler != SIG_DFL) return .handler;
+    return switch (sig) {
+        SIGCHLD, SIGURG, SIGWINCH, SIGCONT => .ignore,
+        SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU => .stop,
+        else => .term,
+    };
+}
+
+fn ignoredByDefault(sig: u32) bool {
+    return sig == SIGCHLD or sig == SIGURG or sig == SIGWINCH or sig == SIGCONT;
+}
+
+// ---- supervisor calls -----------------------------------------------------------
+
+fn myChan() *chan.Chan {
+    return @ptrFromInt(@intFromPtr(g_area) - AREA_OFF + tl.slot * chan.SLOT_SIZE);
+}
+
+fn goCall(nr: u64, a0: u64, a1: u64) u64 {
+    return goCallArgs(nr, .{ a0, a1, 0, 0, 0, 0 });
+}
+
+// codeCall makes a call for wx.zig from its fault handling, the thread busy
+// meanwhile: a supervisor read of memory gone since faults into the copy's
+// recovery rather than the stub.
+pub fn codeCall(nr: u64, args: [6]u64) u64 {
+    const was = tl.busy;
+    setBusy(&tl, true);
+    defer setBusy(&tl, was);
+    return goCallArgs(nr, args);
+}
+
+// scratch is this thread's slot scratch, where a call's reply lands.
+pub fn scratch() [*]u8 {
+    return @ptrFromInt(@intFromPtr(myChan()) + chan.SCRATCH_OFF);
+}
+
+fn goCallArgs(nr: u64, args: [6]u64) u64 {
+    const ch = myChan();
+    ch.kind = chan.MSG_SYSCALL;
+    ch.nr = nr;
+    ch.args = args;
+    // The supervisor may hold the call in a ptrace stop, through which the
+    // tracer reads and writes this task's memory.
+    while (true) {
+        chan.exchange(ch);
+        if (!@import("root").serveRequest(ch)) return ch.ret;
+    }
+}
+
+// die ends the process with a fatal signal's default action: the supervisor
+// records the signal as the exit status, and the whole task exits (or the one
+// thread, when the supervisor answers REP_THREAD_END).
+fn die(sig: u32) noreturn {
+    _ = goCall(LC_SIGDIE, sig, 0);
+    // A CLONE_VM child process is a thread of its parent's stub: only it ends.
+    if (myChan().kind == chan.REP_THREAD_END) @import("root").threadExit(128 + sig);
+    _exit(@intCast(128 + sig));
+}
+
+// stopSelf has the supervisor stop this process, which it does before
+// replying. The trap after it makes this thread halt on the way back to user
+// mode instead of running on until the stop reaches it.
+fn stopSelf(sig: u32) void {
+    _ = goCall(LC_SIGSTOP, sig, 0);
+    _ = sched_yield();
+}
+
+// ---- contexts -------------------------------------------------------------------
+
+// fromFrame loads the guest state tramp_common saved: x0..x30 at 0, NZCV at
+// 248, FPCR|FPSR<<32 at 256, q0..q31 at 272; the guest sp is the frame plus the
+// 784-byte frame and the island's two 16-byte pushes.
+fn fromFrame(c: *Ctx, frame: [*]u64, x0: u64, pc: u64) void {
+    for (0..31) |i| c.x[i] = frame[i];
+    c.x[0] = x0;
+    c.sp = @intFromPtr(frame) + 816;
+    c.pc = pc;
+    c.pstate = frame[31] & 0xf0000000;
+    c.fpcr = @truncate(frame[32]);
+    c.fpsr = @truncate(frame[32] >> 32);
+    const q: *const [32]u128 = @ptrFromInt(@intFromPtr(frame) + 272);
+    c.v = q.*;
+    c.fault = 0;
+    c.esr = 0;
+}
+
+fn fromMc(c: *Ctx, mc: *const std.c.mcontext_t) void {
+    for (0..29) |i| c.x[i] = mc.ss.regs[i];
+    c.x[29] = mc.ss.fp;
+    c.x[30] = mc.ss.lr;
+    c.sp = mc.ss.sp;
+    c.pc = ool.guestPc(tl.slot, mc.ss.pc); // run out of line: the guest's own
+    for (ool.release(tl.slot, mc.ss.pc)) |h| wx.letGo(h);
+    c.pstate = mc.ss.cpsr & 0xf0000000;
+    c.v = mc.ns.q;
+    c.fpsr = mc.ns.fpsr;
+    c.fpcr = mc.ns.fpcr;
+    c.fault = mc.es.far;
+    c.esr = mc.es.esr;
+}
+
+fn toMc(mc: *std.c.mcontext_t, c: *const Ctx) void {
+    for (0..29) |i| mc.ss.regs[i] = c.x[i];
+    mc.ss.fp = c.x[29];
+    mc.ss.lr = c.x[30];
+    mc.ss.sp = c.sp;
+    mc.ss.pc = c.pc;
+    mc.ss.cpsr = (mc.ss.cpsr & 0x0fffffff) | @as(u32, @truncate(c.pstate & 0xf0000000));
+    mc.ns.q = c.v;
+    mc.ns.fpsr = c.fpsr;
+    mc.ns.fpcr = c.fpcr;
+}
+
+fn onStack(t: *Thread, sp: u64) bool {
+    return t.ss_size != 0 and sp > t.ss_sp and sp - t.ss_sp <= t.ss_size;
+}
+
+fn wr(comptime T: type, addr: u64, v: T) void {
+    @as(*align(1) T, @ptrFromInt(addr)).* = v;
+}
+
+fn rd(comptime T: type, addr: u64) T {
+    return @as(*align(1) const T, @ptrFromInt(addr)).*;
+}
+
+// lc_copy copies n bytes from src to dst (x0, x1, x2), 16 at a time and then
+// the rest, and returns 0, or 1 when a guest address faults: onFault resumes a
+// fault inside it at lc_copy_fault.
+comptime {
+    asm (
+        \\ .text
+        \\ .p2align 2
+        \\ .globl _lc_copy
+        \\_lc_copy:
+        \\ cmp x2, #16
+        \\ b.lo 2f
+        \\1:
+        \\ ldp x3, x4, [x1], #16
+        \\ stp x3, x4, [x0], #16
+        \\ sub x2, x2, #16
+        \\ cmp x2, #16
+        \\ b.hs 1b
+        \\2:
+        \\ cbz x2, 4f
+        \\3:
+        \\ ldrb w3, [x1], #1
+        \\ strb w3, [x0], #1
+        \\ subs x2, x2, #1
+        \\ b.ne 3b
+        \\4:
+        \\ mov x0, #0
+        \\ ret
+        \\ .globl _lc_copy_fault
+        \\_lc_copy_fault:
+        \\ mov x0, #1
+        \\ ret
+        \\ .globl _lc_load32
+        \\_lc_load32:
+        \\ ldr w0, [x0]
+        \\ ret
+        \\ .globl _lc_load32_fault
+        \\_lc_load32_fault:
+        \\ mov x0, #-1
+        \\ ret
+    );
+}
+extern fn lc_copy(dst: u64, src: u64, n: u64) callconv(.C) u64;
+extern fn lc_copy_fault() callconv(.C) void;
+extern fn lc_load32(addr: u64) callconv(.C) u64;
+extern fn lc_load32_fault() callconv(.C) void;
+
+// load32 reads the aligned guest word at addr in one load (a futex word), or
+// null when it faults: onFault resumes a fault in lc_load32 at lc_load32_fault.
+pub fn load32(addr: u64) ?u32 {
+    const v = lc_load32(addr);
+    return if (v > 0xffffffff) null else @truncate(v);
+}
+
+pub fn copyGuest(dst: u64, src: u64, n: u64) bool {
+    return lc_copy(dst, src, n) == 0;
+}
+
+// get and put access guest memory that may be bad, for syscalls that return
+// EFAULT rather than crash the stub.
+fn get(comptime T: type, addr: u64) ?T {
+    var v: T = undefined;
+    if (!copyGuest(@intFromPtr(&v), addr, @sizeOf(T))) return null;
+    return v;
+}
+
+fn put(comptime T: type, addr: u64, v: T) bool {
+    return copyGuest(addr, @intFromPtr(&v), @sizeOf(T));
+}
+
+pub fn getTimespec(addr: u64) ?[2]i64 {
+    return get([2]i64, addr);
+}
+
+pub fn putTimespec(addr: u64, ts: [2]i64) bool {
+    return put([2]i64, addr, ts);
+}
+
+// deliverOnto builds the Linux rt_sigframe for sig on c's stack (or the
+// alternate stack) and points c at the handler, as the kernel's setup_rt_frame
+// does. uc_mask is the mask the handler's sigreturn restores.
+fn deliverOnto(c: *Ctx, sig: u32, info: *const Info, act: Act, uc_mask: u64, fault: bool) void {
+    const t = thr();
+    var sp = c.sp;
+    const on = onStack(t, sp);
+    const ss_sp = t.ss_sp;
+    const ss_size = t.ss_size;
+    var ss_flags: u32 = if (ss_size == 0) SS_DISABLE else if (on) SS_ONSTACK else 0;
+    ss_flags |= t.ss_flags;
+    if (act.flags & SA_ONSTACK != 0 and ss_size != 0 and !on) {
+        sp = ss_sp + ss_size;
+        if (t.ss_flags & SS_AUTODISARM != 0) {
+            t.ss_sp = 0;
+            t.ss_size = 0;
+            t.ss_flags = 0;
+        }
+    }
+    sp = (sp - 16) & ~@as(u64, 15);
+    const rec = sp;
+    wr(u64, rec, c.x[29]);
+    wr(u64, rec + 8, c.x[30]);
+    const fr = (sp - FRAME_SIZE) & ~@as(u64, 15);
+
+    @memset(@as([*]u8, @ptrFromInt(fr))[0..128], 0);
+    wr(i32, fr, @intCast(sig));
+    wr(i32, fr + 4, info.errno);
+    wr(i32, fr + 8, info.code);
+    wr(u64, fr + 16, info.a);
+    wr(u64, fr + 24, info.b);
+
+    const uc = fr + 128;
+    wr(u64, uc, 0); // uc_flags
+    wr(u64, uc + 8, 0); // uc_link
+    wr(u64, uc + 16, ss_sp);
+    wr(u32, uc + 24, ss_flags);
+    wr(u32, uc + 28, 0);
+    wr(u64, uc + 32, ss_size);
+    wr(u64, uc + 40, uc_mask);
+    @memset(@as([*]u8, @ptrFromInt(uc + 48))[0 .. UC_MCONTEXT - 48], 0);
+    const mc = uc + UC_MCONTEXT;
+    wr(u64, mc, if (fault) c.fault else 0);
+    for (0..31) |i| wr(u64, mc + 8 + i * 8, c.x[i]);
+    wr(u64, mc + 256, c.sp);
+    wr(u64, mc + 264, c.pc);
+    wr(u64, mc + 272, c.pstate);
+    wr(u64, mc + 280, 0);
+    var r = mc + SC_RESERVED;
+    wr(u32, r, FPSIMD_MAGIC);
+    wr(u32, r + 4, FPSIMD_SIZE);
+    wr(u32, r + 8, c.fpsr);
+    wr(u32, r + 12, c.fpcr);
+    for (0..32) |i| wr(u128, r + 16 + i * 16, c.v[i]);
+    r += FPSIMD_SIZE;
+    if (fault and c.esr != 0) {
+        wr(u32, r, ESR_MAGIC);
+        wr(u32, r + 4, 16);
+        wr(u64, r + 8, c.esr);
+        r += 16;
+    }
+    wr(u64, r, 0); // terminator {magic 0, size 0}
+
+    var nm = t.mask | act.mask;
+    if (act.flags & SA_NODEFER == 0) nm |= bit(sig);
+    @atomicStore(u64, &t.mask, nm & ~KILLSTOP, .release);
+
+    c.x[0] = sig;
+    c.x[1] = fr;
+    c.x[2] = uc;
+    c.x[29] = rec;
+    c.x[30] = if (act.flags & SA_RESTORER != 0) act.restorer else g_restorer;
+    c.sp = fr;
+    c.pc = act.handler;
+}
+
+// dispatchAll takes every signal deliverable to this thread and acts on it:
+// handlers stack their frames on c (the last one taken runs first, as on
+// Linux), ignored ones vanish, a stop stops, a fatal one ends the process.
+fn dispatchAll(c: *Ctx) bool {
+    var changed = false;
+    while (true) {
+        var info: Info = undefined;
+        var act: Act = undefined;
+        const s = take(~ld(&thr().mask), &info, &act);
+        if (s == 0) return changed;
+        switch (classify(s, act)) {
+            .ignore => {},
+            .stop => stopSelf(s),
+            .term => die(s),
+            .handler => {
+                deliverOnto(c, s, &info, act, ld(&thr().mask), false);
+                changed = true;
+            },
+        }
+    }
+}
+
+// lc_sig_switch is the trap a syscall return uses to load tl.switch_ctx (and deliver
+// tl.first_sig onto it) from a Darwin signal context.
+export fn lc_sig_switch() callconv(.Naked) noreturn {
+    asm volatile ("brk #0x5c");
+}
+
+fn switchNow() noreturn {
+    asm volatile ("b _lc_sig_switch");
+    unreachable;
+}
+
+// A trap wx.zig placed for an svc is served as the svc's island would serve
+// it: trapEnter pushes the guest's x16 and x17 and lc_trap_ret's address
+// below its sp, as an island does, and enters tramp_common with x17 the pc to
+// resume at. tramp_common returns through lc_trap_ret, which restores x16 and
+// x17 and traps once more, for trapReturn to pop the frame and resume the
+// guest there: no register is free to branch with.
+fn trapEnter(mc: *std.c.mcontext_t) void {
+    const sp = mc.ss.sp;
+    setBusy(&tl, true);
+    const ok = put(u64, sp - 16, mc.ss.regs[16]) and put(u64, sp - 8, mc.ss.regs[17]) and put(u64, sp - 32, @intFromPtr(&lc_trap_ret));
+    setBusy(&tl, false);
+    if (!ok) die(SIGSEGV);
+    mc.ss.regs[17] = mc.ss.pc + 4;
+    mc.ss.sp = sp - 32;
+    mc.ss.pc = @intFromPtr(&@import("root").tramp_common);
+}
+
+export fn lc_trap_ret() callconv(.Naked) noreturn {
+    asm volatile (
+        \\ ldr x17, [sp, #136]
+        \\ ldr x16, [sp, #128]
+        \\ brk #0x5d
+    );
+}
+
+fn trapReturn(mc: *std.c.mcontext_t) void {
+    const frame: [*]const u64 = @ptrFromInt(mc.ss.sp);
+    mc.ss.pc = frame[33];
+    mc.ss.sp += 816;
+}
+
+fn doSwitch(mc: *std.c.mcontext_t) void {
+    var c = tl.switch_ctx;
+    tl.in_handler = true;
+    if (tl.first_sig != 0) {
+        const s = tl.first_sig;
+        tl.first_sig = 0;
+        deliverOnto(&c, s, &tl.first_info, tl.first_act, tl.first_mask, false);
+    }
+    _ = dispatchAll(&c);
+    toMc(mc, &c);
+    tl.in_handler = false;
+    tl.busy = false;
+}
+
+fn isRestart(r: u64) bool {
+    const v: i64 = @bitCast(r);
+    return v == -ERESTARTSYS or v == -ERESTARTNOINTR or v == -ERESTARTNOHAND or v == -ERESTART_RESTARTBLOCK;
+}
+
+fn epipeRaises(frame: [*]u64) bool {
+    const MSG_NOSIGNAL: u64 = 0x4000;
+    return switch (frame[8]) {
+        NR_WRITE, NR_WRITEV => true,
+        NR_SENDTO, NR_SENDMMSG => frame[3] & MSG_NOSIGNAL == 0,
+        NR_SENDMSG => frame[2] & MSG_NOSIGNAL == 0,
+        else => false,
+    };
+}
+
+// afterSyscall runs on every trampoline return with the syscall's result. It
+// delivers what is pending for the thread (switching into a handler, which
+// does not return here) and resolves restart codes: null means re-issue the
+// syscall, as Linux does when no handler ran or the handler has SA_RESTART.
+pub fn afterSyscall(frame: [*]u64, r0: u64) ?u64 {
+    const s = &tl;
+    if (!s.ready) return r0;
+    if (@as(i64, @bitCast(r0)) == -EPIPE and epipeRaises(frame)) raiseSelf(SIGPIPE, SI_USER);
+    if (!isRestart(r0)) {
+        // Fast path. A kick from here on redirects the thread itself; one
+        // that came earlier found busy set, but its signal is visible now.
+        setBusy(s, false);
+        const t = s.rec;
+        const pend = @atomicLoad(u64, &t.pending, .monotonic) | @atomicLoad(u64, &s.prec.pending, .monotonic);
+        if (pend & ~@atomicLoad(u64, &t.mask, .monotonic) == 0 and @atomicLoad(u32, &t.saved, .monotonic) == 0) return r0;
+        setBusy(s, true);
+    }
+    return pendingAfter(frame, r0);
+}
+
+noinline fn pendingAfter(frame: [*]u64, r0: u64) ?u64 {
+    clearKick(); // answered by the look for signals below; a restart issues the call again
+    // A temporary mask stays in force for the handlers of the signals that
+    // interrupted the call, whose frames restore the real one; otherwise the
+    // real one is back at once.
+    const t = thr();
+    var real: ?u64 = null;
+    if (@atomicLoad(u32, &t.saved, .acquire) != 0) {
+        @atomicStore(u32, &t.saved, 0, .release);
+        if (@as(i64, @bitCast(r0)) == -EINTR or isRestart(r0)) {
+            real = ld(&t.saved_mask);
+        } else {
+            @atomicStore(u64, &t.mask, ld(&t.saved_mask), .release);
+        }
+    }
+    defer if (real) |m| @atomicStore(u64, &t.mask, m, .release);
+    while (true) {
+        var info: Info = undefined;
+        var act: Act = undefined;
+        const s = take(~ld(&thr().mask), &info, &act);
+        if (s != 0) {
+            switch (classify(s, act)) {
+                .ignore => continue,
+                .stop => {
+                    stopSelf(s);
+                    continue;
+                },
+                .term => die(s),
+                .handler => {
+                    const rv: i64 = @bitCast(r0);
+                    const restart = rv == -ERESTARTNOINTR or (rv == -ERESTARTSYS and act.flags & SA_RESTART != 0);
+                    if (restart) {
+                        fromFrame(&tl.switch_ctx, frame, frame[0], frame[33] - 4);
+                    } else {
+                        if (rv == -ERESTART_RESTARTBLOCK) @import("local.zig").forgetRestart();
+                        fromFrame(&tl.switch_ctx, frame, if (isRestart(r0)) neg(EINTR) else r0, frame[33]);
+                    }
+                    tl.first_sig = s;
+                    tl.first_info = info;
+                    tl.first_act = act;
+                    tl.first_mask = real orelse ld(&thr().mask);
+                    switchNow();
+                },
+            }
+        }
+        if (isRestart(r0)) {
+            // ERESTART_RESTARTBLOCK resumes as restart_syscall, which goes on
+            // from the call's restart block rather than starting it over.
+            if (@as(i64, @bitCast(r0)) == -ERESTART_RESTARTBLOCK) frame[8] = NR_RESTART_SYSCALL;
+            return null;
+        }
+        setBusy(&tl, false);
+        if (pendingAllowed(~ld(&thr().mask)) == 0) return r0;
+        setBusy(&tl, true);
+    }
+}
+
+// ---- Darwin handlers ------------------------------------------------------------
+
+fn kickSelf(ctx: ?*anyopaque) void {
+    if (!tl.ready) return;
+    if (tl.busy) {
+        @atomicStore(u32, &tl.kicked, 1, .seq_cst);
+        const kuc: *std.c.ucontext_t = @ptrCast(@alignCast(ctx.?));
+        cpCancel(kuc.mcontext);
+        if (@atomicLoad(bool, &tl.waiting, .seq_cst)) {
+            @atomicStore(u32, &tl.word, 1, .seq_cst);
+            futex.wakeAll(@intFromPtr(&tl.word));
+        }
+        const fa = @atomicLoad(u64, &tl.futex, .seq_cst);
+        if (fa != 0) futex.wakeAll(fa);
+        return;
+    }
+    if (tl.in_handler or pendingAllowed(~ld(&thr().mask)) == 0) return;
+    const uc: *std.c.ucontext_t = @ptrCast(@alignCast(ctx.?));
+    var c: Ctx = undefined;
+    fromMc(&c, uc.mcontext);
+    tl.in_handler = true;
+    defer tl.in_handler = false;
+    if (dispatchAll(&c)) toMc(uc.mcontext, &c);
+}
+
+fn pthreadKill(port: u32, sig: c_int) void {
+    _ = asm volatile (
+        \\ mov x16, #328
+        \\ svc #0x80
+        : [ret] "={x0}" (-> u64),
+        : [p] "{x0}" (port),
+          [s] "{x1}" (sig),
+        : "x16", "cc", "memory"
+    );
+}
+
+fn onRoute(_: c_int, _: *std.c.siginfo_t, ctx: ?*anyopaque) callconv(.C) void {
+    for (0..chan.MAX_SLOTS) |i| {
+        const port = @atomicLoad(u32, &g_ports[i], .acquire);
+        if (port == 0) continue;
+        if (tl.ready and i == tl.slot) {
+            kickSelf(ctx);
+        } else if (deliverableFor(thrAt(i)) != 0) {
+            pthreadKill(port, DW_SIGUSR2);
+        }
+    }
+}
+
+fn onKick(_: c_int, _: *std.c.siginfo_t, ctx: ?*anyopaque) callconv(.C) void {
+    kickSelf(ctx);
+}
+
+// faultSignal translates a Darwin fault into Linux's signal and si_code. Darwin
+// reports a write to a read-only page as SIGBUS; Linux calls every permission
+// or translation fault SIGSEGV and keeps SIGBUS for alignment, so the ESR
+// decides the signal.
+fn faultSignal(dsig: c_int, mc: *const std.c.mcontext_t, info: *Info) u32 {
+    const esr = mc.es.esr;
+    const far = mc.es.far;
+    const pc = mc.ss.pc;
+    var sig: u32 = SIGSEGV;
+    var code: i32 = SEGV_MAPERR;
+    var addr = far;
+    switch (esr >> 26) {
+        0x20, 0x21, 0x24, 0x25 => {
+            const dfsc = esr & 0x3f;
+            // As Linux, a mapping at the address makes it a protection failure,
+            // none an unmapped address; Darwin's own code says ACCERR for
+            // addresses it reserves without a mapping. The low 4 GiB is the
+            // stub's __PAGEZERO, a mapping the guest never sees.
+            if (dfsc == 0x21) {
+                sig = SIGBUS;
+                code = BUS_ADRALN;
+            } else if (far >= PAGEZERO_END and mem.mapped(far, far + 1)) {
+                code = SEGV_ACCERR;
+            }
+        },
+        0x22, 0x26 => {
+            sig = SIGBUS;
+            code = BUS_ADRALN;
+            if (esr >> 26 == 0x22) addr = pc;
+        },
+        0x3c => {
+            sig = SIGTRAP;
+            code = TRAP_BRKPT;
+            addr = pc;
+        },
+        else => switch (dsig) {
+            DW_SIGILL => {
+                sig = SIGILL;
+                code = ILL_ILLOPC;
+                addr = pc;
+            },
+            DW_SIGTRAP => {
+                sig = SIGTRAP;
+                code = TRAP_BRKPT;
+                addr = pc;
+            },
+            DW_SIGFPE => {
+                sig = SIGFPE;
+                code = 0;
+                addr = pc;
+            },
+            DW_SIGBUS => {
+                sig = SIGBUS;
+                code = BUS_ADRERR;
+            },
+            else => {},
+        },
+    }
+    info.* = .{ .signo = @intCast(sig), .errno = 0, .code = code, .pad = 0, .a = addr, .b = 0 };
+    return sig;
+}
+
+// idReg serves an mrs of an AArch64 ID register that Darwin traps at EL0
+// where Linux emulates it: the feature ID registers from the host's HWCAP
+// (hwcap.isar), MPIDR_EL1 as a single uniprocessor view and REVIDR_EL1 as no
+// errata. The registers that also carry layout values keep trapping. It
+// writes the value into the guest register and steps past the mrs; false if
+// the instruction is not one it serves.
+fn idReg(mc: *std.c.mcontext_t) bool {
+    const ins = @as(*const u32, @ptrFromInt(mc.ss.pc)).*;
+    const is = hwcap.isar();
+    const v: u64 = switch (ins & 0xffffffe0) {
+        0xd5380600 => is[0], // ID_AA64ISAR0_EL1
+        0xd5380620 => is[1], // ID_AA64ISAR1_EL1
+        0xd5380640 => is[2], // ID_AA64ISAR2_EL1
+        0xd53800a0 => 0x80000000, // MPIDR_EL1: bit 31 RES1, affinity 0
+        0xd53800c0 => 0, // REVIDR_EL1
+        else => return false,
+    };
+    const n = ins & 0x1f;
+    if (n != 31) switch (n) {
+        29 => mc.ss.fp = v,
+        30 => mc.ss.lr = v,
+        else => mc.ss.regs[n] = v,
+    };
+    mc.ss.pc += 4;
+    return true;
+}
+
+fn onFault(dsig_in: c_int, si: *std.c.siginfo_t, ctx: ?*anyopaque) callconv(.C) void {
+    const uc: *std.c.ucontext_t = @ptrCast(@alignCast(ctx.?));
+    const mc = uc.mcontext;
+    if (dsig_in == DW_SIGTRAP and mc.ss.pc == @intFromPtr(&lc_sig_switch)) return doSwitch(mc);
+    if (dsig_in == DW_SIGTRAP and mc.ss.pc == @intFromPtr(&lc_trap_ret) + 8) return trapReturn(mc);
+    if (dsig_in == DW_SIGTRAP and tl.ready) {
+        if (ool.exit(tl.slot, mc)) |e| {
+            if (e.jit) jit.initThread(); // back to execute mode
+            for (e.holds) |h| wx.letGo(h);
+            return;
+        }
+    }
+    if (dsig_in == DW_SIGILL and tl.ready and !tl.busy) {
+        switch (wx.isTrap(mc.ss.pc)) {
+            .trap => return trapEnter(mc),
+            .again => return,
+            .excl => {
+                var st: wx.Step = .{};
+                switch (wx.exclTrap(mc.ss.pc, &st)) {
+                    .handled => return,
+                    .step => if (step(mc, &st)) return,
+                    else => {},
+                }
+            },
+            .no => {},
+        }
+        if (idReg(mc)) return;
+    }
+    var dsig = dsig_in;
+    if (dsig == DW_SIGSEGV or dsig == DW_SIGBUS) {
+        const page = mc.es.far & ~@as(u64, 0x3fff);
+        var st: wx.Step = .{ .from_slot = ool.inSlot(tl.slot, mc.ss.pc), .own = !tl.ready or tl.busy, .lost = ool.lost(tl.slot, mc.ss.pc, page) };
+        const v = wx.fault(mc.es.esr, mc.es.far, mc.ss.pc, &st);
+        if (v == .handled) return;
+        if (v == .retry) {
+            ool.tried(tl.slot, mc.ss.pc, page);
+            return;
+        }
+        if (v == .step and step(mc, &st)) return;
+        if (v == .attach) {
+            if (!ool.addHold(tl.slot, st.hold)) wx.letGo(st.hold);
+            return;
+        }
+        if (v == .wait or v == .hot or v == .cool) {
+            for (ool.dropHolds(tl.slot)) |h| wx.letGo(h);
+            const was = tl.busy;
+            setBusy(&tl, true); // a kick meanwhile waits for the fault's retry
+            switch (v) {
+                .wait => wx.waitWindow(st.gen),
+                .hot => {
+                    service.ask(service.ID_HOT, st.id);
+                    wx.holding(st.id);
+                },
+                else => {
+                    service.ask(service.ID_COOL_ASK, st.id);
+                    wx.cooled(st.id, st.gen);
+                },
+            }
+            setBusy(&tl, was);
+            return;
+        }
+        if (v == .other) {
+            var f: jit.Fault = .{ .pc = mc.ss.pc, .esr = mc.es.esr, .far = mc.es.far, .dsig = dsig, .code = si.code };
+            if (jit.flip(&f, mc, tl.slot)) return;
+            dsig = f.dsig;
+            si.code = f.code;
+            mc.es.esr = f.esr;
+            mc.es.far = f.far;
+        }
+    }
+    if (tl.busy and mc.ss.pc >= @intFromPtr(&lc_copy) and mc.ss.pc < @intFromPtr(&lc_copy_fault)) {
+        mc.ss.pc = @intFromPtr(&lc_copy_fault);
+        return;
+    }
+    if (tl.busy and mc.ss.pc == @intFromPtr(&lc_load32)) {
+        mc.ss.pc = @intFromPtr(&lc_load32_fault);
+        return;
+    }
+    if (!tl.ready or tl.busy) {
+        _ = signal(dsig, DW_SIG_DFL); // a fault in the stub itself: crash for real
+        return;
+    }
+    // A fault while building a frame (an unusable guest stack) is fatal, as
+    // Linux's force_sigsegv on a failed setup_rt_frame.
+    if (tl.in_handler) die(SIGSEGV);
+    var info: Info = undefined;
+    const sig = faultSignal(dsig, mc, &info);
+    var c: Ctx = undefined;
+    fromMc(&c, mc);
+    tl.in_handler = true;
+    defer tl.in_handler = false;
+    // A synchronous signal cannot be blocked or ignored: the supervisor
+    // resets it to the default action, which kills.
+    const t = thr();
+    _ = goCallArgs(LC_SIGFAULT, .{ sig, @intFromBool(ld(&t.mask) & bit(sig) != 0), info.a, @as(u32, @bitCast(info.code)), c.pc, 0 });
+    const act = replyOf(myChan()).act;
+    if (classify(sig, act) != .handler) die(sig);
+    deliverOnto(&c, sig, &info, act, ld(&t.mask), true);
+    _ = dispatchAll(&c);
+    toMc(mc, &c);
+}
+
+// step does what wx.zig asks of the thread for a store into the page that runs
+// it (wx.Step): fails a store exclusive, or runs its instructions out of
+// line, a window that cannot run so its first instruction alone.
+fn step(mc: *std.c.mcontext_t, st: *const wx.Step) bool {
+    if (st.fail) |r| {
+        switch (r) {
+            29 => mc.ss.fp = 1,
+            30 => mc.ss.lr = 1,
+            31 => {},
+            else => mc.ss.regs[r] = 1,
+        }
+        mc.ss.pc += 4;
+        return true;
+    }
+    if (ool.run(tl.slot, mc, st.words[0..st.n], st.start, false, st.hold)) return true;
+    wx.letGo(st.hold);
+    if (st.again) return true;
+    return st.n > 1 and ool.run(tl.slot, mc, st.words[0..1], st.start, false, 0);
+}
+
+// ---- syscalls -------------------------------------------------------------------
+
+// handle serves the signal syscalls that only touch this thread's or process's
+// signal state. Returns null for any other nr.
+pub noinline fn handle(nr: u64, frame: [*]u64) ?u64 {
+    return switch (nr) {
+        NR_RT_SIGPROCMASK => sysSigprocmask(frame[0], frame[1], frame[2], frame[3]),
+        NR_RT_SIGPENDING => sysSigpending(frame[0], frame[1]),
+        NR_SIGALTSTACK => sysSigaltstack(frame[0], frame[1], @intFromPtr(frame) + 816),
+        NR_RT_SIGRETURN => sysSigreturn(frame),
+        NR_RT_SIGSUSPEND => sysSigsuspend(frame),
+        NR_RT_SIGTIMEDWAIT => sysSigtimedwait(frame[0], frame[1], frame[2], frame[3]),
+        else => null,
+    };
+}
+
+fn sysSigprocmask(how: u64, set: u64, oset: u64, size: u64) u64 {
+    if (size != 8) return neg(EINVAL);
+    const t = thr();
+    const old = ld(&t.mask);
+    if (set != 0) {
+        const s = get(u64, set) orelse return neg(EFAULT);
+        const nm = switch (how) {
+            0 => old | s,
+            1 => old & ~s,
+            2 => s,
+            else => return neg(EINVAL),
+        };
+        @atomicStore(u64, &t.mask, nm & ~KILLSTOP, .release);
+    }
+    if (oset != 0 and !put(u64, oset, old)) return neg(EFAULT);
+    return 0;
+}
+
+fn sysSigpending(set: u64, size: u64) u64 {
+    if (size > 8) return neg(EINVAL);
+    const t = thr();
+    const v = (ld(&t.pending) | ld(&procOf(t).pending)) & ld(&t.mask);
+    if (!copyGuest(set, @intFromPtr(&v), size)) return neg(EFAULT);
+    return 0;
+}
+
+fn sysSigaltstack(ss: u64, oss: u64, sp: u64) u64 {
+    const t = thr();
+    const on = onStack(t, sp);
+    const old_sp = t.ss_sp;
+    const old_size = t.ss_size;
+    const old_flags: u32 = (if (old_size == 0) SS_DISABLE else if (on) SS_ONSTACK else 0) | t.ss_flags;
+    if (ss != 0) {
+        if (on) return neg(EPERM);
+        const n = get(extern struct { sp: u64, flags: u32, pad: u32, size: u64 }, ss) orelse return neg(EFAULT);
+        const nsp = n.sp;
+        const nflags = n.flags;
+        const nsize = n.size;
+        const mode = nflags & ~SS_AUTODISARM;
+        if (mode != 0 and mode != SS_ONSTACK and mode != SS_DISABLE) return neg(EINVAL);
+        if (mode == SS_DISABLE) {
+            t.ss_sp = 0;
+            t.ss_size = 0;
+            t.ss_flags = 0;
+        } else {
+            if (nsize < MINSIGSTKSZ) return neg(ENOMEM);
+            t.ss_sp = nsp;
+            t.ss_size = nsize;
+            t.ss_flags = nflags & SS_AUTODISARM;
+        }
+    }
+    if (oss != 0 and !put(extern struct { sp: u64, flags: u32, pad: u32, size: u64 }, oss, .{ .sp = old_sp, .flags = old_flags, .pad = 0, .size = old_size })) return neg(EFAULT);
+    return 0;
+}
+
+// sysSigreturn restores the state saved by deliverOnto from the guest's
+// rt_sigframe at sp, including any change the handler made to it. The frame is
+// guest memory: a part of it that is not mapped, or a malformed record, kills
+// the process with SIGSEGV as the kernel's badframe path does.
+fn sysSigreturn(frame: [*]u64) u64 {
+    const sp = @intFromPtr(frame) + 816;
+    if (sp & 15 != 0) die(SIGSEGV);
+    const uc = sp + 128;
+    const mc = uc + UC_MCONTEXT;
+    const head = get([4]u64, uc + 16) orelse die(SIGSEGV); // uc_stack, uc_sigmask
+    const regs = get([34]u64, mc + 8) orelse die(SIGSEGV); // x0..x30, sp, pc, pstate
+    var c: Ctx = undefined;
+    for (0..31) |i| c.x[i] = regs[i];
+    c.sp = regs[31];
+    c.pc = regs[32];
+    c.pstate = regs[33] & 0xf0000000;
+    c.fault = 0;
+    c.esr = 0;
+    var r = mc + SC_RESERVED;
+    var found = false;
+    while (r + 8 <= mc + SC_RESERVED + 4096) {
+        const rec = get([2]u32, r) orelse die(SIGSEGV);
+        const magic = rec[0];
+        const size = rec[1];
+        if (magic == 0) break;
+        if (size < 8 or size & 15 != 0) die(SIGSEGV);
+        if (magic == FPSIMD_MAGIC) {
+            if (size != FPSIMD_SIZE) die(SIGSEGV);
+            const ctl = get([2]u32, r + 8) orelse die(SIGSEGV);
+            c.fpsr = ctl[0];
+            c.fpcr = ctl[1];
+            c.v = get([32]u128, r + 16) orelse die(SIGSEGV);
+            found = true;
+        }
+        r += size;
+    }
+    if (!found) die(SIGSEGV);
+    const t = thr();
+    @atomicStore(u64, &t.mask, head[3] & ~KILLSTOP, .release);
+    // restore_altstack: errors (e.g. EPERM while still on it) are ignored.
+    var ss: [3]u64 = .{ head[0], head[1], head[2] };
+    _ = sysSigaltstack(@intFromPtr(&ss), 0, c.sp);
+    tl.switch_ctx = c;
+    tl.first_sig = 0;
+    switchNow();
+}
+
+// waitLocal sleeps until a kick or the deadline (CLOCK_MONOTONIC ns, 0 = none).
+// Returns false on timeout. Pending signals in allow end it at once.
+fn waitLocal(allow: u64, deadline: i64) bool {
+    @atomicStore(u32, &tl.word, 0, .seq_cst);
+    @atomicStore(bool, &tl.waiting, true, .seq_cst);
+    defer @atomicStore(bool, &tl.waiting, false, .seq_cst);
+    if (pendingAllowed(allow) != 0) return true;
+    if (deadline == 0) {
+        futex.waitWord(&tl.word, 0, 0);
+        return true;
+    }
+    const left = deadline - futex.nowNs();
+    if (left <= 0) return false;
+    futex.waitWord(&tl.word, 0, @intCast(@min(left, 3600 * std.time.ns_per_s)));
+    return true;
+}
+
+// sleepUntil blocks until the monotonic deadline; true if a signal for this
+// thread cut it short.
+pub fn sleepUntil(deadline: i64) bool {
+    while (futex.nowNs() < deadline) {
+        if (tl.ready and interrupted() and settle()) return true;
+        if (!tl.ready) {
+            futex.sleepNs(@intCast(deadline - futex.nowNs()));
+            return false;
+        }
+        _ = waitLocal(~ld(&thr().mask), deadline);
+    }
+    return false;
+}
+
+// settle has the supervisor act on the signals this thread would take now
+// whose action needs no handler and no end of the process (ignore, stop), as
+// the kernel does inside an interrupted wait, which then goes on. True if one
+// the stub must take is pending (a handler, or a fatal default): that ends
+// the wait.
+pub fn settle() bool {
+    return goCall(LC_SIGSETTLE, ~ld(&thr().mask), 0) != 0;
+}
+
+// mySlot is the calling guest thread's channel slot.
+pub fn mySlot() usize {
+    return tl.slot;
+}
+
+pub fn beginFutexWait(addr: u64) void {
+    @atomicStore(u64, &tl.futex, addr, .seq_cst);
+}
+
+pub fn endFutexWait() void {
+    @atomicStore(u64, &tl.futex, 0, .seq_cst);
+}
+
+fn sysSigsuspend(frame: [*]u64) u64 {
+    if (frame[1] != 8) return neg(EINVAL);
+    const t = thr();
+    const old = ld(&t.mask);
+    const temp = (get(u64, frame[0]) orelse return neg(EFAULT)) & ~KILLSTOP;
+    @atomicStore(u64, &t.mask, temp, .release);
+    while (true) {
+        var info: Info = undefined;
+        var act: Act = undefined;
+        const s = take(~temp, &info, &act);
+        if (s == 0) {
+            _ = waitLocal(~temp, 0);
+            continue;
+        }
+        switch (classify(s, act)) {
+            .ignore => {},
+            .stop => stopSelf(s),
+            .term => die(s),
+            .handler => {
+                fromFrame(&tl.switch_ctx, frame, neg(EINTR), frame[33]);
+                tl.first_sig = s;
+                tl.first_info = info;
+                tl.first_act = act;
+                tl.first_mask = old;
+                switchNow();
+            },
+        }
+    }
+}
+
+fn sysSigtimedwait(set: u64, uinfo: u64, uts: u64, size: u64) u64 {
+    if (size != 8) return neg(EINVAL);
+    const w = (get(u64, set) orelse return neg(EFAULT)) & ~KILLSTOP;
+    var deadline: i64 = 0;
+    if (uts != 0) {
+        const ts = getTimespec(uts) orelse return neg(EFAULT);
+        if (ts[0] < 0 or ts[1] < 0 or ts[1] >= std.time.ns_per_s) return neg(EINVAL);
+        deadline = futex.nowNs() +| (ts[0] *| std.time.ns_per_s +| ts[1]);
+        if (deadline == 0) deadline = 1;
+    }
+    const t = thr();
+    @atomicStore(u64, &t.waitset, w, .release);
+    defer @atomicStore(u64, &t.waitset, 0, .release);
+    while (true) {
+        var info: Info = undefined;
+        const s = take(w, &info, null);
+        if (s != 0) {
+            if (uinfo != 0) {
+                var out = [_]u8{0} ** 128;
+                var head = info;
+                head.signo = @intCast(s);
+                head.pad = 0;
+                @memcpy(out[0..@sizeOf(Info)], std.mem.asBytes(&head));
+                if (!copyGuest(uinfo, @intFromPtr(&out), out.len)) return neg(EFAULT);
+            }
+            return s;
+        }
+        if (pendingAllowed(~ld(&t.mask) & ~w) != 0) return neg(EINTR);
+        if (!waitLocal(w | ~ld(&t.mask), deadline)) return neg(EAGAIN);
+    }
+}

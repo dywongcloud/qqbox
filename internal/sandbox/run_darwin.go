@@ -1,0 +1,958 @@
+//go:build darwin
+
+package sandbox
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"debug/elf"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"golang.org/x/sys/unix"
+
+	macstub "github.com/samyfodil/laboon/stub/macos"
+	"github.com/samyfodil/laboon/internal/rewrite"
+)
+
+// The macOS supervisor is a syscall broker: it coordinates the guest processes
+// over the shared-memory channel but does no guest compute itself (each guest
+// runs in its own stub process, which the OS schedules across cores).
+//
+// The broker ran pinned to GOMAXPROCS(1) for a long time because multithreaded
+// guests corrupted nondeterministically at higher parallelism — a forked child
+// dying dereferencing mangled memory. That was never a Go data race or an IPC
+// race: it was the guest's tpidr_el0 thread pointer being clobbered by the
+// kernel on reschedule (fixed by virtualizing tpidr_el0, commit 099b6db). The
+// pin was only masking it by reducing scheduler preemption. With that fixed the
+// broker runs at the default GOMAXPROCS; the one shared-state hazard left, the
+// arm64 decoder's coverage slice, is serialized where it lives (rewrite.A64SegmentSites).
+//
+// macOS backend. A static linux/arm64 ELF runs end to end: the embedded Zig
+// stub (macstub) loads and rewrites the guest in its own task, each guest
+// syscall is posted over the shared channel, and this supervisor translates it
+// to its Darwin equivalent and replies — performing memory/IO ops in the
+// guest's address space via REP_HOST, answering the rest directly. This is the
+// shape proven in macos/m7-run/, wired behind the public Run.
+//
+// Scope today: static and dynamically-linked executables, single-threaded,
+// syscalls translated below. A read-only Root resolves the program path (and a
+// dynamic guest's PT_INTERP) within the rootfs; threads/fork and the Mach
+// exception backstop follow (macos/README.md).
+
+// Darwin BSD syscall numbers the stub performs in-guest.
+const (
+	dwRead   = 3
+	dwWrite  = 4
+	dwReadv  = 120
+	dwWritev = 121
+	dwExit   = 1
+)
+
+// rewriteLibSites finds the svc/tpidr/ctr sites of a runtime-loaded library
+// (recursive descent over the whole ELF, as for the main image) that fall in
+// the just-mapped executable segment, and has the stub rewrite them to islands.
+// The segment maps file offset `offset` to guest address `base`.
+func (g *dguest) rewriteLibSites(base, length, offset uint64, d *dfile) {
+	addrs := libSites(g.cfg.Cache, length, offset, d)
+	for i := range addrs {
+		addrs[i] += base - offset
+	}
+	g.sendRewrite(base, addrs)
+}
+
+// libSites is the file offsets of d's sites in [offset, offset+length). A
+// site is found at its place in the image; the PT_LOAD holding it gives its
+// file offset, which a linker may put at another distance from the image
+// start than its vaddr (lld's separate code segments, for one).
+func libSites(cache *rewrite.Cache, length, offset uint64, d *dfile) []uint64 {
+	if d.f == nil {
+		return nil
+	}
+	sites, err := computeSitesFile(cache, d.f)
+	if err != nil {
+		return nil // not an ELF (or unreadable): nothing to rewrite
+	}
+	f, err := elf.NewFile(d.f)
+	if err != nil {
+		return nil
+	}
+	base := imageBase(f)
+	var in []uint64
+	for _, p := range f.Progs {
+		if p.Type != elf.PT_LOAD || p.Flags&elf.PF_X == 0 {
+			continue
+		}
+		for _, s := range sites {
+			v := base + uint64(s)
+			if v < p.Vaddr || v >= p.Vaddr+p.Filesz {
+				continue
+			}
+			if o := p.Off + (v - p.Vaddr); o >= offset && o < offset+length {
+				in = append(in, o)
+			}
+		}
+	}
+	return in
+}
+
+// sendRewrite hands the stub the guest addresses to rewrite, in slot-scratch
+// batches, with base as the island placement hint (so the site's branch reaches
+// the island).
+func (g *dguest) sendRewrite(hint uint64, addrs []uint64) {
+	const perBatch = scratchLen / 8
+	for len(addrs) > 0 {
+		n := len(addrs)
+		if n > perBatch {
+			n = perBatch
+		}
+		sc := g.scratch()
+		for i := 0; i < n; i++ {
+			put64(sc[i*8:], addrs[i])
+		}
+		g.ch.page.args = [6]uint64{uint64(n), hint}
+		g.ch.reply(repRewrite)
+		if err := g.ch.wait(); err != nil {
+			return
+		}
+		addrs = addrs[n:]
+	}
+}
+
+// Run executes the static linux/arm64 ELF at path and returns its exit status.
+func Run(ctx context.Context, path string, cfg Config) (int, error) {
+	if err := initSync(); err != nil {
+		return 0, fmt.Errorf("laboon: os_sync unavailable (needs macOS 14.4+): %w", err)
+	}
+	if cfg.Cache == nil {
+		cfg.Cache = defaultCache()
+	}
+	if cfg.Env == nil {
+		cfg.Env = []string{} // a nil env is empty, never the supervisor's own
+	}
+
+	// Resolve the guest program's host path. With Root set, it is looked up
+	// inside the rootfs; otherwise it is a host path. The stubs' Seatbelt
+	// profile admits resolved paths only, so the root's symlinks go first.
+	if cfg.Root != "" {
+		abs, err := filepath.Abs(cfg.Root)
+		if err != nil {
+			return 0, err
+		}
+		if cfg.Root, err = filepath.EvalSymlinks(abs); err != nil {
+			return 0, fmt.Errorf("laboon: root: %w", err)
+		}
+	}
+	gp := path
+	guestPath := guestToHost(cfg.Root, gp)
+	if _, err := os.Stat(guestPath); err != nil {
+		return 0, fmt.Errorf("laboon: guest program: %w", err)
+	}
+	// Follow a #! script chain to its interpreter before the ELF load, as
+	// execve does: an OCI ENTRYPOINT is often docker-entrypoint.sh (#!/bin/sh),
+	// which is a script, not an ELF. argv becomes
+	// [interp, optional-arg, script-guest-path, original-args[1:]...].
+	for depth := 0; ; depth++ {
+		head, err := headBytes(guestPath, binprmBuf)
+		if err != nil {
+			return 0, fmt.Errorf("laboon: read guest program: %w", err)
+		}
+		if len(head) < 2 || head[0] != '#' || head[1] != '!' {
+			break
+		}
+		if depth >= maxInterpDepth {
+			return 0, fmt.Errorf("laboon: %s: too many #! levels", path)
+		}
+		line := head[2:]
+		if nl := bytes.IndexByte(line, '\n'); nl >= 0 {
+			line = line[:nl]
+		}
+		interp, arg := splitShebang(string(line))
+		if interp == "" {
+			return 0, fmt.Errorf("laboon: %s: bad #! interpreter", gp)
+		}
+		np := []string{interp}
+		if arg != "" {
+			np = append(np, arg)
+		}
+		rest := cfg.Args
+		if len(rest) > 0 {
+			rest = rest[1:]
+		}
+		cfg.Args = append(append(np, gp), rest...)
+		gp = interp
+		guestPath = guestToHost(cfg.Root, interp)
+		if _, err := os.Stat(guestPath); err != nil {
+			return 0, fmt.Errorf("laboon: #! interpreter %s: %w", interp, err)
+		}
+	}
+
+	// A dynamically-linked guest names its interpreter in PT_INTERP (e.g.
+	// /lib/ld-musl-aarch64.so.1). Resolve it to a host path within the rootfs
+	// so the stub can load it as a second image; "" means a static executable.
+	interpHost, err := resolveInterp(guestPath, cfg.Root)
+	if err != nil {
+		return 0, err
+	}
+
+	// Recursive-descent svc sites for each image, passed to the stub so it
+	// rewrites real syscalls only (never a 0xd4000001 data word in a literal
+	// pool or reloc table — common in real binaries).
+	mainSites, err := computeSites(cfg.Cache, guestPath)
+	if err != nil {
+		return 0, fmt.Errorf("laboon: analyze guest: %w", err)
+	}
+	rtmp, err := newRunTmp()
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(rtmp)
+	mainSitesPath, cleanMain, err := writeSites(rtmp, mainSites)
+	if err != nil {
+		return 0, err
+	}
+	defer cleanMain()
+	interpSitesPath := ""
+	if interpHost != "" {
+		interpSites, err := computeSites(cfg.Cache, interpHost)
+		if err != nil {
+			return 0, fmt.Errorf("laboon: analyze dynamic linker: %w", err)
+		}
+		p, cleanInterp, err := writeSites(rtmp, interpSites)
+		if err != nil {
+			return 0, err
+		}
+		defer cleanInterp()
+		interpSitesPath = p
+	}
+
+	// Shared channel region (a MAP_SHARED temp file whose path the stub maps).
+	chanFile, err := os.CreateTemp(rtmp, "lc-chan-*")
+	if err != nil {
+		return 0, err
+	}
+	defer os.Remove(chanFile.Name())
+	defer os.Remove(chanFile.Name() + ".sb") // the stubs' compiled Seatbelt profile
+	defer chanFile.Close()
+	if err := writeSeatbeltPaths(chanFile.Name(), cfg.Root); err != nil {
+		return 0, err
+	}
+	defer os.Remove(chanFile.Name() + ".paths")
+	if err := chanFile.Truncate(chanLen); err != nil {
+		return 0, err
+	}
+	mem, err := unix.Mmap(int(chanFile.Fd()), 0, chanLen, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	if err != nil {
+		return 0, err
+	}
+	defer unix.Munmap(mem)
+
+	// A non-PIE low-linked ET_EXEC cannot be mapped in the stub's address space
+	// (the __PAGEZERO wall), so it runs in a VM via the HVF stub. The channel and
+	// the supervisor-side syscall servicing below are identical for both: the HVF
+	// stub speaks the same protocol, reading the channel path and guest path from
+	// the same argv slots and ignoring the rewrite sites it does not need.
+	// Sign both stubs: the native (map+rewrite) stub and the HVF (VM) stub. The
+	// entry uses the one its binary needs; a later execve that crosses into the
+	// other -- a native tree running a non-PIE static tool (gcc -> cc1), say --
+	// respawns with it (see execve's per-exec handoff).
+	nativeStub, err := signedStub()
+	if err != nil {
+		return 0, err
+	}
+	hvfStub, err := signedHvfStub()
+	if err != nil {
+		return 0, err
+	}
+	entryHvf := needsHvf(guestPath)
+	stubPath := nativeStub
+	if entryHvf {
+		stubPath = hvfStub
+	}
+
+	// The guest-visible argv (Config.Args, else just the path). It is passed
+	// over the stub's own argv tail so the init stack carries the guest names
+	// rather than the host path the stub loads from. The guest env rides the
+	// stub's environment, which the stub copies onto the init stack.
+	guestArgv := cfg.Args
+	if len(guestArgv) == 0 {
+		guestArgv = []string{path}
+	}
+	stubArgv := append([]string{"lc-stub", chanFile.Name(), guestPath, interpHost, mainSitesPath, interpSitesPath}, guestArgv...)
+	// The stub goes in a process group of its own; every guest it forks
+	// inherits the group, so teardown kills the whole tree with one signal to
+	// -pgid.
+	brk, err := newBroker()
+	if err != nil {
+		return 0, err
+	}
+	defer brk.close()
+	cmd := &stubCmd{Path: stubPath, Args: stubArgv, Env: cfg.Env, Bootstrap: brk.port}
+	// The stub inherits these as its fds 0-2, and the guest's fds 0-2 are
+	// descriptions the supervisor holds too (stdioFile), so each is a real
+	// file: the caller's own, a pipe to its reader or writer, or /dev/null.
+	std, err := newStdio(cfg)
+	if err != nil {
+		return 0, err
+	}
+	defer std.finish()
+	stdin, stdout, stderr := std.files[0], std.files[1], std.files[2]
+	cfg.Stdin, cfg.Stdout, cfg.Stderr = stdin, stdout, stderr
+	var term *ttyGuard
+	for _, f := range []*os.File{stdin, stdout, stderr} {
+		if term = saveTTY(f); term != nil {
+			defer term.restore()
+			break
+		}
+	}
+	mp, linkEnd, err := newMemProc()
+	if err != nil {
+		return 0, err
+	}
+	// Every stub inherits the read end of this pipe as fd 4 and exits when it
+	// reads EOF: once this process is gone, even SIGKILLed, its stubs follow.
+	lifeR, lifeW, err := os.Pipe()
+	if err != nil {
+		unix.Close(mp.sock)
+		linkEnd.Close()
+		return 0, err
+	}
+	defer lifeR.Close()
+	defer lifeW.Close()
+	cmd.Files = []*os.File{stdin, stdout, stderr, linkEnd, lifeR} // fd 3: the stub's fdlink end
+	err = cmd.Start()
+	linkEnd.Close()
+	if err != nil {
+		unix.Close(mp.sock)
+		return 0, err
+	}
+	defer context.AfterFunc(ctx, func() { cmd.Process.Kill() })()
+
+	done := make(chan struct{})
+
+	// The shared run state (filesystem + process table) outlives any one guest
+	// process, so serve does not own it. Every forked child references it.
+	fs, err := newDfs(cfg.Root, cfg.Upper, mem, done, rtmp)
+	if err != nil {
+		return 0, err
+	}
+	defer fs.close()
+	defer fs.term.close()
+	if term != nil {
+		fs.adoptCtty(term.fd, 1)
+	}
+	// /proc/self/exe is the binary the kernel actually loaded, which for a #!
+	// script is its interpreter (gp was walked to it above), not the script --
+	// matching Linux. uutils coreutils (Ubuntu's env/sh) refuses to run when the
+	// invoked utility and the exe disagree, so this must be the interpreter.
+	exe := gp
+	if cfg.Root != "" {
+		exe = filepath.Clean("/" + gp)
+	}
+	fs.initProcfs(cmd.Process.Pid, exe, guestArgv, cfg.Env, std.files)
+	fs.serveResize(std) // deliver terminal resizes (SIGWINCH) to the guest
+	fs.newInitProc(cmd.Process.Pid, path, cfg.User).hvf = entryHvf
+	fs.noteStub(cmd.Process.Pid)
+	fs.run = &runInfo{
+		stub: nativeStub, hvfStub: hvfStub, chanPath: chanFile.Name(), pgid: cmd.Process.Pid,
+		stdin: stdin, stdout: stdout, stderr: stderr,
+		life: lifeR, broker: brk,
+	}
+	sr := newSigRun(fs, mem, cmd.Process.Pid)
+	defer sr.close()
+	defer sr.forward()()
+
+	var waitErr error
+	ch := newChannel(mem, 0, 0, done, nil)
+	var doneOnce sync.Once
+	fs.run.mainGone = func(err error) {
+		doneOnce.Do(func() {
+			waitErr = err
+			ch.end()         // end serve if it is parked on the dead stub's slot
+			fs.wakeWaiters() // or in a wait4
+			close(done)      // last: once done is closed, Run unmaps the channel memory
+		})
+	}
+	go func() {
+		err := cmd.Wait()
+		fs.stubEnded(cmd.Process.Pid)
+		if fs.isMainStub(cmd.Process.Pid) { // not when pid 1 exec'd into a new stub
+			fs.run.mainGone(err)
+		}
+	}()
+	stop := make(chan struct{})
+	ch.stop = stop
+
+	code, runErr := serve(ch, fs, mp, cfg)
+
+	unix.Kill(-fs.run.pgid, unix.SIGKILL) // kill the whole stub process group
+	closeStop(stop)
+	fs.killAll() // wake any serve goroutine parked in os_sync on a now-dead stub
+	fs.wg.Wait() // let the child serve goroutines unwind
+	<-done
+
+	if errors.Is(runErr, errExited) {
+		if k := sr.killedBy(1); k != 0 {
+			return 128 + k, nil // the guest died of a signal
+		}
+		if code, ok := fs.groupExitCode(1); ok {
+			return code, nil // exit_group from a thread other than the main one
+		}
+		if ee, ok := waitErr.(*exec.ExitError); ok {
+			if ws, ok := ee.Sys().(unix.WaitStatus); ok && ws.Signaled() {
+				// A signal here is the Seatbelt backstop killing a guest whose
+				// syscall was never rewritten (the macOS analog of SIGSYS).
+				return 0, ErrKilled
+			}
+		}
+		return 0, fmt.Errorf("stub died: %v", waitErr)
+	}
+	if code < 0 {
+		code = 128 - code // killed by signal -code: the shell's 128+n
+	}
+	return code, runErr
+}
+
+// serve handles one guest's syscalls until it exits. It mirrors the Linux
+// serve loop in miniature: wait for a request, translate Linux->Darwin,
+// perform memory/IO ops in the guest via REP_HOST, answer the rest directly.
+// serve runs the main (pid 1) guest process.
+func serve(ch *channel, fs *dfs, mp *memProc, cfg Config) (int, error) {
+	g := newDguest(fs, ch, fs.mem, 0, cfg)
+	g.mp = mp
+	g.pid = 1
+	g.tgid = 1
+	fs.mu.Lock()
+	g.ps = fs.pt[1]
+	g.ps.ft = g.ft
+	g.ft.max = int(g.ps.rlim[rlimitNofil].cur)
+	fs.mu.Unlock()
+	fs.addProc(1, &dproc{ospid: g.ps.ospid, ch: ch, ps: g.ps, g: g})
+	fs.bindStub(g.ps.ospid)
+	defer g.release()
+	if err := g.applyInitDir(cfg); err != nil {
+		return 0, err
+	}
+	publishControl(cfg, g.ps.ospid, fs)
+	defer revokeControl(cfg)
+	code, err := serveLoop(g, cfg)
+	if err == errLeaderGone {
+		// The main thread exited first; the run lasts until its last thread.
+		return fs.leaderExited(g, code), nil
+	}
+	return code, err
+}
+
+// serveLoop drives one guest process's syscalls until it exits, returning its
+// exit code. The main process and every forked child run the same loop; a
+// child's caller (serveChild) has already completed the fork handshake, so the
+// loop's first wait receives that process's first syscall either way.
+func serveLoop(g *dguest, cfg Config) (int, error) {
+	ch := g.ch
+	g.attachStdio()
+	defer g.detachStdio()
+	if err := ch.wait(); err != nil {
+		return 0, err
+	}
+	if ch.page.kind != msgSyscall && ch.page.kind != msgTraceLocal {
+		// The stub self-loads and enters the guest, so the first message is a
+		// syscall (or, traced, the report of one it served itself), not a
+		// READY handshake. Anything else is a protocol error.
+		return 0, fmt.Errorf("stub protocol: unexpected first message %d", ch.page.kind)
+	}
+
+	// hostThen performs the already-translated syscall in the guest and
+	// replies the result to the guest.
+	hostThen := func() error {
+		ch.reply(repHost)
+		if err := ch.wait(); err != nil {
+			return err
+		}
+		if cfg.Trace != nil {
+			fmt.Fprintf(cfg.Trace, "[pid %d]   -> ret=%#x\n", g.pid, ch.page.ret)
+		}
+		if int64(ch.page.ret) == -int64(unix.EINTR) {
+			ch.page.ret = ^uint64(-restartSys - 1) // ERESTARTSYS: a signal's kick: the stub restarts or delivers
+		} else {
+			ch.page.ret = linuxRet(ch.page.ret)
+		}
+		g.ptraceSyscallExit(int64(ch.page.ret))
+		ch.reply(repResult)
+		return nil
+	}
+
+	for {
+		if ch.page.kind == msgTraceLocal {
+			// A syscall the stub already served in-guest. Run the entry and
+			// exit stops so a tracer observes it; ptraceSyscallExit leaves the
+			// (possibly edited) result in ch.page.ret, which the stub reads back.
+			g.ptraceEnter(ch.page.nr, ch.page.args)
+			g.ptraceSyscallExit(int64(ch.page.ret))
+			ch.reply(repResult)
+			if err := ch.wait(); err != nil {
+				return 0, err
+			}
+			if ch.page.kind != msgSyscall && ch.page.kind != msgTraceLocal {
+				return 0, fmt.Errorf("stub protocol: expected syscall, got %d", ch.page.kind)
+			}
+			continue
+		}
+		nr := ch.page.nr
+		a := ch.page.args
+		g.noteOut(ch.page.ret)
+		if cfg.Trace != nil {
+			fmt.Fprintf(cfg.Trace, "[pid %d] nr=%d args=%#x %#x %#x\n", g.pid, nr, a[0], a[1], a[2])
+		}
+		// ptrace syscall-entry stop: a traced thread blocks here until the
+		// tracer resumes it, which may edit its registers.
+		if !g.ptraceEnter(nr, a) {
+			ch.page.ret = errno(lxEINTR)
+			ch.reply(repResult)
+			if err := ch.wait(); err != nil {
+				return 0, err
+			}
+			if ch.page.kind != msgSyscall {
+				return 0, fmt.Errorf("stub protocol: expected syscall, got %d", ch.page.kind)
+			}
+			continue
+		}
+		if ch.page.nr != nr || ch.page.args != a {
+			g.outW = ^uint64(0) // a tracer's edit: the stub measured other arguments
+		}
+		nr, a = ch.page.nr, ch.page.args
+		switch nr {
+		case lxExit:
+			code := int(int32(a[0]))
+			if g.isThread {
+				// The stub already ended the thread (cleared and woke its tid
+				// word, pthread_exit) and only posted this as notice; nothing
+				// waits for a reply. Retire the slot; the process lives on.
+				if cfg.Trace != nil {
+					fmt.Fprintf(cfg.Trace, "[pid %d] thread exit code=%d\n", g.pid, code)
+				}
+				return code, nil
+			}
+			if g.sharedStub() {
+				return code, errNeverRan // the stub could not start its thread
+			}
+			if cfg.Trace != nil {
+				fmt.Fprintf(cfg.Trace, "[pid %d] EXIT code=%d\n", g.pid, code)
+			}
+			g.beginExit(code)
+			ch.page.nr = dwExit
+			ch.reply(repHost) // stub performs Darwin exit; process ends cleanly
+			return code, nil
+
+		case nrThreadGone:
+			// The stub ended this thread (exit, not exit_group, with other
+			// threads still running) and expects no reply.
+			code := int(int32(a[0]))
+			if cfg.Trace != nil {
+				fmt.Fprintf(cfg.Trace, "[pid %d] thread exit code=%d\n", g.pid, code)
+			}
+			if !g.isThread && !g.sharedStub() {
+				return code, errLeaderGone
+			}
+			return code, nil
+
+		case lxExitGroup:
+			code := int(int32(a[0]))
+			if cfg.Trace != nil {
+				fmt.Fprintf(cfg.Trace, "[pid %d] EXIT_GROUP code=%d\n", g.pid, code)
+			}
+			g.ptraceEvent(ptraceEventExit, uint64(code<<8))
+			g.beginExit(code)
+			if !g.isThread && g.sharedStub() {
+				return code, g.endSharedThread()
+			}
+			ch.page.nr = dwExit
+			ch.reply(repHost) // stub performs Darwin exit; its end ends the other threads' loops
+			return code, nil
+
+		case lxWrite:
+			// A fd still backed by the stub's own stdio (not redirected to a
+			// pipe or file) takes the in-stub fast path; everything else the
+			// supervisor performs on the guest's open file.
+			if sfd := g.stubFd(int64(a[0])); sfd >= 0 {
+				ch.page.nr = dwWrite
+				ch.page.args[0] = uint64(sfd)
+				if err := hostThen(); err != nil {
+					return 0, err
+				}
+			} else {
+				ch.page.ret = uint64(g.writeFile(int64(a[0]), a[1], int64(a[2])))
+				ch.reply(repResult)
+			}
+
+		case lxRead:
+			if sfd := g.stubFd(int64(a[0])); sfd >= 0 {
+				ch.page.nr = dwRead
+				ch.page.args[0] = uint64(sfd)
+				if err := hostThen(); err != nil {
+					return 0, err
+				}
+			} else {
+				ch.page.ret = uint64(g.read(int64(a[0]), a[1], int64(a[2])))
+				ch.reply(repResult)
+			}
+
+		case lxWritev:
+			if sfd := g.stubFd(int64(a[0])); sfd >= 0 {
+				ch.page.nr = dwWritev
+				ch.page.args[0] = uint64(sfd)
+				if err := hostThen(); err != nil {
+					return 0, err
+				}
+			} else {
+				ch.page.ret = uint64(g.writev(int64(a[0]), a[1], int64(a[2])))
+				ch.reply(repResult)
+			}
+
+		case lxReadv:
+			if sfd := g.stubFd(int64(a[0])); sfd >= 0 {
+				ch.page.nr = dwReadv
+				ch.page.args[0] = uint64(sfd)
+				if err := hostThen(); err != nil {
+					return 0, err
+				}
+			} else {
+				ch.page.ret = uint64(g.readv(int64(a[0]), a[1], int64(a[2])))
+				ch.reply(repResult)
+			}
+
+		case lxClone, lxClone3:
+			var r cloneReq
+			var e lxErrno
+			if nr == lxClone {
+				r, e = cloneArgs(a)
+			} else {
+				r, e = g.clone3Args(a[0], a[1])
+			}
+			if e != 0 {
+				ch.page.ret = errno(e)
+				ch.reply(repResult)
+				break
+			}
+			id := g.clone(r, cfg) // replies repClone / repFork (or an error)
+			if cfg.Trace != nil {
+				fmt.Fprintf(cfg.Trace, "[pid %d] clone(%#x) -> %d\n", g.pid, r.flags, id)
+			}
+
+		case lxExecve, lxExecveat:
+			var ok bool
+			if nr == lxExecve {
+				ok = g.execve(lxAtFdcwd, a[0], a[1], a[2], 0)
+			} else {
+				ok = g.execve(int64(int32(a[0])), a[1], a[2], a[3], int64(int32(a[4])))
+			}
+			if cfg.Trace != nil {
+				fmt.Fprintf(cfg.Trace, "[pid %d] execve -> %v ret=%#x\n", g.pid, ok, ch.page.ret)
+			}
+			if !ok {
+				ch.reply(repResult) // failed: errno already in page.ret, guest continues
+			}
+			// On success the new program's first syscall is the next
+			// message: execve replied repExec, or started a fresh stub on
+			// this slot.
+
+		case lxSigDie: // a signal's default action ends the process
+			if !g.isThread && g.sharedStub() {
+				return g.sigDie(int(a[0])), g.endSharedThread()
+			}
+			ch.page.ret = 0
+			ch.reply(repResult)
+			return g.sigDie(int(a[0])), nil
+
+		case lxSigStop: // stopped before the reply, so the stub halts on it
+			g.sigStopSelf(int(a[0]))
+			ch.page.ret = 0
+			ch.reply(repResult)
+
+		case lxSigTake, lxSigSettle, lxSigFault, lxSigRaise:
+			ch.page.ret = uint64(g.sigCall(nr, a))
+			ch.reply(repResult)
+
+		case nrChildStop:
+			g.ptraceChildStart()
+			ch.page.ret = 0
+			ch.reply(repResult)
+
+		case nrForked: // a traced clone's report no one waited for (the trace began meanwhile)
+			ch.page.ret = a[0]
+			ch.reply(repResult)
+
+		case lxExecStop: // a traced respawn: run the ptrace exec-event stop at the new image
+			g.ptraceExec(int(g.pid), a[0], a[1])
+			ch.page.ret = 0
+			ch.reply(repResult)
+
+		case lxStepStop: // an HVF tracee single-stepped one instruction: run the step stop
+			g.ptraceStepStop()
+			ch.page.ret = 0
+			ch.reply(repResult)
+
+		default:
+			if h, ok := handler(nr); ok {
+				ch.page.ret = uint64(h(g, a))
+				g.ptraceSyscallExit(int64(ch.page.ret))
+				ch.reply(repResult)
+				break
+			}
+			if cfg.Trace != nil {
+				fmt.Fprintf(cfg.Trace, "[pid %d] ENOSYS for linux syscall %d\n", g.pid, nr)
+			}
+			ch.page.ret = errno(lxENOSYS)
+			g.ptraceSyscallExit(int64(ch.page.ret))
+			ch.reply(repResult)
+		}
+
+		if err := ch.wait(); err != nil {
+			return 0, err
+		}
+		if ch.page.kind != msgSyscall && ch.page.kind != msgTraceLocal {
+			return 0, fmt.Errorf("stub protocol: expected syscall, got %d", ch.page.kind)
+		}
+	}
+}
+
+// writeSeatbeltPaths writes <chan>.paths, the two host trees the stubs'
+// Seatbelt profile lets them read (ROOT and TMP in stub/macos/sbcache.zig): the
+// rootfs, and the run's temp directory holding site lists, job files and
+// copies of upper-layer programs. Without a rootfs the guest's files are the
+// host's, so ROOT is "/". root is already resolved.
+func writeSeatbeltPaths(chanPath, root string) error {
+	if root == "" {
+		root = "/"
+	}
+	tmp, err := filepath.EvalSymlinks(filepath.Dir(chanPath))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(chanPath+".paths", []byte(root+"\x00"+tmp+"\x00"), 0o600)
+}
+
+// signedStub returns the path of the embedded stub, ad-hoc codesigned (arm64
+// refuses to run an unsigned binary). The signed file is kept in the user cache
+// directory under its content hash and reused: the first exec of a newly
+// signed binary costs about 130 ms of signature checking, later execs of the
+// same file about 10 ms.
+func signedStub() (string, error) {
+	bin := legacyX18(macstub.Binary)
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	dir = filepath.Join(dir, "laboon")
+	sum := sha256.Sum256(bin)
+	path := filepath.Join(dir, "stub-"+hex.EncodeToString(sum[:8]))
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, ".stub-*")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp) // a no-op once renamed into place
+	if _, err := f.Write(bin); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		return "", err
+	}
+	if out, err := exec.Command("codesign", "-s", "-", "--force", tmp).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("codesign stub: %v: %s", err, out)
+	}
+	return path, os.Rename(tmp, path)
+}
+
+// hvfEntitlement grants Hypervisor.framework access; the HVF stub is ad-hoc
+// codesigned with it, or hv_vm_create returns HV_DENIED. No Apple provisioning
+// or root is needed — the ad-hoc signature carries the entitlement.
+const hvfEntitlement = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/></dict></plist>
+`
+
+// signedHvfStub returns the path of the embedded HVF stub, ad-hoc codesigned
+// WITH the hypervisor entitlement and cached under its content hash like
+// signedStub. Unlike the native stub it needs no legacyX18 patch: the guest's
+// Linux code runs in the VM, not in the stub's own registers, so the stub is
+// ordinary macOS code.
+func signedHvfStub() (string, error) {
+	bin := macstub.HvfBinary
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	dir = filepath.Join(dir, "laboon")
+	sum := sha256.Sum256(bin)
+	path := filepath.Join(dir, "hvfstub-"+hex.EncodeToString(sum[:8]))
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	ent := filepath.Join(dir, "hvf-entitlement.plist")
+	if err := os.WriteFile(ent, []byte(hvfEntitlement), 0o600); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, ".hvfstub-*")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(bin); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		return "", err
+	}
+	if out, err := exec.Command("codesign", "-s", "-", "--entitlements", ent, "--force", tmp).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("codesign hvf stub: %v: %s", err, out)
+	}
+	return path, os.Rename(tmp, path)
+}
+
+// pageZeroSize is arm64 macOS's mandatory 4 GiB __PAGEZERO: a non-PIE ET_EXEC
+// whose load segments fall inside it cannot be mapped in the stub's own address
+// space (see the non-PIE wall), so it runs in a VM via the HVF stub instead.
+const pageZeroSize = 4 << 30
+
+// needsHvf reports whether the guest at elfPath is a non-PIE low-linked ET_EXEC
+// that the native (map-and-rewrite) stub cannot load. A PIE (ET_DYN) or a
+// high-linked ET_EXEC loads fine the native way and returns false.
+func needsHvf(elfPath string) bool {
+	f, err := elf.Open(elfPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if f.Type != elf.ET_EXEC {
+		return false
+	}
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_LOAD && p.Vaddr < pageZeroSize {
+			return true
+		}
+	}
+	return false
+}
+
+// legacyX18 returns a copy of the stub Mach-O with its LC_BUILD_VERSION minos
+// and sdk lowered to macOS 10.12. Linux arm64 code uses x18 as an ordinary
+// register, and Darwin zeroes x18 on context switch except in binaries linked
+// for an old OS. Zig's SDK cannot link that old, so the fields are patched here,
+// before the ad-hoc re-sign. (os_set_custom_x18_abi_enabled is not enough: the
+// kernel drops that per-thread opt-in on every block and core migration.)
+func legacyX18(bin []byte) []byte {
+	const lcBuildVersion = 0x32
+	const macos1012 = 10<<16 | 12<<8
+	b := append([]byte(nil), bin...)
+	le := binary.LittleEndian
+	ncmds := le.Uint32(b[16:])
+	off := uint32(32)
+	for i := uint32(0); i < ncmds; i++ {
+		cmd, size := le.Uint32(b[off:]), le.Uint32(b[off+4:])
+		if cmd == lcBuildVersion {
+			le.PutUint32(b[off+12:], macos1012) // minos
+			le.PutUint32(b[off+16:], macos1012) // sdk
+		}
+		off += size
+	}
+	return b
+}
+
+// guestToHost maps a guest path to its host path inside root (rooted
+// clean+join, with the /bin/sh -> busybox style rooted-program redirect), or
+// returns it unchanged when there is no root.
+func guestToHost(root, p string) string {
+	hp := p
+	if root != "" {
+		rel := strings.TrimPrefix(filepath.Clean("/"+p), "/")
+		hp = filepath.Join(root, rel)
+		if r, ok := rootedProgram(root, p); ok {
+			hp = r
+		}
+	}
+	if abs, err := filepath.Abs(hp); err == nil {
+		hp = abs
+	}
+	return hp
+}
+
+// headBytes reads up to n leading bytes of the host file at p, for the #! check.
+func headBytes(p string, n int) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b := make([]byte, n)
+	m, err := f.Read(b)
+	if err != nil && m == 0 {
+		return nil, err
+	}
+	return b[:m], nil
+}
+
+// resolveInterp reads the guest ELF's PT_INTERP and maps the interpreter's
+// guest path to a host path inside root (the same rooted-clean+join used for
+// the program path). It returns "" for a static executable.
+func resolveInterp(elfPath, root string) (string, error) {
+	f, err := elf.Open(elfPath)
+	if err != nil {
+		return "", fmt.Errorf("laboon: read guest ELF: %w", err)
+	}
+	defer f.Close()
+
+	var interp string
+	for _, p := range f.Progs {
+		if p.Type != elf.PT_INTERP {
+			continue
+		}
+		b := make([]byte, p.Filesz)
+		if _, err := p.ReadAt(b, 0); err != nil {
+			return "", fmt.Errorf("laboon: read PT_INTERP: %w", err)
+		}
+		interp = strings.TrimRight(string(b), "\x00")
+		break
+	}
+	if interp == "" {
+		return "", nil // static executable
+	}
+
+	host := interp
+	if root != "" {
+		rel := strings.TrimPrefix(filepath.Clean("/"+interp), "/")
+		host = filepath.Join(root, rel)
+	}
+	if abs, err := filepath.Abs(host); err == nil {
+		host = abs
+	}
+	if _, err := os.Stat(host); err != nil {
+		return "", fmt.Errorf("laboon: dynamic linker %q: %w", interp, err)
+	}
+	return host, nil
+}
