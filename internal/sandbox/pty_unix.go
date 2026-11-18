@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Guest terminals: /dev/ptmx, /dev/pts/N and /dev/tty. Each is a host terminal
@@ -222,9 +224,24 @@ func (g *dguest) ptmxIoctl(d *dfile, req, arg uint64) (int64, bool) {
 	switch req {
 	case lxTIOCPKT:
 		// VTE enables packet mode on the master before spawning its shell. The
-		// host-backed pty pair already carries the data path; packet mode is not
-		// emulated, but the request must succeed or xfce4-terminal reports
-		// "Failed to open PTY: Not a tty" and never starts a child.
+		// guest pty is a host pty pair, so forward the request to that master:
+		// returning success without enabling it leaves VTE reading a stream it
+		// cannot interpret, which shows up as a terminal that never paints text.
+		b, err := g.readMem(arg, 4)
+		if err != nil {
+			return sErr(lxEFAULT), true
+		}
+		on := 0
+		if le32(b) != 0 {
+			on = 1
+		}
+		// TIOCPKT takes a pointer to an int, not the int itself (on Darwin the
+		// request is 0x80047470, an _IOC_IN with a 4-byte payload). Passing the
+		// value directly makes the kernel dereference address 0/1 and VTE sees
+		// EFAULT as "Failed to open PTY: Bad address".
+		if err := unix.IoctlSetPointerInt(hostFd(d.f), unix.TIOCPKT, on); err != nil {
+			return sErr(osErrno(err)), true
+		}
 		return 0, true
 	case lxTIOCGPTN:
 		return g.ttyPutU32(arg, uint32(p.n)), true

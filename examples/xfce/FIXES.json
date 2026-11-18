@@ -2,7 +2,7 @@
   "artifact": "literbox-xfce-fixes",
   "target": "laboon XFCE desktop, x11vnc TCP 5905 / verification 5906, macOS arm64",
   "method": "adversarial swarm (recon + refutation + synthesis) plus live witnessed execution in laboon guests",
-  "status": "FIXED_VERIFIED",
+  "status": "FIXED_VERIFIED_NATIVE_TERMINAL",
   "claims": [
     {
       "id": "C1",
@@ -22,21 +22,24 @@
       "verdict": "CONFIRMED",
       "fix": [
         "internal/sandbox/lx_termios.go: lxTIOCPKT = 0x5420",
-        "internal/sandbox/pty_unix.go: guarded case in ptmxIoctl returns 0 (packet mode not emulated, but VTE only needs the request to succeed)",
+        "internal/sandbox/pty_unix.go: guarded case in ptmxIoctl forwards TIOCPKT to the host pty master with unix.IoctlSetPointerInt",
         "internal/sandbox/termios_unix.go: guarded case in ttyIoctl for the slave",
-        "go build ./cmd/laboon -> Mach-O arm64; gofmt clean"
+        "go build ./cmd/laboon -> Mach-O arm64; gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass"
       ],
       "witness": [
-        "xfce4-terminal --disable-server -e 'sh -c ...' -> /out/tty.txt = /dev/pts/13, /out/child.txt = CHILD_OK",
-        "ps aux shows the child sh; xwininfo shows real LABOON-VTE windows 797x407 and 817x445",
-        "no PTY error in vte-a.log / vte-b.log (only a SESSION_MANAGER warning)"
+        "probe/tiocpkt-direct.txt: fcntl.ioctl(master, TIOCPKT, struct.pack('i',1)) -> TIOCPKT_OK /dev/pts/13; off variant also OK",
+        "probe/native2.png: xfce4-terminal shows uid=0(root) gid=0(root) and Linux laboon 6.8.0 aarch64",
+        "probe/native3-typed.png: command typed through VNC (RFB KeyEvent) echoed, executed and showed VNC_NATIVE_TERMINAL_OK / uid=0(root) / Linux laboon 6.8.0 / prompt / #",
+        "no PTY error dialog in vte2.log / vte3.log"
       ],
-      "remaining_limitation": "VTE text still paints black in scrot/xwd/import captures even with LIBGL_ALWAYS_SOFTWARE=1, GSK_RENDERER=cairo, GDK_BACKEND=x11. Cause: GTK/VTE 'glx: failed to create drisw screen' under laboon's synthetic X. So the Go fix removes the error and spawns a real PTY child, but the native terminal is still not usable over VNC."
+      "remaining_limitation": null,
+      "root_cause_refinement": "Two independent defects: (1) TIOCPKT was unhandled -> ENOTTY; (2) returning success without enabling packet mode left VTE reading a stream it could not frame, so the window stayed black. Forwarding with unix.IoctlSetInt passed the int value as the ioctl pointer, giving EFAULT ('Bad address'); TIOCPKT takes a pointer to int, so unix.IoctlSetPointerInt is the correct form on both Darwin (0x80047470) and Linux (0x5420). xfce4-terminal ignores terminalrc; colors must go into Xfconf (xfce4-terminal.xml)."
     },
     {
       "id": "C3",
       "claim": "A PTY-free pipe command console displayed in Chromium gives a working terminal over VNC",
-      "verdict": "CONFIRMED",
+      "verdict": "CONFIRMED_AS_FALLBACK_ONLY",
+      "note": "The pipe console is no longer the shipped default terminal: the native xfce4-terminal works after the TIOCPKT fix. It is retained as a hardened fallback.",
       "evidence": [
         "guest FIFO console -> PIPE_CONSOLE_OK, uid=0(root), DONE",
         "/healthz -> 200 {\"ok\": true, \"console\": \"pipe\"}",
@@ -100,7 +103,6 @@
     "mitigation": "x11vnc -rfbauth <vncpasswd> and vncviewer -passwd <file>; documented in README.md. The shipped default stays passwordless for a working local connection."
   },
   "remaining_limitations": [
-    "VTE/xfce4-terminal text still paints black under laboon's synthetic X even with software GL; use the pipe console",
     "Chromium shows an '--no-sandbox' unsupported-flag infobar (cosmetic)",
     "xfce4-power-manager CRITICALs, xfdesktop GLib-CRITICAL and missing /sys/class/backlight, UPower, PolicyKit and DPMS are expected under laboon's synthetic /sys and Xvfb",
     "guest /dev/pts directory enumeration is synthetic (no slave nodes listed), though open-by-path works"

@@ -1,8 +1,13 @@
 # XFCE desktop inside laboon
 
 A reproducible, witnessed XFCE 4.18 session running inside a laboon sandbox on
-macOS/arm64, served over VNC. `xfce-desktop-fixed.png` is the fixed desktop;
-`terminal-console-typed.png` is a command typed through VNC and its visible output.
+macOS/arm64, served over VNC. `xfce-desktop-native.png` shows the native
+`xfce4-terminal` rendering real shell output; `xfce-terminal-typed.png` shows a
+command typed through VNC, its echoed input, its output and the prompt. The
+browser-based pipe console is retained only as a hardened fallback.
+
+For a **stock Xubuntu/XFCE** desktop (`linuxserver/webtop:ubuntu-xfce`), see
+[`examples/xubuntu/`](../xubuntu/README.md).
 
 This uses the **Go native runtime**: the Rust port on `feat/rust-port` implements
 the control plane but cannot execute guests yet (see `docs/PORT_STATUS.md`).
@@ -49,28 +54,32 @@ The repo now carries that fix:
 | file | change |
 | --- | --- |
 | `internal/sandbox/lx_termios.go:35` | `lxTIOCPKT = 0x5420` |
-| `internal/sandbox/pty_unix.go` | guarded `case lxTIOCPKT` in `ptmxIoctl` returning 0 |
+| `internal/sandbox/pty_unix.go` | `case lxTIOCPKT` in `ptmxIoctl` forwards packet mode to the host pty master via `unix.IoctlSetPointerInt` |
 | `internal/sandbox/termios_unix.go` | guarded `case lxTIOCPKT` in `ttyIoctl` for the slave |
 
-Witness: `xfce4-terminal --disable-server -e 'sh -c …'` now writes
-`/dev/pts/13` to `tty.txt` and `CHILD_OK` to `child.txt`, with no PTY error.
-Packet mode is not emulated; VTE only needs the request to succeed.
+`TIOCPKT` takes a **pointer** to an int, not the int. On Darwin the request is
+`0x80047470` (`_IOC_IN`, 4-byte payload), so passing `1` as the value makes the
+kernel dereference address 1 and VTE reports `Failed to open PTY: Bad address`.
+`unix.IoctlSetPointerInt` is correct on both Darwin and Linux. Merely returning
+success without enabling packet mode removed the error but left VTE reading a
+stream it could not frame, so the terminal stayed black.
 
-**Remaining limitation:** VTE text still paints black in scrot/xwd captures even
-with `LIBGL_ALWAYS_SOFTWARE=1`, `GSK_RENDERER=cairo` and `GDK_BACKEND=x11`
-(`glx: failed to create drisw screen` under laboon's synthetic X). So the native
-terminal is fixed at the syscall layer but is still not usable over VNC.
+`xfce4-terminal` ignores `terminalrc` ("settings have been migrated to Xfconf").
+The stock transparent background paints black-on-black under Xvfb with
+compositing off, so `start-xfce.sh` writes `xfce4-terminal.xml` into Xfconf with
+a solid black background and white foreground.
 
-**Therefore the desktop ships a PTY-free pipe console** (`terminal-console.py`),
-served on the guest's `127.0.0.1:8765` and displayed in a real Chromium window.
-It runs `/bin/sh` with plain pipes — laboon's native stdio — no PTY, no kernel
-change. `terminal-console-typed.png` shows a command typed through VNC producing
-`VNC_TYPED_OK` / `uid=0(root)` / `exit 0`. The dock's terminal launcher and the
-Applications-menu terminal entry point at this console.
+Witnesses: `xfce-desktop-native.png` shows the child shell's output in a real
+`xfce4-terminal` window; `xfce-terminal-typed.png` shows a command typed over
+VNC (`echo VNC_NATIVE_TERMINAL_OK; id; uname -a`), its echoed input, its output
+and the `/ #` prompt. A direct `fcntl.ioctl(master, TIOCPKT, struct.pack('i',1))`
+witness returns 0.
 
-The console was hardened after an adversarial security review: loopback-only
-bind, `Origin`/`Host` checks, `application/json` required, body and output caps,
-400 on malformed input, `no-store`/`nosniff` headers. Verdict:
+**The shipped default terminal is the native `xfce4-terminal`.** The dock and
+Applications-menu entries point at it. The browser-based
+`terminal-console.py` is kept only as a fallback and is hardened (loopback-only
+bind, `Origin`/`Host` checks, `application/json` required, body/output caps,
+400 on malformed input, `no-store`/`nosniff` headers). Verdict:
 `SAFE_WITHIN_SANDBOX` (guest `uid=0` is emulated; the host supervisor runs as
 uid 501). It is **not** meant to run on the host.
 

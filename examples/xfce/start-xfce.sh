@@ -2,10 +2,12 @@
 # Boots the fixed XFCE desktop inside a laboon sandbox.
 #
 # Fixes vs the first version:
-#  * xfce4-terminal / xterm cannot allocate a PTY under laboon's synthetic
-#    devpts ("Failed to execute child: Failed to open PTY: Not a tty"). Instead
-#    a PTY-free pipe command console (terminal-console.py) is served on
-#    127.0.0.1:8765 and displayed in a real Chromium window.
+#  * xfce4-terminal / xterm could not allocate a PTY ("Failed to execute child:
+#    Failed to open PTY: Not a tty"). Root cause was Linux TIOCPKT (0x5420)
+#    missing from the supervisor's ioctl switch. The Go runtime now forwards it
+#    to the host pty master with the correct pointer-form ioctl, so the native
+#    VTE terminal spawns a real shell and paints text. Colors must be set via
+#    xfconf: xfce4-terminal ignores terminalrc ("settings have been migrated").
 #  * Chromium is installed and launched multi-process (no --single-process /
 #    --no-zygote, which caused a PulseAudio pa_mutex_new() abort, exit 134).
 #  * x11vnc starts immediately after Xvfb, before the XFCE session, so the VNC
@@ -34,6 +36,22 @@ cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml <<'XML'
   <property name="general" type="empty">
     <property name="use_compositing" type="bool" value="false"/>
   </property>
+</channel>
+XML
+# xfce4-terminal settings live in Xfconf, not terminalrc. The stock default
+# uses a transparent background, which renders as black-on-black under Xvfb
+# with compositing off, so the terminal looks empty even when it works.
+cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-terminal" version="1.0">
+  <property name="background-mode" type="string" value="TERMINAL_BACKGROUND_MODE_SOLID"/>
+  <property name="color-background" type="string" value="#000000000000"/>
+  <property name="color-foreground" type="string" value="#ffffffffffff"/>
+  <property name="font-name" type="string" value="DejaVu Sans Mono 12"/>
+  <property name="font-use-system" type="bool" value="false"/>
+  <property name="misc-default-geometry" type="string" value="80x24"/>
+  <property name="scrolling-lines" type="uint" value="1000"/>
+  <property name="misc-bell" type="bool" value="false"/>
 </channel>
 XML
 # A panel config without the pulseaudio / notification plugins: they load
@@ -96,7 +114,7 @@ cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'XML'
     <property name="plugin-16" type="string" value="separator"/>
     <property name="plugin-17" type="string" value="launcher">
       <property name="items" type="array">
-        <value type="string" value="laboon-console.desktop"/>
+        <value type="string" value="laboon-terminal.desktop"/>
       </property>
     </property>
     <property name="plugin-18" type="string" value="launcher">
@@ -119,21 +137,21 @@ cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'XML'
   </property>
 </channel>
 XML
-# Make the dock's "Terminal" and Applications-menu terminal entries open the
-# PTY-free console instead of the broken xfce4-terminal.
+# The dock and the Applications menu open the real VTE terminal. The browser
+# console remains available as a fallback, but is not the default terminal.
 mkdir -p /root/.local/share/applications
-cat > /root/.local/share/applications/laboon-console.desktop <<'DESKTOP'
+cat > /root/.local/share/applications/laboon-terminal.desktop <<'DESKTOP'
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=laboon terminal
-Comment=PTY-free pipe command console in Chromium
-Exec=chromium --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-crash-reporter --disable-breakpad --mute-audio --disable-infobars --no-first-run --no-default-browser-check --window-size=1100,720 --user-data-dir=/tmp/chrome-console http://127.0.0.1:8765/
+Name=Terminal
+Comment=Native XFCE terminal (VTE)
+Exec=xfce4-terminal --disable-server
 Icon=utilities-terminal
 Terminal=false
 Categories=System;TerminalEmulator;
 DESKTOP
-cp /root/.local/share/applications/laboon-console.desktop \
+cp /root/.local/share/applications/laboon-terminal.desktop \
    /root/.local/share/applications/xfce4-terminal-emulator.desktop
 update-desktop-database /root/.local/share/applications 2>/dev/null || true
 stage "compositing_and_panel_configured"
@@ -160,7 +178,7 @@ stage "vnc_alive pid=$VNC_PID"
 stage "starting dbus"
 dbus-daemon --system --fork >/out/dbus.log 2>&1 || true
 
-stage "starting pipe console on $CONSOLE_PORT"
+stage "starting pipe console fallback on $CONSOLE_PORT"
 CONSOLE_PORT="$CONSOLE_PORT" python3 /usr/local/bin/terminal-console.py \
   >/out/console.log 2>&1 &
 CONSOLE_PID=$!
@@ -172,13 +190,23 @@ dbus-run-session -- startxfce4 >/out/xfce.log 2>&1 &
 XFCE_PID=$!
 sleep 22
 
-# Chromium is both the browser and the terminal: the PTY-free console is its
-# start page. Multi-process flags are required (see the header comment).
+stage "starting native xfce4-terminal"
+# The real terminal is the primary console. It needs the TIOCPKT fix in the Go
+# runtime; without it VTE reports "Failed to open PTY: Not a tty".
+xfce4-terminal --disable-server --title laboon-terminal \
+  --geometry 90x28+120+110 >/out/terminal.log 2>&1 &
+TERMINAL_PID=$!
+sleep 6
+stage "terminal pid=$TERMINAL_PID"
+
+# Chromium is a browser, not the terminal. Multi-process flags are required
+# (see the header comment). Its start page is the hardened fallback console,
+# kept available on guest loopback; the native terminal is the default.
 stage "starting chromium"
 (chromium --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --disable-crash-reporter --disable-breakpad --mute-audio --disable-infobars \
   --no-first-run --no-default-browser-check \
-  --window-size=1100,720 --window-position=110,90 \
+  --window-size=1000,660 --window-position=180,190 \
   --user-data-dir=/tmp/chrome-laboon \
   "http://127.0.0.1:$CONSOLE_PORT/" >/out/chromium.log 2>&1 &) || true
 sleep 14

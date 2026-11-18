@@ -67,6 +67,9 @@ func Unpack(r io.Reader, dir string, maxSize int64) error {
 		mode := fs.FileMode(h.Mode) & fs.ModePerm // drops setuid, setgid, sticky
 		switch h.Typeflag {
 		case tar.TypeDir:
+			if err := replaceLink(root, name); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
 			if err := root.MkdirAll(name, 0o755); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
 			}
@@ -75,6 +78,9 @@ func Unpack(r io.Reader, dir string, maxSize int64) error {
 			total += h.Size
 			if total > maxSize {
 				return errTooLarge
+			}
+			if err := replaceLink(root, name); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
 			}
 			if err := writeFile(root, name, tr, mode); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
@@ -95,6 +101,9 @@ func Unpack(r io.Reader, dir string, maxSize int64) error {
 		}
 	}
 	for _, l := range links {
+		if err := replaceLink(root, l.name); err != nil {
+			return fmt.Errorf("link %s: %w", l.name, err)
+		}
 		if err := root.Link(l.target, l.name); err != nil && !errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("link %s: %w", l.name, err)
 		}
@@ -105,6 +114,26 @@ func Unpack(r io.Reader, dir string, maxSize int64) error {
 		}
 	}
 	return vfs.SaveOverrides(dir, overrides)
+}
+
+// replaceLink removes a symlink at name before an entry that must replace it.
+// os.Root.OpenFile follows symlinks, so writing a regular file over a link
+// would write through it (or fail with ELOOP when the link points at itself).
+// That happens on case-insensitive hosts: Ubuntu's usr/bin/Thunar -> thunar
+// and usr/bin/thunar collide into one path, and the alias must give way to the
+// real binary. Removing the link inside the root keeps the os.Root boundary.
+func replaceLink(root *os.Root, name string) error {
+	st, err := root.Lstat(name)
+	// Lstat can also fail when a parent component is a symlink os.Root will
+	// not traverse (absolute links are refused). That is not ours to fix here:
+	// leave it alone and let the following write report the real error.
+	if err != nil || st.Mode()&fs.ModeSymlink == 0 {
+		return nil
+	}
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func writeFile(root *os.Root, name string, r io.Reader, mode fs.FileMode) error {

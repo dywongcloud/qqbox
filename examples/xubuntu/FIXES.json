@@ -1,0 +1,116 @@
+{
+  "artifact": "literbox-xubuntu-stock-desktop",
+  "user_intent": "setup a working stock xubuntu xfce instance replacing our current one; get network/wifi operational; xubuntu means linuxserver/webtop ubuntu-xfce, not plain ubuntu",
+  "method": "live witnessed execution in laboon guests plus two independent recon agents (registry identity, network data plane) and an adversarial verification pass",
+  "status": "FIXED_VERIFIED",
+  "claims": [
+    {
+      "id": "X1",
+      "claim": "The digest in the URL is a layer blob or the config blob",
+      "verdict": "REFUTED",
+      "evidence": [
+        "GET /v2/linuxserver/webtop/manifests/ubuntu-xfce-824a4465-ls171 -> manifest.list.v2, index sha256:43141025abe50bde82b1a1757a524425ce36476ad50c187656e921b62b906f12",
+        "index arm64 child = sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55",
+        "GET /v2/.../manifests/sha256:5f170506... -> manifest.v2, 3058 bytes, config sha256:68f14933...fcfe, 14 layers",
+        "arm64v8-ubuntu-xfce-824a4465-ls171 tag resolves directly to that digest",
+        "hub.docker.com/v2/repositories/linuxserver/webtop/tags?name=ubuntu-xfce-824a4465-ls171 -> count 3, matching digests"
+      ],
+      "root_cause": "Docker Hub's /layers/.../images/sha256-<digest> page names the platform image manifest, not a filesystem layer. The earlier empty 'podman manifest inspect' output was a broken SSH known_hosts entry (exit 125), not a missing tag."
+    },
+    {
+      "id": "X2",
+      "claim": "The stock image runs unmodified under laboon",
+      "verdict": "CONFIRMED_WITH_TWO_ADAPTERS",
+      "evidence": [
+        "first pull failed: 'unpack ... usr/bin/thunar: openat usr/bin/thunar: too many levels of symbolic links'",
+        "reproduced on the host: case-insensitive APFS + os.Root.Symlink('thunar','Thunar') + r.OpenFile('thunar', O_CREATE|O_TRUNC) -> 'openat thunar: too many levels of symbolic links'",
+        "image has usr/bin/Thunar -> thunar AND regular usr/bin/thunar (63,187 flattened tar entries, zero duplicate paths)",
+        "internal/oci/unpack_unix.go now calls replaceLink before writing a directory, regular file or hard link; second pull succeeded",
+        "go test ./internal/oci/... and ./internal/sandbox/... pass; go build ./cmd/laboon clean",
+        "probe.log: Ubuntu 24.04.5 LTS, /usr/share/xubuntu, XFCE binaries, WEBTOP_PROBE_DONE"
+      ],
+      "adapter_1": "ENTRYPOINT /init is s6-overlay; laboon runs one program, so the derived image clears ENTRYPOINT and uses its own start script. The XFCE session itself is the stock /usr/bin/xfce4-session.",
+      "adapter_2": "Stock KasmVNC Xvnc serves HTTP/websocket on 3000. Its traditional -rfbport mode completes the RFB handshake (ServerInit 1280x800 bpp=32 depth=24 name='x11') but sends zero framebuffer updates: 'ComparingUpdateTracker: 0 pixels in / 0 pixels out', 'EncodeManager: 0 rects, 0 pixels', across raw/full-encoding-list/-CompareFB 0/pointer-first variants. x11vnc + Xvfb (four apt packages) are added; RFB capture then returned raw_bytes=4096000, distinct_colors=3667."
+    },
+    {
+      "id": "X3",
+      "claim": "The XFCE terminal is a real native terminal",
+      "verdict": "CONFIRMED",
+      "evidence": [
+        "internal/sandbox/lx_termios.go: lxTIOCPKT = 0x5420",
+        "internal/sandbox/pty_unix.go: case lxTIOCPKT forwards to the host pty master via unix.IoctlSetPointerInt (pointer form, not value form)",
+        "probe/tiocpkt-direct.txt: TIOCPKT_OK /dev/pts/13, TIOCPKT_OFF_OK",
+        "probe/native3-typed.png: VNC KeyEvent typed 'echo VNC_NATIVE_TERMINAL_OK; id; uname -a' -> echoed input, output and / # prompt",
+        "stock desktop windows.txt: 0x... LABOON-XUBUNTU-TERMINAL (\"xfce4-terminal\" \"Xfce4-terminal\") 858x521",
+        "stock xubuntu-xwd.png: root@laboon:/# prompt in the stock xfce4-terminal"
+      ],
+      "root_cause": "Linux TIOCPKT was unhandled (ENOTTY); a success-only stub removed the error but left VTE reading an unframed stream (black window); value-form forwarding gave EFAULT ('Bad address'); pointer-form forwarding fixes both. terminalrc is ignored; colors must be written to Xfconf."
+    },
+    {
+      "id": "X4",
+      "claim": "Guest network/wifi is broken and needs a new stack",
+      "verdict": "REFUTED",
+      "evidence": [
+        "with -net: raw UDP DNS to 127.0.0.1:53, 8.8.8.8:53, 1.1.1.1:53 all return rcode=0 with 2 answers",
+        "with -net: getent hosts example.com -> 2606:4700:10::..., TCP 1.1.1.1:443 OK",
+        "with -net: curl https://example.com/ -> HTTP 200 104.20.23.154; https://www.google.com/ -> HTTP 200",
+        "with -net: apt-get update inside the stock Xubuntu guest fetched 65.2 MB",
+        "with -net: windowed Chromium on Xvfb rendered the real Example Domain page",
+        "without -net: Chromium shows 'No internet / Reconnecting to Wi-Fi / ERR_INTERNET_DISCONNECTED'",
+        "-allow-domains example.com REFUSED other DNS queries and blocked direct-IP connects; the flags only restrict",
+        "internal/sandbox/egress.go:99-127 default allows all non-loopback; net_unix.go:872-879 intercepts :53; msg_unix.go:658-713 answers in-supervisor"
+      ],
+      "root_cause": "A guest launched without -net has virtual INET sockets with no host reach and no DNS proxy, so Chromium renders its generic offline boilerplate. 'Reconnecting to Wi-Fi' is Chromium's suggestion text, not a wifi driver failure. The Go runtime does not generate /etc/resolv.conf; start-xubuntu.sh writes 'nameserver 8.8.8.8' for deterministic glibc clients.",
+      "honest_boundary": "802.11 wifi cannot be emulated: laboon pairs socket endpoints, not packets (internal/sandbox/VNET.md:19-26). No AF_PACKET/TUN, raw sockets, ICMP, nl80211 or wireless extensions; netlink RTM_GETLINK mirrors host interfaces. NetworkManager/wpa_supplicant/iw are absent from the image. ping failing is expected. Working DNS+TCP+HTTPS egress and a browser that loads real pages is the honest equivalent."
+    },
+    {
+      "id": "X4b",
+      "claim": "The stock Firefox renders web pages under laboon",
+      "verdict": "REFUTED",
+      "evidence": [
+        "firefox.log: 'Sandbox: chroot: EPERM' and '[Parent ...] process exited on signal 11'",
+        "MOZ_DISABLE_CONTENT_SANDBOX=1, all sandbox-disable env variants, MOZ_FORCE_DISABLE_E10S=1, security.sandbox.content.level=0, network.trr.mode=5 and layers.acceleration.disabled=true were each tried; all produced a blank or perpetually loading page",
+        "https://example.com/ appears in Firefox's address bar but its content area stays blank"
+      ],
+      "root_cause": "Firefox's content sandbox calls chroot(), which laboon's vfs-Namespace-only filesystem refuses; the renderer dies. This is a browser compatibility limit, NOT a network failure: curl, apt, NetSurf and Chromium all reach the same URLs in the same guest."
+    },
+    {
+      "id": "X4c",
+      "claim": "A browser in the stock Xubuntu guest renders a real public HTTPS page",
+      "verdict": "CONFIRMED",
+      "evidence": [
+        "netsurf-gtk installed from Ubuntu noble universe; netsurf-http.png shows 'Example Domain - NetSurf' with the real https://example.com/ body and 'Done (0.0s)'",
+        "a local file:// page rendered LOCAL_RENDER_OK, isolating renderer from network",
+        "final-5905/xubuntu-browser.png on the live 5905 desktop shows the Xubuntu wallpaper, the NetSurf Example Domain page and the native terminal",
+        "windowed Chromium on Xvfb in the Alpine example rendered 'Example Domain - Chromium'"
+      ],
+      "note": "NetSurf is added to the derived Dockerfile as the default browser. Firefox remains installed but is not launched."
+    },
+    {
+      "id": "X5",
+      "claim": "The image is the Xubuntu distribution",
+      "verdict": "REFUTED_WITH_DISCLOSURE",
+      "evidence": [
+        "config TITLE=Ubuntu XFCE; /etc/os-release ID=ubuntu, PRETTY_NAME='Ubuntu 24.04 LTS'",
+        "image history[37]: apt-get install firefox mousepad xfce4-terminal xfce4 xubuntu-default-settings xubuntu-icon-theme",
+        "/usr/share/xubuntu and /etc/xdg/xdg-xubuntu present",
+        "docker.io/linuxserver/webtop has no 'xubuntu' tag; xubuntu.org publishes no OCI image"
+      ],
+      "note": "This is the exact image the user linked. It is Ubuntu 24.04 + XFCE + Xubuntu's default settings and icon theme, not the Xubuntu distro. Surfaced rather than silently substituted."
+    }
+  ],
+  "live_cutover": {
+    "target": "TCP 5905",
+    "verification_port": "5906",
+    "image": "laboon-xubuntu:stock",
+    "base_digest": "sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55",
+    "built_config_digest": "sha256:c8a72c77917be850bfd3b5cb41c6716c83fbeb4cf35c7506b7fd27344938160a",
+    "vnc_readiness": "x11vnc starts 7s after launch, before the XFCE session"
+  },
+  "known_warnings": [
+    "Firefox's content sandbox tries chroot() -> EPERM and crashes renderers under laboon; it stays installed but is not launched. Verified against five sandbox-disable variants.",
+    "xdg-user-dir missing from the Xubuntu template script; AT-SPI/UPower/PolicyKit services absent",
+    "apt's libc-bin/mandb trigger cannot write /var/cache/man in laboon's unprivileged unpack; the Dockerfile tolerates that trigger and asserts the binaries exist",
+    "x11vnc -nopw is wildcard-bound and LAN-reachable; -localhost breaks laboon port forwarding; use -rfbauth to close it"
+  ]
+}
