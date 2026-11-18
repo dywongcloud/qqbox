@@ -229,6 +229,9 @@ func (g *dguest) ttyIoctl(d *dfile, req, arg uint64) int64 {
 			return sErr(lxENOTTY)
 		}
 		return 0
+	case lxTIOCPKT:
+		// Packet mode is not emulated on the slave side either; see ptmxIoctl.
+		return 0
 	case lxTIOCGPTN, lxTIOCSPTLCK, lxTIOCGPTLCK, lxTIOCGPTPEER:
 		return sErr(lxENOTTY) // a slave, not a ptmx
 	}

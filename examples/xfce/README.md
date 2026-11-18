@@ -1,8 +1,8 @@
 # XFCE desktop inside laboon
 
 A reproducible, witnessed XFCE 4.18 session running inside a laboon sandbox on
-macOS/arm64. `xfce-desktop.png` is the actual desktop captured from inside the
-guest; `xfce-vnc.png` is the same desktop captured by a host-side VNC client.
+macOS/arm64, served over VNC. `xfce-desktop-fixed.png` is the fixed desktop;
+`terminal-console-typed.png` is a command typed through VNC and its visible output.
 
 This uses the **Go native runtime**: the Rust port on `feat/rust-port` implements
 the control plane but cannot execute guests yet (see `docs/PORT_STATUS.md`).
@@ -11,87 +11,150 @@ the control plane but cannot execute guests yet (see `docs/PORT_STATUS.md`).
 
 ```sh
 go build -o ./laboon ./cmd/laboon
-./laboon build -net -t laboon-xfce:latest \
+./laboon build -net -t laboon-xfce:fixed \
   -f examples/xfce/Dockerfile -o /tmp/laboon-xfce.tar examples/xfce
 ```
 
-`-net` is required: the `RUN apk add` step needs outbound network. The build
-installs 311 Alpine/arm64 packages (463 MiB), including `xfce4`, `xfce4-session`,
-`xfwm4`, `xfdesktop`, `xfce4-panel`, `xfce4-terminal`, `xvfb`, `x11vnc`, `scrot`
-and X11 fonts/themes.
+`-net` is required: the `RUN apk add` step needs outbound network. The image is
+Alpine 3.20 arm64 with 378 packages (~1.1 GiB) — full XFCE, Xvfb, x11vnc,
+Chromium 131, fonts, X diagnostics and a PTY-free command console.
 
 ## Run
 
 ```sh
 mkdir -p /tmp/laboon-xfce-out
-cp examples/xfce/start-xfce.sh /tmp/laboon-xfce-out/run.sh
-./laboon -image laboon-xfce:latest \
-  -mount /tmp/laboon-xfce-out:/out -net sh /out/run.sh
+./laboon -image laboon-xfce:fixed -net \
+  -e VNC_PORT=5905 -mount /tmp/laboon-xfce-out:/out \
+  sh /usr/local/bin/start-xfce.sh
+/opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
 
-`-mount HOST:GUEST` is a real read-write bind, so the guest writes its evidence
-into `/tmp/laboon-xfce-out` on the host. The script:
+`-mount HOST:GUEST` is a real read-write bind, so the guest writes evidence into
+the host directory. The startup script starts `x11vnc` immediately after Xvfb
+(VNC is reachable in ~7s), then D-Bus, the pipe console, `startxfce4` and
+Chromium. It stays live until the outer `gtimeout` stops it.
 
-1. disables `xfwm4` compositing in `xfconf` — with compositing enabled the X root
-   window stays black in an `XGetImage`/`scrot` capture;
-2. starts `Xvfb :99 -screen 0 1280x800x24`;
-3. starts the system D-Bus daemon and `startxfce4` under `dbus-run-session`;
-4. launches an `xfce4-terminal` window;
-5. writes `processes.txt`, `wm.txt`, `windows.txt`, `stages.log`, `xfce.png` and
-   `xfce.xwd` into the host mount;
-6. starts `x11vnc` on TCP 5905 and keeps the desktop alive.
+## The two fixes
 
-## Live evidence (2026-11-18, macOS arm64)
+### 1. Terminal: "Failed to execute child / Failed to open PTY: Not a tty"
 
-Guest process table (`processes.txt`) showed all of these running simultaneously:
-`xfce4-session`, `xfwm4`, `xfsettingsd`, `xfce4-panel` (systray, power-manager
-and actions plugins), `xfdesktop`, `Thunar --daemon`, `xfconfd`, `tumblerd` and
-the at-spi registry. That is 20+ processes in one sandbox — the macOS backend's
-documented "single-threaded" scope did **not** prevent a threaded XFCE session.
+**Root cause (found by the adversarial swarm):** PTYs work in laboon —
+`pty.openpty()` and `pty.fork()` both succeed, `/dev/ptmx` and a `devpts` mount
+exist. The failure is one unhandled ioctl: Linux `TIOCPKT` (`0x5420`) was missing
+from `internal/sandbox/lx_termios.go` and from the `ttyIoctl`/`ptmxIoctl`
+switches, so it fell through to `sErr(lxENOTTY)` — exactly VTE's "Not a tty".
 
-`xfce-desktop.png` shows the XFCE top panel (Applications menu, window list,
-clock), the default XFCE wallpaper, "File System" and "Home" desktop icons, the
-`LABOON-XFCE-WITNESS` terminal window and the bottom dock.
+The repo now carries that fix:
 
-A second, independent capture used a minimal RFB 3.8 client
-(`rfb-capture.py`) connecting to the guest's `x11vnc` over TCP:
+| file | change |
+| --- | --- |
+| `internal/sandbox/lx_termios.go:35` | `lxTIOCPKT = 0x5420` |
+| `internal/sandbox/pty_unix.go` | guarded `case lxTIOCPKT` in `ptmxIoctl` returning 0 |
+| `internal/sandbox/termios_unix.go` | guarded `case lxTIOCPKT` in `ttyIoctl` for the slave |
 
+Witness: `xfce4-terminal --disable-server -e 'sh -c …'` now writes
+`/dev/pts/13` to `tty.txt` and `CHILD_OK` to `child.txt`, with no PTY error.
+Packet mode is not emulated; VTE only needs the request to succeed.
+
+**Remaining limitation:** VTE text still paints black in scrot/xwd captures even
+with `LIBGL_ALWAYS_SOFTWARE=1`, `GSK_RENDERER=cairo` and `GDK_BACKEND=x11`
+(`glx: failed to create drisw screen` under laboon's synthetic X). So the native
+terminal is fixed at the syscall layer but is still not usable over VNC.
+
+**Therefore the desktop ships a PTY-free pipe console** (`terminal-console.py`),
+served on the guest's `127.0.0.1:8765` and displayed in a real Chromium window.
+It runs `/bin/sh` with plain pipes — laboon's native stdio — no PTY, no kernel
+change. `terminal-console-typed.png` shows a command typed through VNC producing
+`VNC_TYPED_OK` / `uid=0(root)` / `exit 0`. The dock's terminal launcher and the
+Applications-menu terminal entry point at this console.
+
+The console was hardened after an adversarial security review: loopback-only
+bind, `Origin`/`Host` checks, `application/json` required, body and output caps,
+400 on malformed input, `no-store`/`nosniff` headers. Verdict:
+`SAFE_WITHIN_SANDBOX` (guest `uid=0` is emulated; the host supervisor runs as
+uid 501). It is **not** meant to run on the host.
+
+### 2. Chromium
+
+`chromium` + `chromium-swiftshader` (131.0.6778.108) and fonts are installed.
+It MUST be launched **multi-process**:
+
+```sh
+chromium --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --disable-crash-reporter --disable-breakpad --mute-audio \
+  --disable-infobars --no-first-run --window-size=1100,720 \
+  http://127.0.0.1:8765/
 ```
-RFB 003.008 / security None / ServerInit 1280x800 32bpp name='laboon:99'
-1 Raw rect, 4,096,000 bytes, 3,688 distinct colours -> xfce-vnc.png
+
+Do **not** pass `--single-process` or `--no-zygote`: with those, PulseAudio's
+`pa_mutex_new()` assertion (`mutex-posix.c:57`) fires in the browser process and
+Chromium aborts with exit 134. A five-variant launch matrix witnessed this
+(multi-process variants rc=0 with a screenshot PNG; single-process variants
+rc=134 with no PNG). `--version` and a headless `--screenshot` both work.
+
+## Adjacent fixes
+
+- Removed `xfce4-pulseaudio-plugin`: it loads libpulse and hit the same
+  `pa_mutex_new()` abort, producing a blocking "Plugin Restart" dialog.
+- Custom `xfce4-panel.xml` with only working plugins (no pulseaudio, no
+  notification, no undefined `plugin-7`).
+- Exact Alpine X tool names: `xprop`, `xwininfo`, `xdpyinfo`, `xsetroot`,
+  `xrdb`, `xwd`, `xdotool` (not `xorg-*`). `wm.txt` now holds a real
+  `_NET_SUPPORTING_WM_CHECK` window id.
+- `mkdir -p /var/run/dbus` before the system D-Bus daemon.
+- Disable `xfwm4` compositing via xfconf so the X root is screencapturable.
+- Installed `mousepad`, `pm-utils`, `xfce4-notifyd`, `xfce4-clipman-plugin`,
+  `font-noto`, `font-noto-cjk`, `hicolor-icon-theme`.
+- `x11vnc` starts before `startxfce4` (7s VNC readiness vs ~40s).
+- No fixed `sleep 7100`; the desktop is bounded by the outer `gtimeout`.
+
+## Security note: VNC is unauthenticated
+
+`x11vnc` is started with `-nopw` (security type `None`). Under laboon's `-net`
+port forwarding that listener is bound to the host's wildcard
+(`*:5905`, IPv4 and IPv6), so it is reachable from the LAN — an adversarial
+verifier confirmed an RFB handshake against the host's LAN address. This does
+**not** cross a laboon boundary (the console runs as an emulated guest root;
+the host supervisor is uid 501), but anyone on the LAN can drive the guest
+console while it is running.
+
+`-localhost` is **not** a valid fix: a live probe showed it silently breaks
+laboon's `-net` port forwarding (host connections are refused). To close it,
+start x11vnc with a password:
+
+```sh
+x11vnc -display :99 -rfbauth /path/to/vncpasswd -rfbport 5905 ...
 ```
 
-That proves a host VNC client can attach to the desktop while it is running.
+then connect with `vncviewer -passwd /path/to/vncpasswd 127.0.0.1:5905`. The
+shipped default stays passwordless so the existing local connection keeps
+working; set a password before exposing the desktop on an untrusted network.
+This is a deployment choice, not a laboon security invariant.
 
-## Limitations observed
+## Known remaining warnings (expected under laboon)
 
-- `xfce4-terminal` shows **"Failed to execute child: Failed to open PTY: Not a
-  tty"**. laboon wires guest stdio through pipes, so the terminal's child cannot
-  allocate a PTY. The desktop, panel, wallpaper and window manager are unaffected.
-- The Go CLI has **no `-p`/`--publish` flag** and the Go daemon ignores
-  `HostConfig.PortBindings`. Nevertheless, with `-net`, a guest-bound TCP port
-  was reachable at `127.0.0.1:5905` on this host. Treat that as an observed
-  behaviour of this backend, not a documented publishing contract.
-- `x11vnc -unixsock` is not usable here: x11vnc 0.9.16 denies AF_UNIX clients
-  with `check_access: denying empty host IP address string`. Five `-allow`
-  variants were tried; all failed. Use TCP instead.
-- `xprop`, `xwininfo`, `xdpyinfo`, `xsetroot`, `xrdb` and `xwd` are separate
-  Alpine packages (`xprop`, `xwininfo`, ...), not `xorg-*`; the first run omitted
-  them, so `wm.txt`/`windows.txt` are empty there. `scrot` and `imagemagick`'s
-  `import` are in the image and work.
-- Alpine's `dbus-daemon --system` needs `/var/run/dbus` to exist; the script
-  creates it. Several `xfce4-power-manager` warnings are expected (no system bus,
-  no `/sys/class/backlight`, no DPMS on Xvfb).
-- Only `linux/arm64` guests run on this host. An amd64 image is rejected by
-  `internal/oci/oci.go`.
+Chromium shows an `--no-sandbox` unsupported-flag infobar (cosmetic).
+`xfce4-power-manager` CRITICALs, `xfdesktop` GLib-CRITICALs, missing
+`/sys/class/backlight`, UPower, PolicyKit and DPMS all stem from laboon's
+synthetic `/sys` and Xvfb and do not affect the desktop. Guest `/dev/pts`
+enumeration is synthetic (no slave nodes listed) though open-by-path works.
+
+Only `linux/arm64` guests run on this host; an amd64 image is rejected by
+`internal/oci/oci.go`. The Go CLI has no `-p`/`--publish`, but with `-net` a
+guest-bound TCP port is reachable on host loopback (observed, not a documented
+publishing contract).
 
 ## Files
 
 | file | purpose |
 | --- | --- |
-| `Dockerfile` | Alpine 3.20 + full XFCE/Xvfb/VNC stack |
-| `start-xfce.sh` | boots the session and writes evidence |
-| `rfb-capture.py` | minimal RFB 3.8 client (no VNC library) |
-| `xfce-desktop.png` | guest-side `scrot` capture |
-| `xfce-vnc.png` | host-side VNC framebuffer capture |
-| `processes.txt` | guest process table proving the session was live |
+| `Dockerfile` | Alpine 3.20 + XFCE/Xvfb/VNC/Chromium/console |
+| `start-xfce.sh` | boots the fixed session, writes evidence, stays live |
+| `terminal-console.py` | hardened PTY-free pipe command console |
+| `rfb-capture.py` | minimal RFB 3.8 framebuffer client (no VNC library) |
+| `rfb-type.py` | injects keyboard/pointer events over RFB |
+| `FIXES.json` | claim-by-claim derivation, evidence and verdicts |
+| `xfce-desktop-fixed.png` | fixed desktop over VNC |
+| `terminal-console-typed.png` | command typed via VNC + its output |
+| `xfce4-terminal-native.png` | native VTE windows after the TIOCPKT fix |
+| `processes-fixed.txt`, `console-probe.txt`, `wm.txt`, `xdpyinfo.txt`, `chromium-version.txt`, `xfce-session-fixed.log` | live evidence |

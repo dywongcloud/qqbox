@@ -220,6 +220,12 @@ func (p *ptmx) release() {
 func (g *dguest) ptmxIoctl(d *dfile, req, arg uint64) (int64, bool) {
 	p := d.pty
 	switch req {
+	case lxTIOCPKT:
+		// VTE enables packet mode on the master before spawning its shell. The
+		// host-backed pty pair already carries the data path; packet mode is not
+		// emulated, but the request must succeed or xfce4-terminal reports
+		// "Failed to open PTY: Not a tty" and never starts a child.
+		return 0, true
 	case lxTIOCGPTN:
 		return g.ttyPutU32(arg, uint32(p.n)), true
 	case lxTIOCSPTLCK:

@@ -1,0 +1,112 @@
+{
+  "artifact": "literbox-xfce-fixes",
+  "target": "laboon XFCE desktop, x11vnc TCP 5905 / verification 5906, macOS arm64",
+  "method": "adversarial swarm (recon + refutation + synthesis) plus live witnessed execution in laboon guests",
+  "status": "FIXED_VERIFIED",
+  "claims": [
+    {
+      "id": "C1",
+      "claim": "The 'Failed to open PTY: Not a tty' error is caused by laboon lacking PTY support",
+      "verdict": "REFUTED",
+      "evidence": [
+        "pty.openpty() -> OPENPTY_OK 3 4 /dev/pts/8 in a laboon guest",
+        "pty.fork() -> READ b'CHILD_ON_PTY_OK\\r\\n', WAIT (8, 0)",
+        "devpts mounted on /dev/pts; /dev/ptmx is crw-rw-rw- 5,2",
+        "gm codesearch receipts 1795032694909-932-d2e15aebb8aef2e6 / 1795032706695-933-699e5aef15c518cf / 1795032724958-934-60bb10e67518f679"
+      ],
+      "root_cause": "Linux TIOCPKT (0x5420) was absent from internal/sandbox/lx_termios.go constants and the ttyIoctl/ptmxIoctl switches; the default returned sErr(lxENOTTY). Live probe: TIOCGPTN / TIOCGPTLCK / TIOCSPTLCK / TIOCGPTPEER / TIOCGWINSZ all OK, TIOCPKT(0x5420) FAIL errno=25 ENOTTY."
+    },
+    {
+      "id": "C2",
+      "claim": "The terminal can be fixed with a small Go change",
+      "verdict": "CONFIRMED",
+      "fix": [
+        "internal/sandbox/lx_termios.go: lxTIOCPKT = 0x5420",
+        "internal/sandbox/pty_unix.go: guarded case in ptmxIoctl returns 0 (packet mode not emulated, but VTE only needs the request to succeed)",
+        "internal/sandbox/termios_unix.go: guarded case in ttyIoctl for the slave",
+        "go build ./cmd/laboon -> Mach-O arm64; gofmt clean"
+      ],
+      "witness": [
+        "xfce4-terminal --disable-server -e 'sh -c ...' -> /out/tty.txt = /dev/pts/13, /out/child.txt = CHILD_OK",
+        "ps aux shows the child sh; xwininfo shows real LABOON-VTE windows 797x407 and 817x445",
+        "no PTY error in vte-a.log / vte-b.log (only a SESSION_MANAGER warning)"
+      ],
+      "remaining_limitation": "VTE text still paints black in scrot/xwd/import captures even with LIBGL_ALWAYS_SOFTWARE=1, GSK_RENDERER=cairo, GDK_BACKEND=x11. Cause: GTK/VTE 'glx: failed to create drisw screen' under laboon's synthetic X. So the Go fix removes the error and spawns a real PTY child, but the native terminal is still not usable over VNC."
+    },
+    {
+      "id": "C3",
+      "claim": "A PTY-free pipe command console displayed in Chromium gives a working terminal over VNC",
+      "verdict": "CONFIRMED",
+      "evidence": [
+        "guest FIFO console -> PIPE_CONSOLE_OK, uid=0(root), DONE",
+        "/healthz -> 200 {\"ok\": true, \"console\": \"pipe\"}",
+        "POST /run -> 200 with LABOON_CONSOLE_OK / uid=0(root) / Linux laboon 6.8.0 aarch64 / exit=0",
+        "RFB KeyEvent/PointerEvent injection typed 'echo VNC_TYPED_OK; id' into the Chromium console and the framebuffer showed VNC_TYPED_OK / uid=0(root) gid=0(root) / exit 0 (terminal-console-typed.png)"
+      ]
+    },
+    {
+      "id": "C4",
+      "claim": "Chromium can be installed and launched inside laboon",
+      "verdict": "CONFIRMED_WITH_CONSTRAINT",
+      "evidence": [
+        "apk search -x chromium -> chromium-131.0.6778.108-r0; chromium-swiftshader same",
+        "chromium --version -> Chromium 131.0.6778.108 Alpine Linux",
+        "matrix A multi-process rc=0 png=2948; D (PULSE_SERVER=none) rc=0; E (headless=old) rc=0",
+        "matrix B (--disable-features=AudioServiceOutOfProcess) rc=134; C (--single-process --no-zygote) rc=134",
+        "abort cause: 'Assertion r == 0 || r == 95 failed at ../src/pulsecore/mutex-posix.c:57 pa_mutex_new()' plus crashpad 'ptrace: Invalid argument (22)'"
+      ],
+      "constraint": "MUST NOT pass --single-process or --no-zygote. Required: --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-crash-reporter --disable-breakpad --mute-audio."
+    },
+    {
+      "id": "C5",
+      "claim": "The missing X tools are Alpine packages named xorg-*",
+      "verdict": "REFUTED",
+      "evidence": [
+        "apk search -x xorg-xprop -> no such package; xprop -> xprop-1.2.7-r0",
+        "exact names: xprop, xwininfo, xdpyinfo, xsetroot, xrdb, xwd, xdotool, mousepad, font-noto, font-noto-cjk, hicolor-icon-theme",
+        "xprop -root _NET_SUPPORTING_WM_CHECK -> 0x1000014 on the fixed desktop"
+      ]
+    },
+    {
+      "id": "C6",
+      "claim": "Rebuilding the image under the running desktop's tag disturbs the live guest",
+      "verdict": "REFUTED",
+      "evidence": [
+        "rebuild changes only the ref file; a running guest resolved its rootfs once at startup (oci.go:88-91,148,157-158,202-209)",
+        "5905 and 5906 returned RFB_HANDSHAKE_OK concurrently; 5905 stayed healthy",
+        "starting x11vnc immediately after Xvfb cut VNC readiness from ~40s to 7s"
+      ]
+    }
+  ],
+  "adjacent_fixes": [
+    "removed xfce4-pulseaudio-plugin: it loads libpulse and triggered the same pa_mutex_new() abort, producing a blocking 'Plugin Restart' dialog",
+    "wrote a custom xfce4-panel.xml with only working plugins (no pulseaudio, no notification, no undefined plugin-7)",
+    "dock terminal launcher now opens laboon-console.desktop instead of the broken xfce4-terminal-emulator.desktop",
+    "mkdir -p /var/run/dbus before dbus-daemon --system",
+    "disable xfwm4 compositing via xfconf XML so scrot captures the real desktop",
+    "install exact X diagnostics, fonts, mousepad, pm-utils, xrdb, xdotool",
+    "start x11vnc before startxfce4 (VNC ready in 7s)",
+    "replace fixed 'sleep 7100' with an indefinite loop bounded by the outer gtimeout",
+    "hardened terminal-console.py after adversarial review: 127.0.0.1-only bind, Origin/Host checks, application/json required, 64 KiB body cap, 1 MiB output cap, 400 on malformed input instead of 500, no-store/nosniff headers"
+  ],
+  "console_security_verdict": {
+    "verdict": "SAFE_WITHIN_SANDBOX",
+    "evidence": "adversarial verifier: guest uid=0 is an emulated Linux credential; host supervisor runs as uid 501; listener is guest loopback 127.0.0.1 only; no host-path syscall, no wildcard bind, no control-plane call. Explicitly UNSAFE if run on the host (no laboon boundary) - hardening above applied anyway.",
+    "attacks_now_rejected": ["foreign Origin -> 403", "foreign Host -> 403", "text/plain body -> 415", "malformed JSON -> 400", "empty cmd -> 400", "cmd > 8192 -> 400", "body > 64 KiB -> 413", "output > 1 MiB -> truncated"]
+  },
+  "surfaced_not_imposed": {
+    "issue": "x11vnc -nopw is wildcard-bound (*:5905, IPv4+IPv6) and LAN-reachable: an adversarial verifier completed an RFB handshake against the host LAN address 192.168.1.76:5905",
+    "why_not_silently_fixed": "setting a VNC password changes how the user connects; -localhost is NOT a valid fix (live probe showed it silently breaks laboon -net port forwarding, host connections refused)",
+    "mitigation": "x11vnc -rfbauth <vncpasswd> and vncviewer -passwd <file>; documented in README.md. The shipped default stays passwordless for a working local connection."
+  },
+  "remaining_limitations": [
+    "VTE/xfce4-terminal text still paints black under laboon's synthetic X even with software GL; use the pipe console",
+    "Chromium shows an '--no-sandbox' unsupported-flag infobar (cosmetic)",
+    "xfce4-power-manager CRITICALs, xfdesktop GLib-CRITICAL and missing /sys/class/backlight, UPower, PolicyKit and DPMS are expected under laboon's synthetic /sys and Xvfb",
+    "guest /dev/pts directory enumeration is synthetic (no slave nodes listed), though open-by-path works"
+  ],
+  "images": {
+    "fixed": "laboon-xfce:fixed (378 packages, 1098 MiB)",
+    "rollback": "laboon-xfce:latest@arm64 = 462f992e7056113eea635edd04e40db923474491fa05eadc8c76eb9448ef910b"
+  }
+}

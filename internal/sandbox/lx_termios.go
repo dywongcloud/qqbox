@@ -32,6 +32,7 @@ const (
 	lxTIOCSBRK    = 0x5427
 	lxTIOCCBRK    = 0x5428
 	lxTIOCGSID    = 0x5429
+	lxTIOCPKT     = 0x5420
 	lxTCGETS2     = 0x802c542a
 	lxTCSETS2     = 0x402c542b
 	lxTCSETSW2    = 0x402c542c
