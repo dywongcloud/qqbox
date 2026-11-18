@@ -108,6 +108,28 @@ committed Zig stubs byte-identical, reproduce the memfd/Mach/LPAC launch contrac
 then serve the syscall table through the 128-byte channel. Only after that backend
 passes the existing Go regression corpus on each host should the Go tree be removed.
 
+### Sizing and fork identity
+
+The recon census puts the remaining work in perspective: 445 Go files / 85,620 lines,
+of which `internal/sandbox` alone is 322 files / 69,277 lines (81% of the Go code).
+That package is the real porting unit; `oci`, `vfs`, `rewrite`, `build` and the four
+`cmd/*` modules are comparatively thin layers above it. That is why the Rust
+workspace covers the control plane and OCI/Compose surface first and leaves the
+syscall-emulation engine to a dedicated `Platform` trait pass.
+
+The fork is `dywongcloud/literbox` but the retained Go module paths, Go import paths
+and `go.work` still say `github.com/samyfodil/laboon`. They are deliberately left
+alone: rewriting them would break `go build` on the one working guest runtime, and
+the upstream attribution is correct for the retained code. The Rust crates, README,
+`AGENTS.md`, `llms.txt`, `Makefile`, CI and `.goreleaser.yaml` use `literbox` /
+`laboon` without the upstream owner. Rebranding the Go module path belongs with the
+final Go removal, not before it.
+
+The recon also confirmed `AGENTS.md`'s old `purego` claim was stale: no Go source
+imports it. The real host-call layer is `x/sys/unix` (Linux), `goffi`/libffi
+(macOS), `process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
+Rule 4 now names those instead.
+
 ## Platform notes
 
 - Single address space across instances: rejected with evidence; see

@@ -75,16 +75,20 @@ become an I/O engine.
 
 - Every stub and native helper is Zig. No C. The freestanding stub links no
   libc.
-- The Rust supervisor uses typed host bindings, not a cgo shim. The legacy Go
-  supervisor used `purego`; it is retained only as the native backend reference.
+- The Rust supervisor uses typed host bindings, not a cgo shim. The retained Go
+  supervisor's host-call layer is `x/sys/unix` on Linux, `goffi`/libffi on macOS,
+  `process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
+  `purego` is a stale indirect dependency in the `cmd/*/go.mod` files and is not
+  imported by any Go source — do not follow that claim when porting.
 - `crates/laboon/src/zig/abi.rs` freezes the 128-byte channel layout. Any change
   to the Zig side must keep those offsets byte-identical.
 
 ## Rule 5: libraries take options, not environment
 
 - `laboon`, `sandbox`, `oci`, `vfs`, and `rewrite` read **no** environment
-  variables; behavior is set through `With…` options (`options.go`) or a
-  `Config`. Only `cmd/laboon`, examples, and test tooling read the environment.
+  variables; behavior is set through `With…` options (`options.go`), a `Config`,
+  or their Rust equivalents `Options` / `Config` in `crates/laboon`. Only
+  `cmd/laboon`, examples, and test tooling read the environment.
 - The public default is permissive where a developer expects it (RWX guest
   memory allowed, no network) and tightened by an explicit option
   (`WithRejectRWX`, `WithNet` plus the egress allowlist options). Keep new
