@@ -18,6 +18,7 @@ pub struct Image {
 #[derive(Debug, Clone)]
 pub struct PullOptions {
     pub cache_dir: Option<PathBuf>,
+    pub auth_config: Option<PathBuf>,
     pub max_size: u64,
     pub refresh: bool,
     pub arch: Arch,
@@ -27,6 +28,7 @@ impl Default for PullOptions {
     fn default() -> Self {
         PullOptions {
             cache_dir: None,
+            auth_config: None,
             max_size: 16 << 30,
             refresh: false,
             arch: Arch::host(),
@@ -373,9 +375,8 @@ pub fn remember(r: &ImageRef, digest: &str, o: &PullOptions) -> Result<()> {
     Ok(())
 }
 
-fn auth_header(registry: &str) -> Option<String> {
-    let home = std::env::var_os("HOME")?;
-    let path = PathBuf::from(home).join(".docker/config.json");
+fn auth_header(registry: &str, config: Option<&Path>) -> Option<String> {
+    let path = config?;
     let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     let mut encoded = value
         .get("auths")?
@@ -478,7 +479,7 @@ pub fn select_platform(index: &Manifest, arch: Arch, os: &str) -> Result<String>
 }
 
 pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String)> {
-    let auth = auth_header(&r.registry);
+    let auth = auth_header(&r.registry, o.auth_config.as_deref());
     let accept = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json";
     let bytes = get(&r.manifest_url(), accept, auth.as_deref())?;
     let manifest: Manifest = serde_json::from_slice(&bytes)?;
@@ -494,8 +495,8 @@ pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String
     Ok((manifest, digest))
 }
 
-pub fn fetch_blob(r: &ImageRef, digest: &str) -> Result<Vec<u8>> {
-    let auth = auth_header(&r.registry);
+pub fn fetch_blob(r: &ImageRef, digest: &str, o: &PullOptions) -> Result<Vec<u8>> {
+    let auth = auth_header(&r.registry, o.auth_config.as_deref());
     get(
         &r.blob_url(digest),
         "application/octet-stream",
@@ -511,7 +512,7 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
         }
     }
     let (manifest, manifest_digest) = fetch_manifest(&r, o)?;
-    let config_bytes = fetch_blob(&r, &manifest.config.digest)?;
+    let config_bytes = fetch_blob(&r, &manifest.config.digest, o)?;
     let config = parse_image_config(&config_bytes)?;
     if !config.os.is_empty() && config.os != "linux" {
         return Err(Error::UnsupportedPlatform(format!(
@@ -534,7 +535,7 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
         std::fs::create_dir_all(&tmp)?;
         let mut total = 0u64;
         for layer in &manifest.layers {
-            let bytes = fetch_blob(&r, &layer.digest)?;
+            let bytes = fetch_blob(&r, &layer.digest, o)?;
             total = total.saturating_add(bytes.len() as u64);
             if total > o.max_size {
                 let _ = std::fs::remove_dir_all(&tmp);

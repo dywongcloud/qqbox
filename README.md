@@ -39,6 +39,9 @@ laboon invariants                    the enforced security invariants
 laboon abi                           validate the 128-byte Zig channel ABI
 laboon address-space                 the single-address-space decision
 laboon run <program> [args...]       parse + rewrite + plan a guest ELF
+                                     --root, --net, --no-net, --allow-domain,
+                                     --publish, --volume, --label, --no-rewrite,
+                                     --reject-rwx, --max-memory
 laboon run-image <ref>               pull and prepare an OCI image
 laboon config-validate <file>        print every OCI image-config construct
 laboon oci-inspect <file>            full image config + construct count

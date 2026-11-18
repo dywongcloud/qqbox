@@ -25,6 +25,40 @@ pub const MAX_SLOTS: usize = 256;
 pub const SLOTS_LEN: usize = SLOT_SIZE * MAX_SLOTS;
 pub const SCRATCH_LEN: usize = SLOT_SIZE - SCRATCH_OFF;
 pub const STUB_BASE: u64 = 0x6f00_0000_0000;
+pub const WINDOW_ALIGN: u64 = 0x0020_0000_0000;
+pub const WINDOW_SLOTS_OFF: u64 = 0x0010_0000_0000;
+pub const WINDOW_HOP_REQ_OFF: u64 = 0x0016_0000_0000;
+pub const WINDOW_HOP_REP_OFF: u64 = 0x0016_0010_0000;
+
+// The Go backend keeps stubLo/slotsAddr/stubHi in package globals set once by
+// adoptWindow. That makes a second instance in the same supervisor collide with
+// the first. The Rust control plane derives a window per instance instead, while
+// keeping the two-page-table design that the backstops depend on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StubWindow {
+    pub base: u64,
+    pub slots: u64,
+    pub hi: u64,
+    pub hop_req: u64,
+    pub hop_rep: u64,
+}
+
+impl StubWindow {
+    pub fn primary() -> Self {
+        StubWindow::for_instance(0)
+    }
+
+    pub fn for_instance(index: u32) -> Self {
+        let base = STUB_BASE.wrapping_sub((index as u64).saturating_mul(WINDOW_ALIGN));
+        StubWindow {
+            base,
+            slots: base.wrapping_add(WINDOW_SLOTS_OFF),
+            hi: base.wrapping_add(WINDOW_ALIGN),
+            hop_req: base.wrapping_add(WINDOW_HOP_REQ_OFF),
+            hop_rep: base.wrapping_add(WINDOW_HOP_REP_OFF),
+        }
+    }
+}
 
 pub const ST_REQ: u32 = 1;
 pub const ST_REP: u32 = 2;

@@ -32,6 +32,7 @@ pub struct Options {
     pub platform: Option<String>,
     pub pull: bool,
     pub image_cache_dir: Option<String>,
+    pub docker_config_path: Option<String>,
     pub max_image_size: u64,
     pub no_rewrite: bool,
     pub labels: LabelMap,
@@ -410,6 +411,11 @@ impl Options {
 
     pub fn with_image_cache_dir(mut self, dir: &str) -> Self {
         self.image_cache_dir = Some(dir.to_owned());
+        self
+    }
+
+    pub fn with_docker_config(mut self, path: &str) -> Self {
+        self.docker_config_path = Some(path.to_owned());
         self
     }
 

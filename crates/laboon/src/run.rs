@@ -224,6 +224,7 @@ fn image_run(reference: &str, opts: &Options) -> Result<(String, Config)> {
     };
     let pull = PullOptions {
         cache_dir: opts.image_cache_dir.as_ref().map(PathBuf::from),
+        auth_config: opts.docker_config_path.as_ref().map(PathBuf::from),
         max_size: if opts.max_image_size == 0 {
             DEFAULT_MAX_IMAGE_SIZE
         } else {

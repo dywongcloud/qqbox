@@ -83,6 +83,32 @@ Still open, recorded rather than hidden:
   metadata connection can be demonstrated end to end. All security findings are
   control-plane acceptance/rejection results.
 
+## Inherited platform limits (from the security recon)
+
+These belong to the retained Go runtime and to any future Rust backend. They are
+recorded so a port does not claim parity it does not have:
+
+- Linux backstop is TRAP-to-supervisor; macOS Seatbelt and the Windows x86-64
+  instrumentation callback kill. Windows arm64 has **no** callback backstop.
+- macOS self-modifying `MAP_JIT` pages run unrewritten (`stub/macos/wx.zig:22-24`);
+  only stub-placed traps are served. macOS non-PIE ET_EXEC guests run in an
+  Hypervisor.framework VM, i.e. a second address space.
+- Landlock ABI < 6 leaves an acknowledged SIGURG signal-scope hole.
+- `MaxBytes` is not enforced on macOS, RWX is allowed by default for JIT engines,
+  and Windows AF_INET loopback needs `WithNet`.
+- `stub/seccomp_test.go`'s expected allowlists omit `rseq`/`getcpu` while the Zig
+  `arch.guest` filter includes them, so `go test ./stub` is red at HEAD. The gm
+  standing rule forbids editing test files; this is recorded, not patched.
+- `vfs.Policy` has no production caller in the Go tree — confinement is structural
+  (Namespace tree plus `openat2`). The Rust port does not invent a phantom Policy
+  trait.
+
+The Rust library reads no behavior knob from the environment. Its only host-path
+lookups are `std::env::temp_dir()` for the default image cache and, when
+`PullOptions.auth_config` is set, that path for registry auth; both come from
+`Options` (`with_image_cache_dir`, `with_docker_config`) rather than being
+hard-coded to `$HOME`.
+
 ## Not done — the remaining work
 
 The low-level, per-host **native guest execution backend** is not ported. On Linux the

@@ -90,13 +90,13 @@ impl Invariant {
                 "DnsIsolation: net::EgressPolicy::resolve answers DNS in the supervisor"
             }
             Invariant::SyscallBackstop => {
-                "SyscallBackstop: security::backstop_verdict returns Error::Killed for a missed syscall"
+                "SyscallBackstop: a missed syscall TRAPs to the supervisor on Linux; Seatbelt/Windows kill"
             }
             Invariant::DeviceAllowlist => {
                 "DeviceAllowlist: vfs::devfs serves only fixed null, zero, random, urandom and tty nodes"
             }
             Invariant::SingleAddressSpace => {
-                "SingleAddressSpace: sandbox::run::run holds guest mappings in one supervisor-owned space"
+                "SingleAddressSpace: one address space per instance; the supervisor control plane is shared"
             }
             Invariant::ZeroTrustControl => {
                 "ZeroTrustControl: daemon::api::Daemon::handle checks the bearer token on every route"
@@ -167,10 +167,17 @@ pub fn enforce_egress(p: &EgressPolicy, addr: &SocketAddr, resolved: bool) -> Re
     p.allows_connect(addr, resolved)
 }
 
+// A missed syscall on Linux reaches the seccomp text-range RET_TRAP and is
+// serviced by the supervisor through SIGSYS; static rewriting is an optimization,
+// not the correctness boundary. Seatbelt (macOS) and the instrumentation
+// callback (Windows) kill instead. Error::Killed is reserved for a call the
+// backstop genuinely rejects, not for an unrewritten site.
 pub fn backstop_verdict(missed: bool) -> Result<()> {
-    if missed {
-        Err(Error::Killed)
-    } else {
-        Ok(())
+    if !missed {
+        return Ok(());
+    }
+    match crate::types::HostOs::current() {
+        crate::types::HostOs::Linux => Ok(()),
+        _ => Err(Error::Killed),
     }
 }

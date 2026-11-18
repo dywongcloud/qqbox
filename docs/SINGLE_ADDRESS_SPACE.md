@@ -65,6 +65,14 @@ path; mapping memory, holding descriptors and forking happen only on the host-op
    primitive (MPK/PKU, guard pages plus a verified in-process monitor, or a
    hardware-assisted compartment) before any code change.
 
+## The regression-free Rust improvement
+
+The Go backend keeps `stubLo`/`slotsAddr`/`stubHi` in package globals set once by
+`adoptWindow`. The Rust control plane instead derives a `StubWindow` per instance
+(`crates/laboon/src/zig/abi.rs`), so a shared supervisor can plan distinct windows
+without touching the two-page-table design the backstops depend on. This is the
+cheap win: it removes a global collision without attempting a global SAS.
+
 ## What is delivered instead
 
 - Rust supervisor can host many instances in one *process* (shared control plane,

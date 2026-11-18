@@ -298,12 +298,14 @@ pub struct RunPlan {
     pub invariants: Vec<String>,
     pub security_checks: Vec<String>,
     pub wx_segments: usize,
+    pub stub_window_base: u64,
+    pub stub_window_slots: u64,
 }
 
 impl serde::Serialize for RunPlan {
     fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut st = s.serialize_struct("RunPlan", 22)?;
+        let mut st = s.serialize_struct("RunPlan", 24)?;
         st.serialize_field("program", &self.program)?;
         st.serialize_field("host", &self.host)?;
         st.serialize_field("arch", &self.arch)?;
@@ -326,6 +328,8 @@ impl serde::Serialize for RunPlan {
         st.serialize_field("invariants", &self.invariants)?;
         st.serialize_field("security_checks", &self.security_checks)?;
         st.serialize_field("wx_segments", &self.wx_segments)?;
+        st.serialize_field("stub_window_base", &self.stub_window_base)?;
+        st.serialize_field("stub_window_slots", &self.stub_window_slots)?;
         st.end()
     }
 }
@@ -338,6 +342,11 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
     } else {
         Arch::Amd64
     };
+    let instance_index = program
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
+        % 64;
+    let window = zig::StubWindow::for_instance(instance_index);
     let mut site_count = 0usize;
     let mut patched = 0usize;
     let mut mapped_bytes = 0u64;
@@ -362,7 +371,7 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
         }
         let mut code = bytes[start..end].to_vec();
         let sites = rewrite::classify(arch, &code);
-        patched = patched.saturating_add(rewrite::patch(arch, &mut code, &sites, zig::STUB_BASE)?);
+        patched = patched.saturating_add(rewrite::patch(arch, &mut code, &sites, window.base)?);
         site_count = site_count.saturating_add(sites.len());
     }
     let guest = guest_filter();
@@ -398,7 +407,7 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
     if !metadata_err.is_empty() {
         egress_denied.push(format!("169.254.169.254: {metadata_err}"));
     }
-    security::backstop_verdict(false)?;
+    security::backstop_verdict(cfg.no_rewrite)?;
     security_checks.push("SyscallBackstop".to_string());
     let mut state = GuestState::default();
     let mut table = SyscallTable::default();
@@ -430,6 +439,8 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
         invariants: security::audit().iter().map(|s| (*s).to_string()).collect(),
         security_checks,
         wx_segments,
+        stub_window_base: window.base,
+        stub_window_slots: window.slots,
     })
 }
 

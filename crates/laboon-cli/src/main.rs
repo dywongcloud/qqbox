@@ -36,6 +36,12 @@ enum Commands {
         volume: Vec<String>,
         #[arg(long)]
         label: Vec<String>,
+        #[arg(long)]
+        no_rewrite: bool,
+        #[arg(long)]
+        reject_rwx: bool,
+        #[arg(long)]
+        max_memory: Option<u64>,
     },
     RunImage {
         reference: String,
@@ -147,9 +153,17 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             publish,
             volume,
             label,
+            no_rewrite,
+            reject_rwx,
+            max_memory,
         } => {
             let mut opts = laboon::Options::new()
-                .with_args(&args.iter().map(String::as_str).collect::<Vec<_>>());
+                .with_args(&args.iter().map(String::as_str).collect::<Vec<_>>())
+                .with_no_rewrite(no_rewrite)
+                .with_reject_rwx(reject_rwx);
+            if let Some(bytes) = max_memory {
+                opts = opts.with_max_memory(bytes);
+            }
             if let Some(r) = root {
                 opts = opts.with_root(&r);
             }
