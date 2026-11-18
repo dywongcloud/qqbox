@@ -1,6 +1,6 @@
 id: go-removal
 subject: End-to-end removal of the Go portions
-body: Delete the Go module tree, Go workspace and Go-specific build tooling once the Rust surface covers them; retain only Zig stubs, testdata binaries and fixtures needed by the Rust implementation; no Go source remains in the repository.
+body: 'Delete the Go module tree, Go workspace and Go-specific build tooling once the Rust surface covers them; retain only Zig stubs, testdata binaries and fixtures needed by the Rust implementation; no Go source remains in the repository. BLOCKER (open, not resolved): the three native guest-execution backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF, Windows LPAC) are not yet ported to Rust, so laboon::run returns Error::UnsupportedPlatform after preparing the control plane. Deleting the Go tree now would remove the only working guest runtime without a replacement, which the request forbids (''without regressions''). Decision and plan are recorded in docs/PORT_STATUS.md. This row stays pending until those backends pass the existing Go regression corpus on each host.'
 acceptance_criteria: A live witness shows no .go files remain and the Rust workspace still builds
 session_id: 355e5752-dc96-459f-9557-4a2a6330d91b
 owner: 355e5752-dc96-459f-9557-4a2a6330d91b
