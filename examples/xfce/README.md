@@ -4,7 +4,10 @@ A reproducible, witnessed XFCE 4.18 session running inside a laboon sandbox on
 macOS/arm64, served over VNC. `xfce-desktop-native.png` shows the native
 `xfce4-terminal` rendering real shell output; `xfce-terminal-typed.png` shows a
 command typed through VNC, its echoed input, its output and the prompt. The
-browser-based pipe console is retained only as a hardened fallback.
+browser-based pipe console is no longer started by default; it remains an
+opt-in, hardened, loopback-only fallback (`terminal-console.py`) for hosts
+where a PTY cannot be used. The native terminal is the shipped default and
+Chromium opens a public page, not the console.
 
 For a **stock Xubuntu/XFCE** desktop (`linuxserver/webtop:ubuntu-xfce`), see
 [`examples/xubuntu/`](../xubuntu/README.md).
@@ -22,7 +25,7 @@ go build -o ./laboon ./cmd/laboon
 
 `-net` is required: the `RUN apk add` step needs outbound network. The image is
 Alpine 3.20 arm64 with 378 packages (~1.1 GiB) — full XFCE, Xvfb, x11vnc,
-Chromium 131, fonts, X diagnostics and a PTY-free command console.
+Chromium 131, fonts, X diagnostics and an opt-in PTY-free command console.
 
 ## Run
 
@@ -36,8 +39,9 @@ mkdir -p /tmp/laboon-xfce-out
 
 `-mount HOST:GUEST` is a real read-write bind, so the guest writes evidence into
 the host directory. The startup script starts `x11vnc` immediately after Xvfb
-(VNC is reachable in ~7s), then D-Bus, the pipe console, `startxfce4` and
-Chromium. It stays live until the outer `gtimeout` stops it.
+(VNC is reachable in ~7s), then D-Bus, `startxfce4`, the native
+`xfce4-terminal` and Chromium on a public page. It stays live until the outer
+`gtimeout` stops it.
 
 ## The two fixes
 
@@ -159,11 +163,13 @@ publishing contract).
 | --- | --- |
 | `Dockerfile` | Alpine 3.20 + XFCE/Xvfb/VNC/Chromium/console |
 | `start-xfce.sh` | boots the fixed session, writes evidence, stays live |
-| `terminal-console.py` | hardened PTY-free pipe command console |
+| `terminal-console.py` | hardened, opt-in PTY-free pipe command console (not started by default) |
 | `rfb-capture.py` | minimal RFB 3.8 framebuffer client (no VNC library) |
 | `rfb-type.py` | injects keyboard/pointer events over RFB |
 | `FIXES.json` | claim-by-claim derivation, evidence and verdicts |
 | `xfce-desktop-fixed.png` | fixed desktop over VNC |
-| `terminal-console-typed.png` | command typed via VNC + its output |
+| `xfce-desktop-native.png` | native VTE terminal rendering real shell output |
+| `xfce-terminal-typed.png` | command typed over VNC, echoed, executed, with prompt |
 | `xfce4-terminal-native.png` | native VTE windows after the TIOCPKT fix |
-| `processes-fixed.txt`, `console-probe.txt`, `wm.txt`, `xdpyinfo.txt`, `chromium-version.txt`, `xfce-session-fixed.log` | live evidence |
+| `terminal-console-typed.png` | earlier evidence from the opt-in pipe-console fallback |
+| `chromium-version.txt`, `console-probe.txt`, `processes-fixed.txt`, `wm.txt`, `xdpyinfo.txt`, `xfce-session-fixed.log` | earlier live evidence |

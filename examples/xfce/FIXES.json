@@ -84,7 +84,7 @@
   "adjacent_fixes": [
     "removed xfce4-pulseaudio-plugin: it loads libpulse and triggered the same pa_mutex_new() abort, producing a blocking 'Plugin Restart' dialog",
     "wrote a custom xfce4-panel.xml with only working plugins (no pulseaudio, no notification, no undefined plugin-7)",
-    "dock terminal launcher now opens laboon-console.desktop instead of the broken xfce4-terminal-emulator.desktop",
+    "dock and Applications-menu terminal launchers point at the native xfce4-terminal (laboon-terminal.desktop); the browser console is only a fallback",
     "mkdir -p /var/run/dbus before dbus-daemon --system",
     "disable xfwm4 compositing via xfconf XML so scrot captures the real desktop",
     "install exact X diagnostics, fonts, mousepad, pm-utils, xrdb, xdotool",

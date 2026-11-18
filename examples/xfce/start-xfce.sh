@@ -23,7 +23,7 @@ export HOME=/root
 export XDG_RUNTIME_DIR=/tmp/xdg
 export SHELL=/bin/sh
 VNC_PORT=${VNC_PORT:-5905}
-CONSOLE_PORT=${CONSOLE_PORT:-8765}
+CONSOLE_PORT=${CONSOLE_PORT:-8765}  # opt-in fallback only; see README.md
 
 mkdir -p "$XDG_RUNTIME_DIR" /out /var/run/dbus /root/.config/xfce4/xfconf/xfce-perchannel-xml
 chmod 700 "$XDG_RUNTIME_DIR"
@@ -178,12 +178,10 @@ stage "vnc_alive pid=$VNC_PID"
 stage "starting dbus"
 dbus-daemon --system --fork >/out/dbus.log 2>&1 || true
 
-stage "starting pipe console fallback on $CONSOLE_PORT"
-CONSOLE_PORT="$CONSOLE_PORT" python3 /usr/local/bin/terminal-console.py \
-  >/out/console.log 2>&1 &
-CONSOLE_PID=$!
-sleep 2
-stage "console pid=$CONSOLE_PID"
+# The PTY-free browser console is NOT started by default. It remains available
+# as an opt-in fallback (see README.md); the native VTE terminal below is the
+# shipped default terminal.
+stage "console fallback not started (opt-in)"
 
 stage "starting startxfce4"
 dbus-run-session -- startxfce4 >/out/xfce.log 2>&1 &
@@ -200,15 +198,15 @@ sleep 6
 stage "terminal pid=$TERMINAL_PID"
 
 # Chromium is a browser, not the terminal. Multi-process flags are required
-# (see the header comment). Its start page is the hardened fallback console,
-# kept available on guest loopback; the native terminal is the default.
+# (see the header comment). It opens a public page so working egress is visible
+# on the desktop; the native terminal is the default console.
 stage "starting chromium"
 (chromium --no-sandbox --disable-gpu --disable-dev-shm-usage \
   --disable-crash-reporter --disable-breakpad --mute-audio --disable-infobars \
   --no-first-run --no-default-browser-check \
   --window-size=1000,660 --window-position=180,190 \
   --user-data-dir=/tmp/chrome-laboon \
-  "http://127.0.0.1:$CONSOLE_PORT/" >/out/chromium.log 2>&1 &) || true
+  "https://example.com/" >/out/chromium.log 2>&1 &) || true
 sleep 14
 
 stage "capturing evidence"
@@ -218,21 +216,12 @@ xwininfo -root -tree >/out/windows.txt 2>&1 || true
 xdpyinfo -display :99 >/out/xdpyinfo.txt 2>&1 || true
 scrot -o /out/xfce-desktop.png 2>/out/scrot.log || true
 chromium --version >/out/chromium-version.txt 2>&1 || true
+# Prove egress from the desktop itself (the browser's start page is public).
 python3 -c '
-import http.client, json
-port = '"$CONSOLE_PORT"'
-c = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
-c.request("GET", "/healthz")
-r = c.getresponse()
-health = r.read().decode()
-c2 = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
-c2.request("POST", "/run", body=json.dumps({"cmd": "echo LABOON_CONSOLE_OK; id; uname -a"}),
-           headers={"Content-Type": "application/json"})
-r2 = c2.getresponse()
-run = r2.read().decode()
-print("HEALTH", r.status, health)
-print("RUN", r2.status, run)
-' >/out/console-probe.txt 2>&1 || true
+import urllib.request
+r = urllib.request.urlopen("https://example.com/", timeout=12)
+print("HTTP", r.status, r.read(80).decode("utf-8", "replace"))
+' >/out/network-probe.txt 2>&1 || true
 
 if [ -s /out/xfce-desktop.png ]; then
     echo XFCE_SCREENSHOT_OK >/out/result.txt
@@ -240,7 +229,7 @@ else
     echo XFCE_SCREENSHOT_MISSING >/out/result.txt
 fi
 cat /out/result.txt
-cat /out/console-probe.txt
+cat /out/network-probe.txt
 cat /out/stages.log
 echo ready >/out/ready.txt
 
