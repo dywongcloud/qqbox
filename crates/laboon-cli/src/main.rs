@@ -93,7 +93,11 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum RuntimeAction {
-    Validate { file: PathBuf },
+    Validate {
+        file: PathBuf,
+        #[arg(long)]
+        advisory: bool,
+    },
     Features,
 }
 
@@ -170,11 +174,14 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 laboon::run::program_config(&program, &opts).map_err(|e| e.to_string())?;
             let ctx = laboon::Context::default();
             let plan = laboon::sandbox::prepare(&ctx, &prog, &cfg).map_err(|e| e.to_string())?;
+            let mut value = serde_json::to_value(&plan).unwrap_or_default();
+            value["backend"] = serde_json::json!(
+                "native guest execution is not wired on this host; the control plane above is live"
+            );
             println!(
                 "{}",
-                serde_json::to_string_pretty(&plan).unwrap_or_default()
+                serde_json::to_string_pretty(&value).unwrap_or_default()
             );
-            println!("backend: native guest execution is not wired on this host; the control plane above is live");
         }
         Commands::RunImage {
             reference,
@@ -205,8 +212,16 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         }
         Commands::ConfigValidate { file } => {
             let bytes = read(&file)?;
+            let raw: serde_json::Value =
+                serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+            if raw.get("HostConfig").is_some() || raw.get("Image").is_some() {
+                return Err(format!(
+                    "{} is a Docker container-create body, not an OCI image config",
+                    file.display()
+                ));
+            }
             let config = laboon::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
-            let cfg = laboon::oci::to_run_config(&config);
+            let cfg = laboon::oci::to_run_config(&config).map_err(|e| e.to_string())?;
             let value = serde_json::json!({
                 "architecture": config.architecture,
                 "os": config.os,
@@ -247,7 +262,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::OciInspect { file } => {
             let bytes = read(&file)?;
             let config = laboon::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
-            let cfg = laboon::oci::to_run_config(&config);
+            let cfg = laboon::oci::to_run_config(&config).map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&config).unwrap_or_default()
@@ -268,11 +283,14 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             }
             let forwarder = laboon::net::Forwarder::new(&published).map_err(|e| e.to_string())?;
             let rules = forwarder.plan();
-            let denied = laboon::net::ForwardRule::from_published(
+            let mut denied = laboon::net::ForwardRule::from_published(
                 &laboon::net::parse_published_port("203.0.113.9:9999:9999/tcp")
                     .map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?;
+            let mut wildcard_spoof = denied.clone();
+            wildcard_spoof.published = true;
+            denied.published = false;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
@@ -280,6 +298,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                     "forward_plan": rules,
                     "unpublished_rule": denied,
                     "denied": forwarder.check(&denied).is_err(),
+                    "wildcard_spoof_denied": forwarder.check(&wildcard_spoof).is_err(),
                     "hosts": forwarder.hosts_file("laboon", &Default::default(), &[]),
                     "resolv_conf": forwarder.resolv_conf(&[], &[]),
                 }))
@@ -325,7 +344,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                         .unwrap_or_default()
                 );
             }
-            RuntimeAction::Validate { file } => {
+            RuntimeAction::Validate { file, advisory } => {
                 let bytes = read(&file)?;
                 let spec = laboon::oci::runtime::parse(&bytes).map_err(|e| e.to_string())?;
                 let (cfg, rejected) =
@@ -347,6 +366,12 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                     }))
                     .unwrap_or_default()
                 );
+                if !advisory && !rejected.is_empty() {
+                    return Err(format!(
+                        "runtime spec contains {} unsupported security constructs; rerun with --advisory to inspect them",
+                        rejected.len()
+                    ));
+                }
             }
         },
         Commands::ImagePlan { reference } => {
@@ -398,6 +423,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             auth,
         } => {
             let daemon = laboon::daemon::Daemon::new(token);
+            let effective_auth = auth.or_else(|| daemon.token().map(|t| format!("Bearer {t}")));
             let bytes = match body {
                 Some(p) => read(&p)?,
                 None => Vec::new(),
@@ -407,7 +433,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 &path,
                 "",
                 &bytes,
-                auth.as_deref(),
+                effective_auth.as_deref(),
             );
             println!("status: {}", response.status);
             println!("content-type: {}", response.content_type);
@@ -416,6 +442,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::Daemon { listen, token } => {
             let daemon = laboon::daemon::Daemon::new(token);
             println!("laboond listening on {listen}");
+            println!("bearer token: {}", daemon.token().unwrap_or_default());
             daemon.serve(&listen).map_err(|e| e.to_string())?;
         }
     }

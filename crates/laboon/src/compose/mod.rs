@@ -175,16 +175,29 @@ fn as_map(v: &serde_json::Value) -> LabelMap {
         }
         _ => {}
     }
+    out.retain(|k, v| validate_label_key(k).is_ok() && validate_label_value(v).is_ok());
     out
 }
 
-fn port_literal(v: &serde_json::Value) -> Option<String> {
+fn port_literal(v: &serde_json::Value) -> Result<String> {
     match v {
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::String(s) => Ok(s.clone()),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
         serde_json::Value::Object(map) => {
-            let target = map.get("target")?.as_u64()? as u16;
-            let published = map.get("published").and_then(|p| p.as_str()).unwrap_or("0");
+            let target = map
+                .get("target")
+                .and_then(|t| t.as_u64())
+                .ok_or_else(|| Error::Config("compose port needs an integer target".into()))?;
+            if target > u16::MAX as u64 {
+                return Err(Error::Config(format!(
+                    "compose port target {target} exceeds 65535"
+                )));
+            }
+            let published = match map.get("published") {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Number(n)) => n.to_string(),
+                _ => "0".to_string(),
+            };
             let proto = map
                 .get("protocol")
                 .and_then(|p| p.as_str())
@@ -193,9 +206,9 @@ fn port_literal(v: &serde_json::Value) -> Option<String> {
                 .get("host_ip")
                 .and_then(|p| p.as_str())
                 .unwrap_or("0.0.0.0");
-            Some(format!("{host_ip}:{published}:{target}/{proto}"))
+            Ok(format!("{host_ip}:{published}:{target}/{proto}"))
         }
-        _ => None,
+        _ => Err(Error::Config("invalid compose port entry".into())),
     }
 }
 
@@ -408,17 +421,14 @@ fn service_config(name: &str, s: &Service) -> Result<Config> {
     cfg.dns_search = s.dns_search.clone();
     cfg.extra_hosts = as_map(&s.extra_hosts);
     for p in &s.expose {
-        if let Some(lit) = port_literal(p) {
-            if let Ok(spec) = crate::net::ports::parse_port_spec(&lit) {
-                cfg.exposed_ports.push(spec);
-            }
-        }
+        let lit = port_literal(p)?;
+        cfg.exposed_ports
+            .push(crate::net::ports::parse_port_spec(&lit)?);
     }
     for p in &s.ports {
-        if let Some(lit) = port_literal(p) {
-            cfg.published_ports
-                .push(crate::net::ports::parse_published_port(&lit)?);
-        }
+        let lit = port_literal(p)?;
+        cfg.published_ports
+            .push(crate::net::ports::parse_published_port(&lit)?);
     }
     for v in &s.volumes {
         if let Some((source, target, read_only, flags)) = volume_literal(v) {
@@ -479,10 +489,15 @@ pub fn validate(f: &ComposeFile) -> Result<()> {
             }
         }
         for p in &s.ports {
-            if let Some(lit) = port_literal(p) {
-                crate::net::ports::parse_published_port(&lit)
-                    .map_err(|e| Error::Config(format!("service {name}: {e}")))?;
-            }
+            let lit = port_literal(p).map_err(|e| Error::Config(format!("service {name}: {e}")))?;
+            crate::net::ports::parse_published_port(&lit)
+                .map_err(|e| Error::Config(format!("service {name}: {e}")))?;
+        }
+        for p in &s.expose {
+            let lit = port_literal(p)
+                .map_err(|e| Error::Config(format!("service {name} expose: {e}")))?;
+            crate::net::ports::parse_port_spec(&lit)
+                .map_err(|e| Error::Config(format!("service {name} expose: {e}")))?;
         }
         for v in &s.volumes {
             if volume_literal(v).is_none() {

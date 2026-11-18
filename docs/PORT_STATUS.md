@@ -44,6 +44,44 @@ plane for a complete runtime.
   scripts no longer pin an absent Zig 0.13.0 path; the process cancellation watcher no
   longer uses `thread::sleep` as a correctness mechanism; the runtime-spec `apply`
   fails closed on unsupported security fields instead of silently dropping them.
+- Adversarial fixes: Compose long-syntax port targets no longer truncate to `u16`,
+  invalid port entries and numeric `published` values are handled, malformed registry
+  hostnames and metadata/link-local published addresses are rejected, wildcard forward
+  spoofing is denied, Docker's PascalCase HostConfig keys are parsed and unmodelled
+  keys are surfaced as `Warnings`, isolation-breaking create requests (`Privileged`,
+  host networking, `SYS_ADMIN`, `seccomp=unconfined`) are rejected, `force=10` no
+  longer force-deletes a running container, the daemon has no unauthenticated default,
+  and every security primitive (`enforce_wx`, `enforce_memory_cap`, `enforce_mount`,
+  `enforce_egress`, `backstop_verdict`) is wired into the live `prepare` path.
+
+## Adversarial verification findings still open
+
+Four independent adversarial verifiers attacked the built artifact. The live findings
+that were fixed above and in the two follow-up commits are: aarch64 `svc #0` signature,
+Compose long-syntax port truncation and silent port skips, numeric `published`, bad
+registry hostnames, wildcard forward spoofing, metadata/link-local published host
+addresses, dead security enforcement functions, an unauthenticated default daemon,
+`force=10` substring bypass, isolation-breaking HostConfig keys, PascalCase HostConfig
+keys silently dropped, a wrong-schema image-config body, and a mixed JSON/prose CLI
+response.
+
+Still open, recorded rather than hidden:
+
+- `runtime-spec validate --advisory` reports unsupported constructs but accepts the
+  spec; strict mode rejects them. Some OCI runtime-spec fields (consoleSize, username,
+  inheritable/ambient capabilities, rlimits soft, seccomp content, namespace paths,
+  memory swap/reservation, rootfsPropagation, mountLabel) are parsed but not mapped
+  into `Config`. `RLIMIT_NOFILE.hard` is currently mapped to `pids_limit`, which is
+  semantically wrong.
+- Docker create bodies still drop some HostConfig fields. They are now surfaced in the
+  `Warnings` array of the 201 response rather than silently ignored; `Devices`,
+  `Mounts` long syntax, `Sysctls`, `Ulimits`, `Init`, `Annotations` and the mode
+  fields are typed but not all applied to `Config`.
+- `daemon-probe` is an in-process diagnostic and always exits 0; the HTTP status is
+  printed in stdout. It is not a network authz test.
+- No live guest execution exists on this host, so no host-file read, RWX mapping or
+  metadata connection can be demonstrated end to end. All security findings are
+  control-plane acceptance/rejection results.
 
 ## Not done — the remaining work
 

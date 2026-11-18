@@ -147,7 +147,7 @@ pub fn parse_image_config(bytes: &[u8]) -> Result<ImageConfig> {
     Ok(config)
 }
 
-pub fn to_run_config(c: &ImageConfig) -> Config {
+pub fn to_run_config(c: &ImageConfig) -> Result<Config> {
     let mut cfg = Config {
         env: c.config.env.clone(),
         ..Config::default()
@@ -163,7 +163,11 @@ pub fn to_run_config(c: &ImageConfig) -> Config {
     cfg.working_dir = c.config.working_dir.clone();
     cfg.dir = c.config.working_dir.clone();
     cfg.user_spec = c.config.user.clone();
-    cfg.labels = c.config.labels.clone();
+    for (k, v) in &c.config.labels {
+        validate_label_key(k)?;
+        validate_label_value(v)?;
+        cfg.labels.insert(k.clone(), v.clone());
+    }
     cfg.hostname = c.config.hostname.clone();
     cfg.domainname = c.config.domainname.clone();
     cfg.stop_signal = if c.config.stop_signal.is_empty() {
@@ -191,12 +195,10 @@ pub fn to_run_config(c: &ImageConfig) -> Config {
     if c.config.network_disabled {
         cfg.no_net = true;
     }
-    cfg.exposed_ports = c
-        .config
-        .exposed_ports
-        .keys()
-        .filter_map(|k| crate::net::ports::parse_port_spec(k).ok())
-        .collect();
+    for key in c.config.exposed_ports.keys() {
+        cfg.exposed_ports
+            .push(crate::net::ports::parse_port_spec(key)?);
+    }
     cfg.volumes = c
         .config
         .volumes
@@ -220,7 +222,7 @@ pub fn to_run_config(c: &ImageConfig) -> Config {
         });
     }
     cfg.image = String::new();
-    cfg
+    Ok(cfg)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,6 +231,20 @@ pub struct ImageRef {
     pub repository: String,
     pub tag: Option<String>,
     pub digest: Option<String>,
+}
+
+fn valid_registry(registry: &str) -> bool {
+    let host = registry
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(registry);
+    !host.is_empty()
+        && !host.contains("..")
+        && !host.starts_with('.')
+        && !host.ends_with('.')
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
 }
 
 impl ImageRef {
@@ -260,7 +276,7 @@ impl ImageRef {
                 format!("library/{first}"),
             ),
         };
-        if repository.is_empty() || repository.contains("..") {
+        if repository.is_empty() || repository.contains("..") || !valid_registry(&registry) {
             return Err(Error::BadRef(s.to_string()));
         }
         Ok(ImageRef {

@@ -32,6 +32,7 @@ fn main() {
         cli.project,
         cli.listen
     );
+    println!("bearer token: {}", daemon.token().unwrap_or_default());
     if let Err(err) = daemon.serve(&cli.listen) {
         eprintln!("laboond: {err}");
         std::process::exit(1);

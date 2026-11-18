@@ -113,7 +113,7 @@ impl Forwarder {
                 && published.container_ip == rule.container_ip
                 && published.container_port == rule.container_port
                 && published.container_port_end == rule.container_port_end
-                && (published.host_ip == rule.host_ip || published.host_ip.is_unspecified())
+                && (published.host_ip == rule.host_ip || rule.host_ip.is_unspecified())
         });
         if !matched {
             return Err(Error::NetworkDenied(format!(
@@ -248,6 +248,15 @@ impl Forwarder {
 }
 
 fn validate_rule(rule: &ForwardRule) -> Result<()> {
+    if dns::is_internal(rule.host_ip)
+        && !rule.host_ip.is_loopback()
+        && !rule.host_ip.is_unspecified()
+    {
+        return Err(Error::NetworkDenied(format!(
+            "host address {} is private, link-local or metadata",
+            rule.host_ip
+        )));
+    }
     if rule.container_port == 0 {
         return Err(Error::Config(
             "forward rule has no container port".to_owned(),

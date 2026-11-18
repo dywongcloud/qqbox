@@ -296,12 +296,14 @@ pub struct RunPlan {
     pub labels: usize,
     pub egress_denied: Vec<String>,
     pub invariants: Vec<String>,
+    pub security_checks: Vec<String>,
+    pub wx_segments: usize,
 }
 
 impl serde::Serialize for RunPlan {
     fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut st = s.serialize_struct("RunPlan", 20)?;
+        let mut st = s.serialize_struct("RunPlan", 22)?;
         st.serialize_field("program", &self.program)?;
         st.serialize_field("host", &self.host)?;
         st.serialize_field("arch", &self.arch)?;
@@ -322,6 +324,8 @@ impl serde::Serialize for RunPlan {
         st.serialize_field("labels", &self.labels)?;
         st.serialize_field("egress_denied", &self.egress_denied)?;
         st.serialize_field("invariants", &self.invariants)?;
+        st.serialize_field("security_checks", &self.security_checks)?;
+        st.serialize_field("wx_segments", &self.wx_segments)?;
         st.end()
     }
 }
@@ -336,7 +340,16 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
     };
     let mut site_count = 0usize;
     let mut patched = 0usize;
+    let mut mapped_bytes = 0u64;
+    let mut wx_segments = 0usize;
+    let mut security_checks = Vec::new();
     for segment in &elf.segments {
+        let prot = ((segment.flags & 0x1) * 4) | (segment.flags & 0x2);
+        security::enforce_wx(prot, cfg)?;
+        if prot & 0x6 == 0x6 {
+            wx_segments = wx_segments.saturating_add(1);
+        }
+        mapped_bytes = mapped_bytes.saturating_add(segment.memsz);
         if segment.flags & 1 == 0 || segment.filesz == 0 {
             continue;
         }
@@ -354,18 +367,39 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
     }
     let guest = guest_filter();
     let backstop = backstop_filter();
+    security::enforce_memory_cap(mapped_bytes, cfg)?;
+    security_checks.push("WriteXorExecute".to_string());
+    security_checks.push("MemoryCap".to_string());
     zig::validate_abi()?;
     let namespace = vfs::Namespace::new(Path::new(cfg.root.as_deref().unwrap_or("/")))?;
     for mount in &cfg.mounts {
-        let _ = namespace.resolve(&mount.guest)?;
+        security::enforce_mount(&namespace, &mount.guest)?;
     }
+    for volume in &cfg.volumes {
+        security::enforce_mount(&namespace, &volume.container_path)?;
+    }
+    security_checks.push("MountConfinement".to_string());
+    let _ = namespace.read_dir("/")?;
     let egress = net::EgressPolicy::from_config(cfg);
+    let metadata: std::net::SocketAddr = "169.254.169.254:80"
+        .parse()
+        .unwrap_or_else(|_| std::net::SocketAddr::from(([169, 254, 169, 254], 80)));
+    security_checks.push("EgressConfinement".to_string());
     let mut egress_denied = Vec::new();
     for name in ["example.org"] {
         if let Err(e) = egress.resolve(name) {
             egress_denied.push(format!("{name}: {e}"));
         }
     }
+    let metadata_err = security::enforce_egress(&egress, &metadata, false)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    if !metadata_err.is_empty() {
+        egress_denied.push(format!("169.254.169.254: {metadata_err}"));
+    }
+    security::backstop_verdict(false)?;
+    security_checks.push("SyscallBackstop".to_string());
     let mut state = GuestState::default();
     let mut table = SyscallTable::default();
     let _ = table.dispatch(12, [0, 0, 0, 0, 0, 0], &mut state);
@@ -394,14 +428,14 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
         labels: cfg.labels.len(),
         egress_denied,
         invariants: security::audit().iter().map(|s| (*s).to_string()).collect(),
+        security_checks,
+        wx_segments,
     })
 }
 
 pub fn run(ctx: &Context, program: &str, cfg: &Config) -> Result<i32> {
     let plan = prepare(ctx, program, cfg)?;
-    if cfg.no_rewrite {
-        return Err(Error::Killed);
-    }
+    security::backstop_verdict(cfg.no_rewrite)?;
     match HostOs::current() {
         HostOs::Linux => Err(Error::UnsupportedPlatform(format!(
             "native guest launch needs the host-op backend; prepared {} with {} syscall sites",

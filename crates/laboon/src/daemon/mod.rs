@@ -40,9 +40,9 @@ impl Response {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostConfig {
-    #[serde(default)]
+    #[serde(default, alias = "Binds")]
     pub binds: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "Mounts")]
     pub mounts: Vec<serde_json::Value>,
     #[serde(rename = "PortBindings", default)]
     pub port_bindings: BTreeMap<String, Vec<PortBinding>>,
@@ -66,29 +66,29 @@ pub struct HostConfig {
     pub cap_drop: Vec<String>,
     #[serde(rename = "SecurityOpt", default)]
     pub security_opt: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "Privileged")]
     pub privileged: bool,
-    #[serde(default)]
+    #[serde(default, alias = "Devices")]
     pub devices: Vec<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, alias = "Sysctls")]
     pub sysctls: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, alias = "Ulimits")]
     pub ulimits: Vec<serde_json::Value>,
     #[serde(rename = "RestartPolicy", default)]
     pub restart_policy: serde_json::Value,
     #[serde(rename = "LogConfig", default)]
     pub log_config: serde_json::Value,
-    #[serde(default)]
+    #[serde(default, alias = "Resources")]
     pub resources: serde_json::Value,
     #[serde(rename = "ShmSize", default)]
     pub shm_size: u64,
     #[serde(rename = "ReadonlyRootfs", default)]
     pub readonly_rootfs: bool,
-    #[serde(default)]
+    #[serde(default, alias = "Init")]
     pub init: bool,
     #[serde(rename = "OomScoreAdj", default)]
     pub oom_score_adj: i32,
-    #[serde(default)]
+    #[serde(default, alias = "Annotations")]
     pub annotations: LabelMap,
 }
 
@@ -249,6 +249,20 @@ impl State {
             validate_label_key(k)?;
             validate_label_value(v)?;
         }
+        for cap in &req.host_config.cap_add {
+            if cap.eq_ignore_ascii_case("SYS_ADMIN") || cap.eq_ignore_ascii_case("ALL") {
+                return Err(Error::Config(format!(
+                    "capability {cap} is not supported by laboon's security model"
+                )));
+            }
+        }
+        for opt in &req.host_config.security_opt {
+            if opt == "seccomp=unconfined" {
+                return Err(Error::Config(
+                    "seccomp=unconfined is not supported by laboon's security model".into(),
+                ));
+            }
+        }
         let mut cfg = Config {
             image: req.image.clone(),
             container_name: name.to_string(),
@@ -353,7 +367,11 @@ impl State {
         crate::net::Forwarder::new(&cfg.published_ports)?;
         match req.host_config.network_mode.as_str() {
             "" | "bridge" | "default" => cfg.network_mode = NetworkMode::Bridge,
-            "host" => cfg.network_mode = NetworkMode::Host,
+            "host" => {
+                return Err(Error::Config(
+                    "host networking is not supported by laboon's security model".into(),
+                ))
+            }
             "none" => {
                 cfg.network_mode = NetworkMode::None;
                 cfg.no_net = true;
@@ -387,7 +405,9 @@ impl State {
             }
         }
         if req.host_config.privileged {
-            cfg.seccomp_profile = SeccompProfile::Unconfined;
+            return Err(Error::Config(
+                "privileged containers are not supported by laboon's security model".into(),
+            ));
         }
         if req.host_config.restart_policy.is_object() {
             if let Some(name) = req
@@ -558,6 +578,23 @@ impl State {
     }
 }
 
+fn generated_token() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ (nanos as u64) ^ (std::process::id() as u64);
+    let mut out = String::with_capacity(32);
+    for _ in 0..4 {
+        h ^= h << 13;
+        h ^= h >> 7;
+        h ^= h << 17;
+        out.push_str(&format!("{h:016x}"));
+    }
+    out.truncate(32);
+    out
+}
+
 #[derive(Debug)]
 pub struct Daemon {
     pub state: Mutex<State>,
@@ -568,8 +605,12 @@ impl Daemon {
     pub fn new(token: Option<String>) -> Self {
         Daemon {
             state: Mutex::new(State::new()),
-            token,
+            token: Some(token.unwrap_or_else(generated_token)),
         }
+    }
+
+    pub fn token(&self) -> Option<&str> {
+        self.token.as_deref()
     }
 
     pub fn routes() -> &'static [&'static str] {
@@ -708,9 +749,10 @@ impl Daemon {
         }
         if path == "/containers/create" && method == "POST" {
             let req: CreateRequest = serde_json::from_slice(body).unwrap_or_default();
+            let warnings = unmodelled_host_config_keys(body);
             let name = query_param(query, "name").unwrap_or_else(|| format!("c{}", state.next + 1));
             return match state.create_container(&name, &req) {
-                Ok(c) => Response::json(201, &serde_json::json!({"Id":c.id,"Warnings":[]})),
+                Ok(c) => Response::json(201, &serde_json::json!({"Id":c.id,"Warnings":warnings})),
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
             };
         }
@@ -741,9 +783,19 @@ impl Daemon {
                 };
             }
             if method == "DELETE" && action == id {
-                return match state.remove(id, query.contains("force=1")) {
+                let force = query_param(query, "force")
+                    .map(|v| v == "1" || v == "true")
+                    .unwrap_or(false);
+                return match state.remove(id, force) {
                     Ok(()) => Response::empty(204),
-                    Err(e) => Response::json(404, &serde_json::json!({"message":e.to_string()})),
+                    Err(e) => {
+                        let status = if e.to_string().contains("is running") {
+                            409
+                        } else {
+                            404
+                        };
+                        Response::json(status, &serde_json::json!({"message":e.to_string()}))
+                    }
                 };
             }
             if method == "POST" {
@@ -911,6 +963,70 @@ impl Daemon {
         }
         Ok(())
     }
+}
+
+fn unmodelled_host_config_keys(body: &[u8]) -> Vec<String> {
+    let known = [
+        "Binds",
+        "Mounts",
+        "PortBindings",
+        "PublishAllPorts",
+        "NetworkMode",
+        "Dns",
+        "DnsSearch",
+        "DnsOptions",
+        "ExtraHosts",
+        "Links",
+        "CapAdd",
+        "CapDrop",
+        "SecurityOpt",
+        "Privileged",
+        "Devices",
+        "Sysctls",
+        "Ulimits",
+        "RestartPolicy",
+        "LogConfig",
+        "Resources",
+        "ShmSize",
+        "ReadonlyRootfs",
+        "Init",
+        "OomScoreAdj",
+        "Annotations",
+    ];
+    let value: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut warnings = Vec::new();
+    if let Some(host) = value.get("HostConfig").and_then(|v| v.as_object()) {
+        for key in host.keys() {
+            if !known.contains(&key.as_str()) {
+                warnings.push(format!("HostConfig.{key} is not modelled"));
+            }
+        }
+    }
+    for key in [
+        "IpcMode",
+        "PidMode",
+        "UsernsMode",
+        "UTSMode",
+        "CgroupnsMode",
+        "CgroupParent",
+        "Runtime",
+        "DeviceCgroupRules",
+        "StorageOpt",
+    ] {
+        if value.get("HostConfig").and_then(|v| v.get(key)).is_some() {
+            let warning = format!("HostConfig.{key} is not modelled");
+            if !warnings.contains(&warning) {
+                warnings.push(warning);
+            }
+        }
+    }
+    if value.get("NetworkingConfig").is_some() {
+        warnings.push("NetworkingConfig.EndpointsConfig is not attached".to_string());
+    }
+    warnings
 }
 
 fn query_param(query: &str, key: &str) -> Option<String> {

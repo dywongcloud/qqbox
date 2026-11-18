@@ -139,7 +139,7 @@ pub fn image_config(img: &Image, opts: &Options) -> Result<Config> {
         Err(_) => Value::Null,
     };
     let runtime = runtime_object(&raw);
-    let mut base = crate::oci::config::to_run_config(&img.config);
+    let mut base = crate::oci::config::to_run_config(&img.config)?;
     base.root = Some(img.root.to_string_lossy().into_owned());
     base.image = img.reference.clone();
 

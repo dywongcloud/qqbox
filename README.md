@@ -54,7 +54,12 @@ laboon daemon --listen <addr>        start the Docker-compatible daemon
 ```
 
 `laboond --listen 127.0.0.1:2375 --token <secret>` starts the daemon as a standalone
-binary. Every route requires `Authorization: Bearer <secret>` when a token is set.
+binary. If no token is given, one is generated and printed at startup. Every route
+requires `Authorization: Bearer <secret>` — there is no unauthenticated default.
+
+`runtime-spec validate <file>` fails closed on unsupported security constructs;
+`--advisory` prints the report without failing. `examples/runtime-spec-minimal.json`
+is the strict-mode fixture.
 
 ## What the Rust code covers
 

@@ -75,7 +75,8 @@ witness: build
 	$(CARGO) run -q -p laboon-cli -- oci-inspect examples/oci-config.json
 	$(CARGO) run -q -p laboon-cli -- compose-plan examples/compose.yaml
 	$(CARGO) run -q -p laboon-cli -- compose-validate examples/compose.yaml
-	$(CARGO) run -q -p laboon-cli -- runtime-spec validate examples/runtime-spec.json
+	$(CARGO) run -q -p laboon-cli -- runtime-spec validate --advisory examples/runtime-spec.json
+	$(CARGO) run -q -p laboon-cli -- runtime-spec validate examples/runtime-spec-minimal.json
 	$(CARGO) run -q -p laboon-cli -- runtime-spec features
 	$(CARGO) run -q -p laboon-cli -- image-plan alpine:3.20
 	$(CARGO) run -q -p laboon-cli -- network-plan examples/compose.yaml

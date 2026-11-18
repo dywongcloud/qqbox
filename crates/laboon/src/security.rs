@@ -142,14 +142,9 @@ pub fn enforce_mount(n: &Namespace, guest: &str) -> Result<()> {
             guest
         )));
     }
-    let cleaned = match crate::vfs::path::clean_guest(guest) {
-        Some(path) => path,
-        None => return Err(Error::PathEscape(guest.to_owned())),
-    };
-    if !cleaned.starts_with('/') {
-        return Err(Error::PathEscape(cleaned));
-    }
-    let resolved = n.resolve(&cleaned)?;
+    let cleaned =
+        crate::vfs::path::clean_guest(guest).ok_or_else(|| Error::PathEscape(guest.to_owned()))?;
+    let resolved = n.resolve(&format!("/{cleaned}"))?;
     if !resolved.guest.starts_with('/') || resolved.guest.split('/').any(|part| part == "..") {
         return Err(Error::PathEscape(resolved.guest));
     }
