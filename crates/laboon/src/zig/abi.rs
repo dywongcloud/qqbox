@@ -186,7 +186,7 @@ impl ChannelRequest {
             return None;
         }
         let ptr = bytes.as_ptr();
-        if (ptr as usize) % CHAN_ALIGN != 0 {
+        if !(ptr as usize).is_multiple_of(CHAN_ALIGN) {
             return None;
         }
         Some(unsafe { &*(ptr as *const Self) })
@@ -240,7 +240,7 @@ impl ChannelResponse {
             return None;
         }
         let ptr = bytes.as_ptr();
-        if (ptr as usize) % CHAN_ALIGN != 0 {
+        if !(ptr as usize).is_multiple_of(CHAN_ALIGN) {
             return None;
         }
         Some(unsafe { &*(ptr as *const Self) })
@@ -483,7 +483,7 @@ impl AbiLayout {
     }
 
     pub fn supports(&self, arch: Arch, host: HostOs) -> bool {
-        stub_image(arch, host).map_or(false, |image| image.embedded)
+        stub_image(arch, host).is_some_and(|image| image.embedded)
     }
 }
 
@@ -547,7 +547,7 @@ pub fn validate_abi() -> Result<()> {
     if layout.size > layout.scratch_off {
         problems.push("channel header overlaps the slot scratch".to_owned());
     }
-    if layout.slot_size % layout.align != 0 {
+    if !layout.slot_size.is_multiple_of(layout.align) {
         problems.push("slot size is not a multiple of the channel alignment".to_owned());
     }
     match layout.slot_size.checked_sub(layout.scratch_off) {

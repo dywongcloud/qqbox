@@ -16,6 +16,4 @@ pub use ports::{
     expand, parse_port_spec, parse_protocol, parse_published_port, protocol_name,
     render_published_port, validate_published_port,
 };
-pub use socket::{
-    is_guest_loopback, Afi, Message, Socket, SocketState, SocketTable, SockKind,
-};
+pub use socket::{is_guest_loopback, Afi, Message, SockKind, Socket, SocketState, SocketTable};

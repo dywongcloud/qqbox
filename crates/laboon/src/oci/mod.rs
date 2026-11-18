@@ -148,8 +148,10 @@ pub fn parse_image_config(bytes: &[u8]) -> Result<ImageConfig> {
 }
 
 pub fn to_run_config(c: &ImageConfig) -> Config {
-    let mut cfg = Config::default();
-    cfg.env = c.config.env.clone();
+    let mut cfg = Config {
+        env: c.config.env.clone(),
+        ..Config::default()
+    };
     if cfg.env.is_empty() {
         cfg.env = Config::default_env();
     }
@@ -287,7 +289,10 @@ impl ImageRef {
             (Some(t), None) => t.clone(),
             (None, None) => "latest".to_string(),
         };
-        format!("https://{}/v2/{}/manifests/{}", self.registry, self.repository, r)
+        format!(
+            "https://{}/v2/{}/manifests/{}",
+            self.registry, self.repository, r
+        )
     }
 
     pub fn blob_url(&self, digest: &str) -> String {
@@ -316,7 +321,9 @@ fn ref_key(r: &ImageRef, arch: Arch) -> String {
 }
 
 pub fn valid_hex(s: &str) -> bool {
-    s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    s.len() == 64
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 pub fn local(r: &ImageRef, o: &PullOptions) -> Result<Option<Image>> {
@@ -463,10 +470,7 @@ pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String
         r.digest.clone().unwrap_or_default()
     } else {
         let d = select_platform(&manifest, o.arch, "linux")?;
-        let url = format!(
-            "https://{}/v2/{}/manifests/{}",
-            r.registry, r.repository, d
-        );
+        let url = format!("https://{}/v2/{}/manifests/{}", r.registry, r.repository, d);
         let sub = get(&url, accept, auth.as_deref())?;
         let m: Manifest = serde_json::from_slice(&sub)?;
         return Ok((m, d));
@@ -476,7 +480,11 @@ pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String
 
 pub fn fetch_blob(r: &ImageRef, digest: &str) -> Result<Vec<u8>> {
     let auth = auth_header(&r.registry);
-    get(&r.blob_url(digest), "application/octet-stream", auth.as_deref())
+    get(
+        &r.blob_url(digest),
+        "application/octet-stream",
+        auth.as_deref(),
+    )
 }
 
 pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
@@ -577,7 +585,10 @@ pub fn unpack(flat: &[u8], dest: &Path, max_size: u64) -> Result<()> {
             continue;
         }
         let kind = entry.header().entry_type();
-        if kind.is_gnu_longname() || kind.is_pax_global_extensions() || kind.is_pax_local_extensions() {
+        if kind.is_gnu_longname()
+            || kind.is_pax_global_extensions()
+            || kind.is_pax_local_extensions()
+        {
             continue;
         }
         if matches!(kind.as_byte(), b'3' | b'4' | b'6') {

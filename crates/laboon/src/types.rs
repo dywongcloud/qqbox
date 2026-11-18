@@ -146,8 +146,9 @@ pub enum NetworkMode {
     Container,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MountPropagation {
+    #[default]
     Private,
     RPrivate,
     Shared,
@@ -311,12 +312,6 @@ impl PortProtocol {
             "sctp" => Ok(PortProtocol::Sctp),
             other => Err(Error::Config(format!("unknown port protocol {other}"))),
         }
-    }
-}
-
-impl Default for MountPropagation {
-    fn default() -> Self {
-        MountPropagation::Private
     }
 }
 

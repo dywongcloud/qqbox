@@ -56,7 +56,9 @@ pub fn parse_published_port(spec: &str) -> Result<PublishedPort> {
 
 pub fn validate_published_port(port: &PublishedPort) -> Result<()> {
     if port.container_port == 0 {
-        return Err(Error::Config("published port has no container port".to_owned()));
+        return Err(Error::Config(
+            "published port has no container port".to_owned(),
+        ));
     }
     let container_last = port.container_port_end.unwrap_or(port.container_port);
     let host_last = port.host_port_end.unwrap_or(port.host_port);
@@ -188,7 +190,11 @@ fn split_binding(body: &str) -> Result<(IpAddr, &str, &str)> {
     if body.starts_with('[') {
         let close = match body.find(']') {
             Some(index) => index,
-            None => return Err(Error::Config("unterminated ipv6 publish address".to_owned())),
+            None => {
+                return Err(Error::Config(
+                    "unterminated ipv6 publish address".to_owned(),
+                ))
+            }
         };
         let host_ip = parse_host_ip(&body[1..close])?;
         let rest = &body[close + 1..];
@@ -222,9 +228,9 @@ fn split_binding(body: &str) -> Result<(IpAddr, &str, &str)> {
             let address = parts
                 .next()
                 .ok_or_else(|| Error::Config(format!("invalid published port: {}", body)))?;
-            let host_ip = parse_host_ip(address.trim_matches(|character| {
-                character == '[' || character == ']'
-            }))?;
+            let host_ip = parse_host_ip(
+                address.trim_matches(|character| character == '[' || character == ']'),
+            )?;
             Ok((host_ip, host, container))
         }
     }
@@ -237,12 +243,7 @@ fn split_host_container(rest: &str, host_ip: IpAddr) -> Result<(IpAddr, &str, &s
         1 => {
             let (host, container) = match rest.split_once(':') {
                 Some(pair) => pair,
-                None => {
-                    return Err(Error::Config(format!(
-                        "invalid published port: {}",
-                        rest
-                    )))
-                }
+                None => return Err(Error::Config(format!("invalid published port: {}", rest))),
             };
             Ok((host_ip, host, container))
         }

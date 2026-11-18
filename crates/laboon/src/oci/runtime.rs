@@ -293,7 +293,13 @@ pub fn features() -> serde_json::Value {
     })
 }
 
-pub fn state(id: &str, status: &str, pid: u32, bundle: &str, annotations: &LabelMap) -> serde_json::Value {
+pub fn state(
+    id: &str,
+    status: &str,
+    pid: u32,
+    bundle: &str,
+    annotations: &LabelMap,
+) -> serde_json::Value {
     serde_json::json!({
         "ociVersion":SUPPORTED_OCI_VERSION,"id":id,"status":status,"pid":pid,
         "bundle":bundle,"annotations":annotations
@@ -500,7 +506,10 @@ pub fn apply(spec: &RuntimeSpec) -> Result<(Config, Vec<String>)> {
             if let Some(pids) = &resources.pids {
                 cfg.resource_limits.pids_limit = pids.limit;
             }
-            if resources.cpu.is_some() || resources.block_io.is_some() || resources.network.is_some() {
+            if resources.cpu.is_some()
+                || resources.block_io.is_some()
+                || resources.network.is_some()
+            {
                 rejected.push("linux.resources cpu/blockIO/network".to_string());
             }
             if !resources.hugepage_limits.is_empty() || !resources.rdma.is_empty() {

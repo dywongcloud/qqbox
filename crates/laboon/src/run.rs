@@ -34,14 +34,42 @@ static LINUX_SIGNALS: &[(i32, &str)] = &[
 
 #[cfg(target_os = "linux")]
 static HOST_SIGNALS: &[(i32, i32)] = &[
-    (1, 1), (2, 2), (3, 3), (6, 6), (9, 9), (10, 10), (11, 11), (12, 12),
-    (13, 13), (14, 14), (15, 15), (17, 17), (18, 18), (19, 19), (20, 20), (28, 28),
+    (1, 1),
+    (2, 2),
+    (3, 3),
+    (6, 6),
+    (9, 9),
+    (10, 10),
+    (11, 11),
+    (12, 12),
+    (13, 13),
+    (14, 14),
+    (15, 15),
+    (17, 17),
+    (18, 18),
+    (19, 19),
+    (20, 20),
+    (28, 28),
 ];
 
 #[cfg(target_os = "macos")]
 static HOST_SIGNALS: &[(i32, i32)] = &[
-    (1, 1), (2, 2), (3, 3), (6, 6), (9, 9), (10, 30), (11, 11), (12, 31),
-    (13, 13), (14, 14), (15, 15), (17, 20), (18, 19), (19, 17), (20, 18), (28, 28),
+    (1, 1),
+    (2, 2),
+    (3, 3),
+    (6, 6),
+    (9, 9),
+    (10, 30),
+    (11, 11),
+    (12, 31),
+    (13, 13),
+    (14, 14),
+    (15, 15),
+    (17, 20),
+    (18, 19),
+    (19, 17),
+    (20, 18),
+    (28, 28),
 ];
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -79,7 +107,9 @@ pub fn host_arch() -> Arch {
 
 pub fn program_config(program: &str, opts: &Options) -> Result<(String, Config)> {
     if opts.entrypoint.is_some() {
-        return Err(Error::Config("WithEntrypoint applies to an image".to_owned()));
+        return Err(Error::Config(
+            "WithEntrypoint applies to an image".to_owned(),
+        ));
     }
     let base = Config {
         env: Config::default_env(),
@@ -119,8 +149,8 @@ pub fn image_config(img: &Image, opts: &Options) -> Result<Config> {
     let env = string_list(runtime, &["Env", "env"]).unwrap_or_else(|| base.env.clone());
     let working_dir = string_field(runtime, &["WorkingDir", "working_dir"])
         .unwrap_or_else(|| base.working_dir.clone());
-    let user_spec = string_field(runtime, &["User", "user"])
-        .unwrap_or_else(|| base.user_spec.clone());
+    let user_spec =
+        string_field(runtime, &["User", "user"]).unwrap_or_else(|| base.user_spec.clone());
 
     let mut image_env = env.clone();
     if !has_env(&image_env, "HOME") {
@@ -168,7 +198,9 @@ pub fn image_config(img: &Image, opts: &Options) -> Result<Config> {
 
 fn reject_image_root(opts: &Options) -> Result<()> {
     match &opts.root {
-        Some(_) => Err(Error::Config("WithRoot does not apply to an image".to_owned())),
+        Some(_) => Err(Error::Config(
+            "WithRoot does not apply to an image".to_owned(),
+        )),
         None => Ok(()),
     }
 }
@@ -339,7 +371,12 @@ fn account_lines(root: &Path, relative: &str) -> Vec<Vec<String>> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        lines.push(trimmed.split(':').map(|field| field.trim().to_owned()).collect());
+        lines.push(
+            trimmed
+                .split(':')
+                .map(|field| field.trim().to_owned())
+                .collect(),
+        );
     }
     lines
 }
@@ -480,9 +517,7 @@ impl StoredError {
             StoredError::NotFound(text) => Error::NotFound(text.clone()),
             StoredError::Config(text) => Error::Config(text.clone()),
             StoredError::Message(text) => Error::Message(text.clone()),
-            StoredError::Io(text) => {
-                Error::Io(std::io::Error::new(std::io::ErrorKind::Other, text.clone()))
-            }
+            StoredError::Io(text) => Error::Io(std::io::Error::other(text.clone())),
             StoredError::Json(text) => Error::Message(format!("json: {}", text)),
         }
     }
@@ -620,10 +655,7 @@ fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
             supervisor_ctx.cancel();
             supervisor_pid.store(0, Ordering::SeqCst);
             let value = match result {
-                Ok(code) => WaitResult {
-                    code,
-                    error: None,
-                },
+                Ok(code) => WaitResult { code, error: None },
                 Err(err) => WaitResult {
                     code: 0,
                     error: Some(StoredError::capture(&err)),

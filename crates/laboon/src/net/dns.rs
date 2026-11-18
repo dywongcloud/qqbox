@@ -123,7 +123,8 @@ impl IpCidr {
     pub fn contains(&self, ip: IpAddr) -> bool {
         match (self.network, ip) {
             (IpAddr::V4(network), IpAddr::V4(candidate)) => {
-                v4_mask(u32::from(network), self.prefix) == v4_mask(u32::from(candidate), self.prefix)
+                v4_mask(u32::from(network), self.prefix)
+                    == v4_mask(u32::from(candidate), self.prefix)
             }
             (IpAddr::V6(network), IpAddr::V6(candidate)) => {
                 v6_mask(u128::from(network), self.prefix)
@@ -166,9 +167,7 @@ pub fn is_loopback_ip(ip: IpAddr) -> bool {
         IpAddr::V4(value) => value.octets()[0] == 127,
         IpAddr::V6(value) => {
             let octets = value.octets();
-            value.is_loopback()
-                || (is_v4_mapped(&octets)
-                    && octets[12] == 127)
+            value.is_loopback() || (is_v4_mapped(&octets) && octets[12] == 127)
         }
     }
 }
@@ -181,9 +180,7 @@ pub fn is_unspecified_ip(ip: IpAddr) -> bool {
 }
 
 fn is_v4_mapped(octets: &[u8; 16]) -> bool {
-    octets[0..10].iter().all(|byte| *byte == 0)
-        && octets[10] == 0xff
-        && octets[11] == 0xff
+    octets[0..10].iter().all(|byte| *byte == 0) && octets[10] == 0xff && octets[11] == 0xff
 }
 
 pub fn is_internal(ip: IpAddr) -> bool {
@@ -195,21 +192,14 @@ pub fn is_internal(ip: IpAddr) -> bool {
 
 fn internal_v4(value: Ipv4Addr) -> bool {
     let o = value.octets();
-    let private = o[0] == 10
-        || (o[0] == 172 && (16..=31).contains(&o[1]))
-        || (o[0] == 192 && o[1] == 168);
+    let private =
+        o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168);
     let loopback = o[0] == 127;
     let link_local = o[0] == 169 && o[1] == 254;
     let multicast = (224..=239).contains(&o[0]);
     let link_local_multicast = o[0] == 224 && o[1] == 0 && o[2] == 0;
     let broadcast = o == [255, 255, 255, 255];
-    o[0] == 0
-        || private
-        || loopback
-        || link_local
-        || multicast
-        || link_local_multicast
-        || broadcast
+    o[0] == 0 || private || loopback || link_local || multicast || link_local_multicast || broadcast
 }
 
 fn internal_v6(value: Ipv6Addr) -> bool {
@@ -324,7 +314,9 @@ fn decode_name(bytes: &[u8], cursor: &mut usize) -> Result<String> {
         let length = bytes[at];
         if length & 0xc0 == 0xc0 {
             if at + 1 >= bytes.len() {
-                return Err(Error::Message("truncated dns compression pointer".to_owned()));
+                return Err(Error::Message(
+                    "truncated dns compression pointer".to_owned(),
+                ));
             }
             let target = ((usize::from(length) & 0x3f) << 8) | usize::from(bytes[at + 1]);
             if target >= at {
@@ -332,7 +324,9 @@ fn decode_name(bytes: &[u8], cursor: &mut usize) -> Result<String> {
             }
             jumps += 1;
             if jumps > 32 {
-                return Err(Error::Message("too many dns compression pointers".to_owned()));
+                return Err(Error::Message(
+                    "too many dns compression pointers".to_owned(),
+                ));
             }
             if !jumped {
                 end = at + 2;
@@ -389,7 +383,9 @@ struct Header {
 
 fn parse_header(bytes: &[u8]) -> Result<Header> {
     if bytes.len() < 12 {
-        return Err(Error::Message("dns message is shorter than its header".to_owned()));
+        return Err(Error::Message(
+            "dns message is shorter than its header".to_owned(),
+        ));
     }
     let id = u16::from_be_bytes([bytes[0], bytes[1]]);
     let flags = u16::from_be_bytes([bytes[2], bytes[3]]);
@@ -410,7 +406,9 @@ fn parse_header(bytes: &[u8]) -> Result<Header> {
 pub fn parse_query(bytes: &[u8]) -> Result<DnsMessage> {
     let header = parse_header(bytes)?;
     if header.response {
-        return Err(Error::Message("dns query has the response bit set".to_owned()));
+        return Err(Error::Message(
+            "dns query has the response bit set".to_owned(),
+        ));
     }
     if header.question_count == 0 {
         return Err(Error::Message("dns query has no question".to_owned()));
@@ -422,7 +420,11 @@ pub fn parse_query(bytes: &[u8]) -> Result<DnsMessage> {
     Ok(DnsMessage {
         id: header.id,
         recursion_desired: header.recursion_desired,
-        question: DnsQuestion { name, qtype, qclass },
+        question: DnsQuestion {
+            name,
+            qtype,
+            qclass,
+        },
     })
 }
 
@@ -506,7 +508,9 @@ pub fn build_query(name: &str, qtype: u16) -> Result<Vec<u8>> {
 pub fn parse_response(bytes: &[u8]) -> Result<DnsResponse> {
     let header = parse_header(bytes)?;
     if !header.response {
-        return Err(Error::Message("dns response has the query bit set".to_owned()));
+        return Err(Error::Message(
+            "dns response has the query bit set".to_owned(),
+        ));
     }
     let mut cursor = 12usize;
     let question_count = usize::from(header.question_count).min(MAX_ANSWERS);
@@ -576,7 +580,8 @@ impl DnsResolver {
     pub fn from_config(config: &Config) -> Self {
         let mut resolver = DnsResolver::new();
         if !config.hostname.is_empty() && is_valid_name(&config.hostname) {
-            let name = normalize_name(&config.hostname).unwrap_or_else(|_| config.hostname.to_ascii_lowercase());
+            let name = normalize_name(&config.hostname)
+                .unwrap_or_else(|_| config.hostname.to_ascii_lowercase());
             resolver.add(&name, IpAddr::V4(Ipv4Addr::LOCALHOST));
         }
         for (name, address) in &config.extra_hosts {
@@ -723,14 +728,19 @@ impl DnsResolver {
                 }
             }
         }
-        Err(Error::NetworkDenied(format!("dns lookup failed for {}", normalized)))
+        Err(Error::NetworkDenied(format!(
+            "dns lookup failed for {}",
+            normalized
+        )))
     }
 
     fn host_lookup(&self, name: &str, family: Afi) -> Result<Vec<IpAddr>> {
         let normalized = normalize_name(name)?;
         let resolved = (normalized.as_str(), 0u16)
             .to_socket_addrs()
-            .map_err(|err| Error::NetworkDenied(format!("dns lookup failed for {}: {}", normalized, err)))?;
+            .map_err(|err| {
+                Error::NetworkDenied(format!("dns lookup failed for {}: {}", normalized, err))
+            })?;
         let mut out = Vec::new();
         for address in resolved {
             let ip = address.ip();
@@ -808,7 +818,9 @@ fn tcp_exchange(server: SocketAddr, query: &[u8]) -> Result<Vec<u8>> {
     reader.read_exact(&mut length)?;
     let size = usize::from(u16::from_be_bytes(length));
     if size < 12 {
-        return Err(Error::Message("dns tcp reply is shorter than its header".to_owned()));
+        return Err(Error::Message(
+            "dns tcp reply is shorter than its header".to_owned(),
+        ));
     }
     let mut body = vec![0u8; size];
     reader.read_exact(&mut body)?;

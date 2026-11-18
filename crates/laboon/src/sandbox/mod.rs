@@ -162,22 +162,26 @@ pub fn guest_filter() -> Vec<SockFilter> {
         jf: 0,
         k: 0,
     };
-    let allow = |nr: u32| vec![
-        SockFilter {
-            code: 0x15,
-            jt: 0,
-            jf: 1,
-            k: nr,
-        },
-        SockFilter {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: SECCOMP_RET_ALLOW,
-        },
-    ];
+    let allow = |nr: u32| {
+        vec![
+            SockFilter {
+                code: 0x15,
+                jt: 0,
+                jf: 1,
+                k: nr,
+            },
+            SockFilter {
+                code: 0x06,
+                jt: 0,
+                jf: 0,
+                k: SECCOMP_RET_ALLOW,
+            },
+        ]
+    };
     let mut out = vec![load_arch, load_nr];
-    for nr in [0u32, 1, 60, 231, 202, 35, 56, 57, 158, 14, 15, 228, 96, 62, 63, 334, 309] {
+    for nr in [
+        0u32, 1, 60, 231, 202, 35, 56, 57, 158, 14, 15, 228, 96, 62, 63, 334, 309,
+    ] {
         out.extend(allow(nr));
     }
     out.push(SockFilter {
@@ -337,18 +341,15 @@ pub fn prepare(_ctx: &Context, program: &str, cfg: &Config) -> Result<RunPlan> {
             continue;
         }
         let start = segment.offset as usize;
-        let end = start.saturating_add(segment.filesz as usize).min(bytes.len());
+        let end = start
+            .saturating_add(segment.filesz as usize)
+            .min(bytes.len());
         if start >= end {
             continue;
         }
         let mut code = bytes[start..end].to_vec();
         let sites = rewrite::classify(arch, &code);
-        patched = patched.saturating_add(rewrite::patch(
-            arch,
-            &mut code,
-            &sites,
-            zig::STUB_BASE,
-        )?);
+        patched = patched.saturating_add(rewrite::patch(arch, &mut code, &sites, zig::STUB_BASE)?);
         site_count = site_count.saturating_add(sites.len());
     }
     let guest = guest_filter();
@@ -421,8 +422,8 @@ pub mod elf {
 
 pub mod seccomp {
     pub use super::{
-        backstop_filter, guest_filter, SockFilter, SECCOMP_RET_ALLOW,
-        SECCOMP_RET_KILL_PROCESS, SECCOMP_RET_TRAP, SECCOMP_TRAP_TAG,
+        backstop_filter, guest_filter, SockFilter, SECCOMP_RET_ALLOW, SECCOMP_RET_KILL_PROCESS,
+        SECCOMP_RET_TRAP, SECCOMP_TRAP_TAG,
     };
 }
 

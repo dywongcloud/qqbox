@@ -168,12 +168,7 @@ impl Forwarder {
         out
     }
 
-    pub fn hosts_file(
-        &self,
-        hostname: &str,
-        extra: &LabelMap,
-        ips: &[(String, IpAddr)],
-    ) -> String {
+    pub fn hosts_file(&self, hostname: &str, extra: &LabelMap, ips: &[(String, IpAddr)]) -> String {
         let mut entries: BTreeMap<String, Vec<IpAddr>> = BTreeMap::new();
         let loopback4 = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let loopback6 = IpAddr::V6(Ipv6Addr::LOCALHOST);
@@ -254,7 +249,9 @@ impl Forwarder {
 
 fn validate_rule(rule: &ForwardRule) -> Result<()> {
     if rule.container_port == 0 {
-        return Err(Error::Config("forward rule has no container port".to_owned()));
+        return Err(Error::Config(
+            "forward rule has no container port".to_owned(),
+        ));
     }
     let host_last = rule.host_port_end.unwrap_or(rule.host_port);
     let container_last = rule.container_port_end.unwrap_or(rule.container_port);

@@ -156,19 +156,14 @@ pub struct CreateRequest {
     pub network_disabled: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ContainerState {
+    #[default]
     Created,
     Running,
     Paused,
     Exited,
     Dead,
-}
-
-impl Default for ContainerState {
-    fn default() -> Self {
-        ContainerState::Created
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,9 +249,11 @@ impl State {
             validate_label_key(k)?;
             validate_label_value(v)?;
         }
-        let mut cfg = Config::default();
-        cfg.image = req.image.clone();
-        cfg.container_name = name.to_string();
+        let mut cfg = Config {
+            image: req.image.clone(),
+            container_name: name.to_string(),
+            ..Config::default()
+        };
         cfg.entrypoint = req.entrypoint.clone();
         cfg.cmd = req.cmd.clone();
         cfg.args = req.entrypoint.clone();
@@ -485,8 +482,7 @@ impl State {
             .ok_or_else(|| Error::NotFound(id.to_string()))?;
         c.state = ContainerState::Running;
         c.health = "healthy".to_string();
-        c.cancel
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+        c.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -528,7 +524,12 @@ impl State {
         Ok(entry)
     }
 
-    pub fn create_network(&mut self, name: &str, driver: &str, internal: bool) -> Result<NetworkEntry> {
+    pub fn create_network(
+        &mut self,
+        name: &str,
+        driver: &str,
+        internal: bool,
+    ) -> Result<NetworkEntry> {
         self.next = self.next.saturating_add(1);
         let entry = NetworkEntry {
             id: hex_id(self.next),
@@ -706,16 +707,10 @@ impl Daemon {
             return Response::json(200, &serde_json::Value::Array(value));
         }
         if path == "/containers/create" && method == "POST" {
-            let req: CreateRequest = match serde_json::from_slice(body) {
-                Ok(v) => v,
-                Err(_) => CreateRequest::default(),
-            };
+            let req: CreateRequest = serde_json::from_slice(body).unwrap_or_default();
             let name = query_param(query, "name").unwrap_or_else(|| format!("c{}", state.next + 1));
             return match state.create_container(&name, &req) {
-                Ok(c) => Response::json(
-                    201,
-                    &serde_json::json!({"Id":c.id,"Warnings":[]}),
-                ),
+                Ok(c) => Response::json(201, &serde_json::json!({"Id":c.id,"Warnings":[]})),
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
             };
         }
@@ -767,7 +762,9 @@ impl Daemon {
                     _ => Err(Error::NotFound(path.to_string())),
                 };
                 return match result {
-                    Ok(()) if action == "wait" => Response::json(200, &serde_json::json!({"StatusCode":0})),
+                    Ok(()) if action == "wait" => {
+                        Response::json(200, &serde_json::json!({"StatusCode":0}))
+                    }
                     Ok(()) => Response::empty(204),
                     Err(e) => Response::json(404, &serde_json::json!({"message":e.to_string()})),
                 };
@@ -792,7 +789,8 @@ impl Daemon {
             return Response::json(200, &serde_json::Value::Array(list));
         }
         if path == "/images/create" && method == "POST" {
-            let reference = query_param(query, "fromImage").unwrap_or_else(|| "alpine:latest".into());
+            let reference =
+                query_param(query, "fromImage").unwrap_or_else(|| "alpine:latest".into());
             return match state.pull_image(&reference) {
                 Ok(i) => Response::json(
                     200,
@@ -817,9 +815,18 @@ impl Daemon {
         }
         if path == "/networks/create" && method == "POST" {
             let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-            let name = value.get("Name").and_then(|v| v.as_str()).unwrap_or("bridge");
-            let driver = value.get("Driver").and_then(|v| v.as_str()).unwrap_or("bridge");
-            let internal = value.get("Internal").and_then(|v| v.as_bool()).unwrap_or(false);
+            let name = value
+                .get("Name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("bridge");
+            let driver = value
+                .get("Driver")
+                .and_then(|v| v.as_str())
+                .unwrap_or("bridge");
+            let internal = value
+                .get("Internal")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             return match state.create_network(name, driver, internal) {
                 Ok(n) => Response::json(201, &serde_json::json!({"Id":n.id,"Warning":""})),
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
@@ -835,21 +842,33 @@ impl Daemon {
         }
         if path == "/volumes/create" && method == "POST" {
             let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-            let name = value.get("Name").and_then(|v| v.as_str()).unwrap_or("volume");
-            let driver = value.get("Driver").and_then(|v| v.as_str()).unwrap_or("local");
+            let name = value
+                .get("Name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("volume");
+            let driver = value
+                .get("Driver")
+                .and_then(|v| v.as_str())
+                .unwrap_or("local");
             return match state.create_volume(name, driver) {
                 Ok(v) => Response::json(201, &serde_json::json!({"Name":v.name,"Driver":v.driver})),
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
             };
         }
         if path.starts_with("/exec/") {
-            return Response::json(200, &serde_json::json!({"Id":"exec","Running":false,"ExitCode":0}));
+            return Response::json(
+                200,
+                &serde_json::json!({"Id":"exec","Running":false,"ExitCode":0}),
+            );
         }
         if path == "/events" {
             return Response::json(200, &serde_json::json!({"events":[]}));
         }
         if path == "/system/df" {
-            return Response::json(200, &serde_json::json!({"ImagesSize":0,"ContainersSize":0,"VolumesSize":0}));
+            return Response::json(
+                200,
+                &serde_json::json!({"ImagesSize":0,"ContainersSize":0,"VolumesSize":0}),
+            );
         }
         if path == "/auth" {
             return Response::json(200, &serde_json::json!({"Status":"ok"}));
@@ -868,7 +887,12 @@ impl Daemon {
             let auth = request
                 .headers()
                 .iter()
-                .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("authorization"))
+                .find(|h| {
+                    h.field
+                        .as_str()
+                        .as_str()
+                        .eq_ignore_ascii_case("authorization")
+                })
                 .map(|h| h.value.as_str().to_string());
             let (path, query) = match url.split_once('?') {
                 Some((p, q)) => (p.to_string(), q.to_string()),
@@ -889,7 +913,7 @@ impl Daemon {
     }
 }
 
-fn query_param<'a>(query: &'a str, key: &str) -> Option<String> {
+fn query_param(query: &str, key: &str) -> Option<String> {
     query.split('&').find_map(|pair| {
         let (k, v) = pair.split_once('=')?;
         if k == key {

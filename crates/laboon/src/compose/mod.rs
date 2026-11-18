@@ -130,17 +130,14 @@ pub fn parse(bytes: &[u8]) -> Result<ComposeFile> {
     if let Ok(file) = serde_json::from_slice::<ComposeFile>(bytes) {
         return Ok(file);
     }
-    let file: ComposeFile = serde_yaml::from_slice(bytes)
-        .map_err(|e| Error::Config(format!("compose parse: {e}")))?;
+    let file: ComposeFile =
+        serde_yaml::from_slice(bytes).map_err(|e| Error::Config(format!("compose parse: {e}")))?;
     Ok(file)
 }
 
 fn as_string_vec(v: &serde_json::Value) -> Vec<String> {
     match v {
-        serde_json::Value::String(s) => s
-            .split_whitespace()
-            .map(|x| x.to_string())
-            .collect(),
+        serde_json::Value::String(s) => s.split_whitespace().map(|x| x.to_string()).collect(),
         serde_json::Value::Array(items) => items
             .iter()
             .map(|x| match x {
@@ -187,10 +184,7 @@ fn port_literal(v: &serde_json::Value) -> Option<String> {
         serde_json::Value::Number(n) => Some(n.to_string()),
         serde_json::Value::Object(map) => {
             let target = map.get("target")?.as_u64()? as u16;
-            let published = map
-                .get("published")
-                .and_then(|p| p.as_str())
-                .unwrap_or("0");
+            let published = map.get("published").and_then(|p| p.as_str()).unwrap_or("0");
             let proto = map
                 .get("protocol")
                 .and_then(|p| p.as_str())
@@ -367,18 +361,17 @@ fn healthcheck(v: &serde_json::Value) -> Option<Healthcheck> {
         test,
         interval_ns: get("interval"),
         timeout_ns: get("timeout"),
-        retries: map
-            .get("retries")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(3) as u32,
+        retries: map.get("retries").and_then(|x| x.as_u64()).unwrap_or(3) as u32,
         start_period_ns: get("start_period"),
     })
 }
 
 fn service_config(name: &str, s: &Service) -> Result<Config> {
-    let mut cfg = Config::default();
-    cfg.image = s.image.clone();
-    cfg.container_name = name.to_string();
+    let mut cfg = Config {
+        image: s.image.clone(),
+        container_name: name.to_string(),
+        ..Config::default()
+    };
     cfg.entrypoint = as_string_vec(&s.entrypoint);
     cfg.cmd = as_string_vec(&s.command);
     cfg.env = as_map(&s.environment)
@@ -536,10 +529,7 @@ fn order_services(f: &ComposeFile) -> Result<Vec<String>> {
 pub fn plan(f: &ComposeFile, project: &str) -> Result<InstancePlan> {
     validate(f)?;
     let order = order_services(f)?;
-    let project = f
-        .name
-        .clone()
-        .unwrap_or_else(|| project.to_string());
+    let project = f.name.clone().unwrap_or_else(|| project.to_string());
     let mut services = Vec::new();
     let mut networks = Vec::new();
     let mut volumes: BTreeMap<String, VolumePlan> = BTreeMap::new();

@@ -147,7 +147,10 @@ fn parse_volume_literal(literal: &str) -> Result<VolumeSpec> {
     let (source, target, flags) = match parts.as_slice() {
         [only] => {
             if !only.starts_with('/') || *only == "/" || has_parent_segment(only) {
-                return Err(Error::Config(format!("invalid anonymous volume: {}", literal)));
+                return Err(Error::Config(format!(
+                    "invalid anonymous volume: {}",
+                    literal
+                )));
             }
             return Ok(VolumeSpec {
                 name: sanitize_volume_name(only),
@@ -173,12 +176,7 @@ fn parse_volume_literal(literal: &str) -> Result<VolumeSpec> {
     if !flags.is_empty() {
         for flag in flags.split(',') {
             match flag {
-                "" => {
-                    return Err(Error::Config(format!(
-                        "empty volume option in {}",
-                        literal
-                    )))
-                }
+                "" => return Err(Error::Config(format!("empty volume option in {}", literal))),
                 "ro" | "readonly" => read_only = true,
                 "rw" => read_only = false,
                 "private" => propagation = MountPropagation::Private,
@@ -205,10 +203,7 @@ fn parse_volume_literal(literal: &str) -> Result<VolumeSpec> {
         (source.to_owned(), None)
     };
     if !valid_volume_name(&name) {
-        return Err(Error::Config(format!(
-            "invalid volume name in {}",
-            literal
-        )));
+        return Err(Error::Config(format!("invalid volume name in {}", literal)));
     }
     Ok(VolumeSpec {
         name,
@@ -272,9 +267,7 @@ fn validate_published_port(port: &PublishedPort) -> Result<()> {
             "ephemeral host port cannot have a range".to_owned(),
         ));
     }
-    if let (Some(host_end), Some(container_end)) =
-        (port.host_port_end, port.container_port_end)
-    {
+    if let (Some(host_end), Some(container_end)) = (port.host_port_end, port.container_port_end) {
         let host_span = u32::from(host_end) - u32::from(port.host_port);
         let container_span = u32::from(container_end) - u32::from(port.container_port);
         if host_span != container_span {
@@ -468,8 +461,7 @@ impl Options {
     }
 
     pub fn with_extra_host(mut self, host: &str, address: &str) -> Self {
-        self.extra_hosts
-            .insert(host.to_owned(), address.to_owned());
+        self.extra_hosts.insert(host.to_owned(), address.to_owned());
         self
     }
 
@@ -560,7 +552,9 @@ impl Options {
         config.net = net;
         config.no_net = no_net;
 
-        config.allow_domains.extend(self.allow_domains.iter().cloned());
+        config
+            .allow_domains
+            .extend(self.allow_domains.iter().cloned());
         config.allow_cidrs.extend(self.allow_cidrs.iter().cloned());
         config.allow_ports.extend(self.allow_ports.iter().copied());
         if !self.hostname.is_empty() {
@@ -576,9 +570,7 @@ impl Options {
         }
         for (host, address) in &self.extra_hosts {
             validate_label_key(host)?;
-            if address.is_empty()
-                || address.chars().any(|c| c.is_control() || c.is_whitespace())
-            {
+            if address.is_empty() || address.chars().any(|c| c.is_control() || c.is_whitespace()) {
                 return Err(Error::Config(format!(
                     "invalid extra host address for {}: {}",
                     host, address
@@ -586,7 +578,9 @@ impl Options {
             }
             config.extra_hosts.insert(host.clone(), address.clone());
         }
-        config.capabilities.extend(self.capabilities.iter().cloned());
+        config
+            .capabilities
+            .extend(self.capabilities.iter().cloned());
 
         for (key, value) in &self.labels {
             validate_label_key(key)?;
@@ -599,8 +593,9 @@ impl Options {
             config.published_ports.push(port.clone());
         }
         for literal in &self.publish_literals {
-            let port = crate::net::ports::parse_published_port(literal)
-                .map_err(|err| Error::Config(format!("invalid published port {}: {}", literal, err)))?;
+            let port = crate::net::ports::parse_published_port(literal).map_err(|err| {
+                Error::Config(format!("invalid published port {}: {}", literal, err))
+            })?;
             validate_published_port(&port)?;
             config.published_ports.push(port);
         }

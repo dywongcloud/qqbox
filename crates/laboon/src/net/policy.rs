@@ -5,9 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::Config;
 use crate::error::{Error, Result};
-use crate::net::dns::{
-    self, DnsCode, DnsResolver, IpCidr, CLASS_IN,
-};
+use crate::net::dns::{self, DnsCode, DnsResolver, IpCidr, CLASS_IN};
 use crate::net::socket::{Afi, SockKind};
 use crate::types::NetworkMode;
 
@@ -192,11 +190,15 @@ impl EgressPolicy {
         }
         let length = usize::from(u16::from_be_bytes([frame[0], frame[1]]));
         if frame.len() != length + 2 {
-            return Err(Error::Message("dns stream frame length mismatch".to_owned()));
+            return Err(Error::Message(
+                "dns stream frame length mismatch".to_owned(),
+            ));
         }
         let answer = self.answer(&frame[2..])?;
         if answer.len() > usize::from(u16::MAX) {
-            return Err(Error::Message("dns answer exceeds the stream frame limit".to_owned()));
+            return Err(Error::Message(
+                "dns answer exceeds the stream frame limit".to_owned(),
+            ));
         }
         let mut out = Vec::with_capacity(answer.len() + 2);
         out.extend_from_slice(&(answer.len() as u16).to_be_bytes());

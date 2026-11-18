@@ -143,7 +143,8 @@ impl Namespace {
             guest,
             read_only: m.read_only,
         });
-        self.mounts.sort_by(|a, b| b.guest.len().cmp(&a.guest.len()));
+        self.mounts
+            .sort_by_key(|entry| std::cmp::Reverse(entry.guest.len()));
         Ok(())
     }
 
@@ -162,8 +163,8 @@ impl Namespace {
                     .strip_prefix(&entry.guest)
                     .unwrap_or("")
                     .trim_start_matches('/');
-                let host_root = std::fs::canonicalize(&entry.host)
-                    .unwrap_or_else(|_| entry.host.clone());
+                let host_root =
+                    std::fs::canonicalize(&entry.host).unwrap_or_else(|_| entry.host.clone());
                 let candidate = host_root.join(rest);
                 let host = confined(&host_root, &candidate)?;
                 symlink_safe(&host, &host_root)?;
@@ -189,10 +190,13 @@ impl Namespace {
         if flags.write && resolved.read_only {
             return Err(Error::Config("EROFS".into()));
         }
-        if !flags.o_path && !flags.create && flags.read && !resolved.host.exists() {
-            if self.synth(guest_path).is_none() {
-                return Err(Error::NotFound(guest_path.to_string()));
-            }
+        if !flags.o_path
+            && !flags.create
+            && flags.read
+            && !resolved.host.exists()
+            && self.synth(guest_path).is_none()
+        {
+            return Err(Error::NotFound(guest_path.to_string()));
         }
         Ok(FileHandle { path: resolved })
     }
@@ -223,9 +227,7 @@ impl Namespace {
             return Some("self cpuinfo meminfo mounts net sys stat uptime\n".to_string());
         }
         if p == "proc/self/status" {
-            return Some(
-                "Name:\tguest\nPid:\t1\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n".to_string(),
-            );
+            return Some("Name:\tguest\nPid:\t1\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n".to_string());
         }
         if p == "proc/meminfo" {
             return Some("MemTotal:       1048576 kB\nMemFree:         524288 kB\n".to_string());

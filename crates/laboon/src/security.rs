@@ -150,9 +150,7 @@ pub fn enforce_mount(n: &Namespace, guest: &str) -> Result<()> {
         return Err(Error::PathEscape(cleaned));
     }
     let resolved = n.resolve(&cleaned)?;
-    if !resolved.guest.starts_with('/')
-        || resolved.guest.split('/').any(|part| part == "..")
-    {
+    if !resolved.guest.starts_with('/') || resolved.guest.split('/').any(|part| part == "..") {
         return Err(Error::PathEscape(resolved.guest));
     }
     if resolved

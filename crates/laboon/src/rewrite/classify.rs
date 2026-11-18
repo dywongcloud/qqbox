@@ -41,7 +41,7 @@ fn arch_name(arch: Arch) -> &'static str {
 }
 
 fn is_site(code: &[u8], off: usize, signature: &[u8], alignment: usize) -> bool {
-    if alignment == 0 || off % alignment != 0 {
+    if alignment == 0 || !off.is_multiple_of(alignment) {
         return false;
     }
     match off.checked_add(signature.len()) {
@@ -142,9 +142,9 @@ fn rewrite_site(
                     }
                 }
                 if let Some(end) = off.checked_add(AMD64_NEAR_LEN) {
-                    let clear_of_sites = !sites
-                        .iter()
-                        .any(|&site| site != off && overlaps(off, end, site, site + AMD64_SITE_LEN));
+                    let clear_of_sites = !sites.iter().any(|&site| {
+                        site != off && overlaps(off, end, site, site + AMD64_SITE_LEN)
+                    });
                     let clear_of_writes = !written
                         .iter()
                         .any(|&(start, stop)| overlaps(off, end, start, stop));
@@ -163,7 +163,7 @@ fn rewrite_site(
         }
         Arch::Arm64 => {
             let disp = target - off as i128;
-            if disp % 4 == 0 && disp >= -ARM64_B_REACH && disp < ARM64_B_REACH {
+            if disp % 4 == 0 && (-ARM64_B_REACH..ARM64_B_REACH).contains(&disp) {
                 let imm = ((disp / 4) as i32 as u32) & 0x03ff_ffff;
                 write_bytes(code, off, &(ARM64_B | imm).to_le_bytes())?;
             } else {

@@ -163,10 +163,14 @@ impl Socket {
 
     pub fn bind_addr(&mut self, addr: SocketAddr) -> Result<()> {
         if self.state != SocketState::Created {
-            return Err(Error::Message("socket is already bound or connected".to_owned()));
+            return Err(Error::Message(
+                "socket is already bound or connected".to_owned(),
+            ));
         }
         if !self.family.is_inet() {
-            return Err(Error::Message("unix sockets are served by the vfs".to_owned()));
+            return Err(Error::Message(
+                "unix sockets are served by the vfs".to_owned(),
+            ));
         }
         if !is_guest_loopback(&addr) {
             return Err(Error::NetworkDenied(
@@ -174,7 +178,9 @@ impl Socket {
             ));
         }
         if !family_matches(self.family, addr.ip()) {
-            return Err(Error::Message("socket family does not match the bind address".to_owned()));
+            return Err(Error::Message(
+                "socket family does not match the bind address".to_owned(),
+            ));
         }
         self.local = Some(addr);
         self.state = SocketState::Bound;
@@ -183,7 +189,9 @@ impl Socket {
 
     pub fn listen_on(&mut self, backlog: usize) -> Result<()> {
         if self.state != SocketState::Bound {
-            return Err(Error::Message("socket must be bound before listening".to_owned()));
+            return Err(Error::Message(
+                "socket must be bound before listening".to_owned(),
+            ));
         }
         if !self.kind.is_stream() {
             return Err(Error::Message("only stream sockets listen".to_owned()));
@@ -195,7 +203,9 @@ impl Socket {
 
     pub fn connect_to(&mut self, addr: SocketAddr) -> Result<()> {
         if self.state != SocketState::Created && self.state != SocketState::Bound {
-            return Err(Error::Message("socket cannot be connected in its current state".to_owned()));
+            return Err(Error::Message(
+                "socket cannot be connected in its current state".to_owned(),
+            ));
         }
         if !is_guest_loopback(&addr) {
             return Err(Error::NetworkDenied(
@@ -209,7 +219,9 @@ impl Socket {
 
     pub fn accepted(fd: u64, listener: &Socket, peer: SocketAddr) -> Result<Self> {
         if listener.state != SocketState::Listening {
-            return Err(Error::Message("accept requires a listening socket".to_owned()));
+            return Err(Error::Message(
+                "accept requires a listening socket".to_owned(),
+            ));
         }
         let mut socket = Socket::new(fd, listener.family, listener.kind, listener.protocol);
         socket.local = listener.local;
@@ -270,7 +282,9 @@ impl SocketTable {
         table.next_fd = fd
             .checked_add(1)
             .ok_or_else(|| Error::Message("socket descriptor space exhausted".to_owned()))?;
-        table.sockets.insert(fd, Socket::new(fd, family, kind, protocol));
+        table
+            .sockets
+            .insert(fd, Socket::new(fd, family, kind, protocol));
         Ok(fd)
     }
 
@@ -288,6 +302,10 @@ impl SocketTable {
         Ok(table.sockets.len())
     }
 
+    pub fn is_empty(&self) -> Result<bool> {
+        Ok(self.len()? == 0)
+    }
+
     pub fn bind(&self, fd: u64, addr: SocketAddr) -> Result<SocketAddr> {
         let mut table = self.guard()?;
         let current = table
@@ -296,10 +314,14 @@ impl SocketTable {
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("socket {}", fd)))?;
         if current.state != SocketState::Created {
-            return Err(Error::Message("socket is already bound or connected".to_owned()));
+            return Err(Error::Message(
+                "socket is already bound or connected".to_owned(),
+            ));
         }
         if !current.family.is_inet() {
-            return Err(Error::Message("unix sockets are served by the vfs".to_owned()));
+            return Err(Error::Message(
+                "unix sockets are served by the vfs".to_owned(),
+            ));
         }
         if !is_guest_loopback(&addr) {
             return Err(Error::NetworkDenied(
@@ -307,7 +329,9 @@ impl SocketTable {
             ));
         }
         if !family_matches(current.family, addr.ip()) {
-            return Err(Error::Message("socket family does not match the bind address".to_owned()));
+            return Err(Error::Message(
+                "socket family does not match the bind address".to_owned(),
+            ));
         }
         let port = if addr.port() == 0 {
             ephemeral_port(&table, current.family, current.kind)?
@@ -316,7 +340,10 @@ impl SocketTable {
         };
         let key = (port, current.family.code(), current.kind.code());
         if table.bound.contains_key(&key) {
-            return Err(Error::Message(format!("guest port {} is already bound", port)));
+            return Err(Error::Message(format!(
+                "guest port {} is already bound",
+                port
+            )));
         }
         let ip = if is_unspecified_ip(addr.ip()) {
             current.family.loopback_ip()
@@ -343,7 +370,9 @@ impl SocketTable {
             .get_mut(&fd)
             .ok_or_else(|| Error::NotFound(format!("socket {}", fd)))?;
         if socket.state != SocketState::Bound {
-            return Err(Error::Message("socket must be bound before listening".to_owned()));
+            return Err(Error::Message(
+                "socket must be bound before listening".to_owned(),
+            ));
         }
         if !socket.kind.is_stream() {
             return Err(Error::Message("only stream sockets listen".to_owned()));
@@ -361,7 +390,9 @@ impl SocketTable {
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("socket {}", fd)))?;
         if current.state != SocketState::Created && current.state != SocketState::Bound {
-            return Err(Error::Message("socket cannot be connected in its current state".to_owned()));
+            return Err(Error::Message(
+                "socket cannot be connected in its current state".to_owned(),
+            ));
         }
         if !is_guest_loopback(&addr) {
             return Err(Error::NetworkDenied(
@@ -369,7 +400,9 @@ impl SocketTable {
             ));
         }
         if !family_matches(current.family, addr.ip()) {
-            return Err(Error::Message("socket family does not match the connect address".to_owned()));
+            return Err(Error::Message(
+                "socket family does not match the connect address".to_owned(),
+            ));
         }
         if !current.kind.is_stream() {
             let socket = table
@@ -383,15 +416,12 @@ impl SocketTable {
         let key = (addr.port(), current.family.code(), current.kind.code());
         let listener_fd = match table.bound.get(&key) {
             Some(value) => *value,
-            None => {
-                return Err(Error::NotFound(format!(
-                    "no guest listener on {}",
-                    addr
-                )))
-            }
+            None => return Err(Error::NotFound(format!("no guest listener on {}", addr))),
         };
         if listener_fd == fd {
-            return Err(Error::Message("a socket cannot connect to itself".to_owned()));
+            return Err(Error::Message(
+                "a socket cannot connect to itself".to_owned(),
+            ));
         }
         let listener = table
             .sockets
@@ -399,7 +429,9 @@ impl SocketTable {
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("socket {}", listener_fd)))?;
         if listener.state != SocketState::Listening {
-            return Err(Error::NetworkDenied("target socket is not listening".to_owned()));
+            return Err(Error::NetworkDenied(
+                "target socket is not listening".to_owned(),
+            ));
         }
         let queued = table
             .pending
@@ -441,7 +473,9 @@ impl SocketTable {
             .cloned()
             .ok_or_else(|| Error::NotFound(format!("socket {}", fd)))?;
         if listener.state != SocketState::Listening {
-            return Err(Error::Message("accept requires a listening socket".to_owned()));
+            return Err(Error::Message(
+                "accept requires a listening socket".to_owned(),
+            ));
         }
         match table.pending.entry(fd).or_default().pop_front() {
             Some(accepted_fd) => {
@@ -464,7 +498,9 @@ impl SocketTable {
 
     pub fn send(&self, fd: u64, data: &[u8], to: Option<SocketAddr>) -> Result<usize> {
         if data.len() > MAX_DATAGRAM {
-            return Err(Error::Message("guest datagram exceeds 65535 bytes".to_owned()));
+            return Err(Error::Message(
+                "guest datagram exceeds 65535 bytes".to_owned(),
+            ));
         }
         let mut table = self.guard()?;
         let current = table
@@ -492,7 +528,14 @@ impl SocketTable {
             {
                 return Err(Error::Message("stream peer is closed".to_owned()));
             }
-            enqueue(&mut table, peer_fd, Message { from, data: data.to_vec() })?;
+            enqueue(
+                &mut table,
+                peer_fd,
+                Message {
+                    from,
+                    data: data.to_vec(),
+                },
+            )?;
             return Ok(data.len());
         }
         let destination = match to.or(current.peer) {
@@ -504,7 +547,11 @@ impl SocketTable {
                 "guest datagrams stay on the guest loopback".to_owned(),
             ));
         }
-        let key = (destination.port(), current.family.code(), current.kind.code());
+        let key = (
+            destination.port(),
+            current.family.code(),
+            current.kind.code(),
+        );
         let target_fd = match table.bound.get(&key) {
             Some(value) => *value,
             None => {
@@ -522,7 +569,14 @@ impl SocketTable {
                 socket.state = SocketState::Connected;
             }
         }
-        enqueue(&mut table, target_fd, Message { from, data: data.to_vec() })?;
+        enqueue(
+            &mut table,
+            target_fd,
+            Message {
+                from,
+                data: data.to_vec(),
+            },
+        )?;
         Ok(data.len())
     }
 
@@ -564,8 +618,7 @@ impl SocketTable {
         match queue.pop_front() {
             None => Ok(None),
             Some(Message { from, data }) => {
-                let source = from
-                    .unwrap_or_else(|| SocketAddr::new(family.loopback_ip(), 0));
+                let source = from.unwrap_or_else(|| SocketAddr::new(family.loopback_ip(), 0));
                 if data.len() <= max {
                     Ok(Some((source, data)))
                 } else {
@@ -635,14 +688,16 @@ fn ephemeral_port(table: &TableInner, family: Afi, kind: SockKind) -> Result<u16
             return Ok(port);
         }
     }
-    Err(Error::Message("no ephemeral guest port available".to_owned()))
+    Err(Error::Message(
+        "no ephemeral guest port available".to_owned(),
+    ))
 }
 
 fn family_matches(family: Afi, ip: IpAddr) -> bool {
-    match (family, ip) {
-        (Afi::Inet, IpAddr::V4(_)) | (Afi::Inet6, IpAddr::V6(_)) => true,
-        _ => false,
-    }
+    matches!(
+        (family, ip),
+        (Afi::Inet, IpAddr::V4(_)) | (Afi::Inet6, IpAddr::V6(_))
+    )
 }
 
 pub fn is_guest_loopback(addr: &SocketAddr) -> bool {

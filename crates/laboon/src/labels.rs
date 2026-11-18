@@ -82,9 +82,8 @@ fn split_expressions(input: &str) -> Vec<String> {
             .last()
             .map(|previous| previous.contains('='))
             .unwrap_or(false);
-        let starts_new = segment.starts_with("label=")
-            || segment.contains('=')
-            || !previous_has_value;
+        let starts_new =
+            segment.starts_with("label=") || segment.contains('=') || !previous_has_value;
         if parts.is_empty() || starts_new {
             parts.push(segment.to_owned());
         } else if let Some(previous) = parts.last_mut() {
@@ -137,17 +136,12 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
         shifted - 146_096
     } / 146_097;
     let day_of_era = shifted - era * 146_097;
-    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524
-        - day_of_era / 146_096)
-        / 365;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_prime = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
     let month = month_prime + if month_prime < 10 { 3 } else { -9 };
-    (
-        year + if month <= 2 { 1 } else { 0 },
-        month,
-        day,
-    )
+    (year + if month <= 2 { 1 } else { 0 }, month, day)
 }

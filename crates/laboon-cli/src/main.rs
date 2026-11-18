@@ -144,9 +144,8 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             volume,
             label,
         } => {
-            let mut opts = laboon::Options::new().with_args(
-                &args.iter().map(String::as_str).collect::<Vec<_>>(),
-            );
+            let mut opts = laboon::Options::new()
+                .with_args(&args.iter().map(String::as_str).collect::<Vec<_>>());
             if let Some(r) = root {
                 opts = opts.with_root(&r);
             }
@@ -167,12 +166,14 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 labels.insert(k.to_string(), value.to_string());
                 opts = opts.with_labels(labels);
             }
-            let (prog, cfg) = laboon::run::program_config(&program, &opts)
-                .map_err(|e| e.to_string())?;
+            let (prog, cfg) =
+                laboon::run::program_config(&program, &opts).map_err(|e| e.to_string())?;
             let ctx = laboon::Context::default();
-            let plan = laboon::sandbox::prepare(&ctx, &prog, &cfg)
-                .map_err(|e| e.to_string())?;
-            println!("{}", serde_json::to_string_pretty(&plan).unwrap_or_default());
+            let plan = laboon::sandbox::prepare(&ctx, &prog, &cfg).map_err(|e| e.to_string())?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&plan).unwrap_or_default()
+            );
             println!("backend: native guest execution is not wired on this host; the control plane above is live");
         }
         Commands::RunImage {
@@ -192,7 +193,12 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 Ok(code) => println!("exit: {code}"),
                 Err(e) => {
                     println!("image: {reference}");
-                    println!("ref: {}", laboon::oci::ImageRef::parse(&reference).map_err(|x| x.to_string())?.name());
+                    println!(
+                        "ref: {}",
+                        laboon::oci::ImageRef::parse(&reference)
+                            .map_err(|x| x.to_string())?
+                            .name()
+                    );
                     println!("status: {e}");
                 }
             }
@@ -233,16 +239,27 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 "args_escaped": config.config.args_escaped,
                 "on_build": config.config.on_build,
             });
-            println!("{}", serde_json::to_string_pretty(&value).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).unwrap_or_default()
+            );
         }
         Commands::OciInspect { file } => {
             let bytes = read(&file)?;
             let config = laboon::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
             let cfg = laboon::oci::to_run_config(&config);
-            println!("{}", serde_json::to_string_pretty(&config).unwrap_or_default());
-            println!("constructs: labels={} exposed={} volumes={} healthcheck={} history={}",
-                cfg.labels.len(), cfg.exposed_ports.len(), cfg.volumes.len(),
-                cfg.healthcheck.is_some(), config.history.len());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&config).unwrap_or_default()
+            );
+            println!(
+                "constructs: labels={} exposed={} volumes={} healthcheck={} history={}",
+                cfg.labels.len(),
+                cfg.exposed_ports.len(),
+                cfg.volumes.len(),
+                cfg.healthcheck.is_some(),
+                config.history.len()
+            );
         }
         Commands::PortsCheck { specs } => {
             let mut published = Vec::new();
@@ -256,14 +273,18 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                     .map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?;
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "published": published,
-                "forward_plan": rules,
-                "unpublished_rule": denied,
-                "denied": forwarder.check(&denied).is_err(),
-                "hosts": forwarder.hosts_file("laboon", &Default::default(), &[]),
-                "resolv_conf": forwarder.resolv_conf(&[], &[]),
-            })).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "published": published,
+                    "forward_plan": rules,
+                    "unpublished_rule": denied,
+                    "denied": forwarder.check(&denied).is_err(),
+                    "hosts": forwarder.hosts_file("laboon", &Default::default(), &[]),
+                    "resolv_conf": forwarder.resolv_conf(&[], &[]),
+                }))
+                .unwrap_or_default()
+            );
         }
         Commands::ComposePlan { file } => {
             let bytes = read(&file)?;
@@ -273,7 +294,10 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "laboon".to_string());
             let plan = laboon::compose::plan(&compose, &name).map_err(|e| e.to_string())?;
-            println!("{}", laboon::compose::to_json(&plan).map_err(|e| e.to_string())?);
+            println!(
+                "{}",
+                laboon::compose::to_json(&plan).map_err(|e| e.to_string())?
+            );
         }
         Commands::ComposeValidate { file } => {
             let bytes = read(&file)?;
@@ -282,33 +306,47 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             println!("services: {}", compose.services.len());
             for (name, service) in &compose.services {
                 let labels = laboon::compose::service_label_count(&service.labels);
-                println!("  {name}: image={} ports={} volumes={} labels={}",
-                    service.image, service.ports.len(), service.volumes.len(), labels);
+                println!(
+                    "  {name}: image={} ports={} volumes={} labels={}",
+                    service.image,
+                    service.ports.len(),
+                    service.volumes.len(),
+                    labels
+                );
             }
             println!("networks: {}", compose.networks.len());
             println!("volumes: {}", compose.volumes.len());
         }
         Commands::RuntimeSpec { action } => match action {
             RuntimeAction::Features => {
-                println!("{}", serde_json::to_string_pretty(&laboon::oci::runtime::features()).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&laboon::oci::runtime::features())
+                        .unwrap_or_default()
+                );
             }
             RuntimeAction::Validate { file } => {
                 let bytes = read(&file)?;
                 let spec = laboon::oci::runtime::parse(&bytes).map_err(|e| e.to_string())?;
-                let (cfg, rejected) = laboon::oci::runtime::apply(&spec).map_err(|e| e.to_string())?;
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "oci_version": spec.oci_version,
-                    "root": spec.root,
-                    "readonly_root": cfg.readonly_rootfs,
-                    "mounts": cfg.mounts,
-                    "volumes": cfg.volumes,
-                    "hostname": cfg.hostname,
-                    "annotations": spec.annotations,
-                    "namespaces": spec.linux.as_ref().map(|l| &l.namespaces),
-                    "rejected_fail_closed": rejected,
-                    "args": cfg.args,
-                    "env": cfg.env,
-                })).unwrap_or_default());
+                let (cfg, rejected) =
+                    laboon::oci::runtime::apply(&spec).map_err(|e| e.to_string())?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "oci_version": spec.oci_version,
+                        "root": spec.root,
+                        "readonly_root": cfg.readonly_rootfs,
+                        "mounts": cfg.mounts,
+                        "volumes": cfg.volumes,
+                        "hostname": cfg.hostname,
+                        "annotations": spec.annotations,
+                        "namespaces": spec.linux.as_ref().map(|l| &l.namespaces),
+                        "rejected_fail_closed": rejected,
+                        "args": cfg.args,
+                        "env": cfg.env,
+                    }))
+                    .unwrap_or_default()
+                );
             }
         },
         Commands::ImagePlan { reference } => {
@@ -328,10 +366,17 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::NetworkPlan { file } => {
             let bytes = read(&file)?;
             let compose = laboon::compose::parse(&bytes).map_err(|e| e.to_string())?;
-            let name = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = file
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let plan = laboon::compose::plan(&compose, &name).map_err(|e| e.to_string())?;
             let forwarder = laboon::net::Forwarder::new(
-                &plan.services.iter().flat_map(|s| s.config.published_ports.clone()).collect::<Vec<_>>(),
+                &plan
+                    .services
+                    .iter()
+                    .flat_map(|s| s.config.published_ports.clone())
+                    .collect::<Vec<_>>(),
             )
             .map_err(|e| e.to_string())?;
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({
