@@ -42,3 +42,6 @@ go.work.sum
 !.gm/mutables-log.jsonl
 !.gm/unknowns-log.jsonl
 !.gm/receipts/
+
+# macOS Finder metadata
+.DS_Store
