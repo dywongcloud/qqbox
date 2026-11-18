@@ -1,0 +1,45 @@
+{
+  "created": "2026-01-01T00:00:00Z",
+  "author": "laboon witness",
+  "architecture": "arm64",
+  "os": "linux",
+  "variant": "v8",
+  "os.version": "26.3.1",
+  "os.features": ["sse"],
+  "config": {
+    "User": "1000:1000",
+    "ExposedPorts": {"8080/tcp": {}, "5353/udp": {}},
+    "Env": ["PATH=/usr/local/bin:/usr/bin:/bin", "WITNESS=ok"],
+    "Entrypoint": ["/bin/sh", "-c"],
+    "Cmd": ["echo hello"],
+    "Volumes": {"/data": {}},
+    "WorkingDir": "/workspace",
+    "Labels": {"com.example.team": "sandbox", "com.example.tier": "witness"},
+    "StopSignal": "SIGTERM",
+    "ArgsEscaped": false,
+    "Shell": ["/bin/sh", "-c"],
+    "OnBuild": ["RUN echo onbuild"],
+    "Hostname": "witness",
+    "Domainname": "example.test",
+    "AttachStdin": false,
+    "AttachStdout": true,
+    "AttachStderr": true,
+    "Tty": false,
+    "OpenStdin": false,
+    "StdinOnce": false,
+    "NetworkDisabled": false,
+    "MacAddress": "02:42:ac:11:00:02",
+    "Healthcheck": {
+      "Test": ["CMD", "/bin/true"],
+      "Interval": 5000000000,
+      "Timeout": 1000000000,
+      "Retries": 3,
+      "StartPeriod": 2000000000
+    }
+  },
+  "rootfs": {"type": "layers", "diff_ids": ["sha256:aaaa", "sha256:bbbb"]},
+  "history": [
+    {"created": "2026-01-01T00:00:00Z", "created_by": "FROM scratch", "comment": "base"},
+    {"created": "2026-01-01T00:00:01Z", "created_by": "LABEL", "empty_layer": true}
+  ]
+}

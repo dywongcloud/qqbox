@@ -1,0 +1,14 @@
+[package]
+name = "laboon-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+laboon = { path = "../laboon" }
+clap.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "laboon"
+path = "src/main.rs"

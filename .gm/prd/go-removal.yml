@@ -1,0 +1,7 @@
+id: go-removal
+subject: End-to-end removal of the Go portions
+body: Delete the Go module tree, Go workspace and Go-specific build tooling once the Rust surface covers them; retain only Zig stubs, testdata binaries and fixtures needed by the Rust implementation; no Go source remains in the repository.
+acceptance_criteria: A live witness shows no .go files remain and the Rust workspace still builds
+session_id: 355e5752-dc96-459f-9557-4a2a6330d91b
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

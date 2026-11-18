@@ -1,0 +1,19 @@
+[package]
+name = "laboon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+clap.workspace = true
+ureq.workspace = true
+flate2.workspace = true
+tar.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+tiny_http.workspace = true

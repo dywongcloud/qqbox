@@ -10,8 +10,10 @@ amd64 or arm64. There is no virtual machine and no second kernel. The guest's
 own machine code runs natively on the host CPU; only its `syscall`/`svc`
 instructions are redirected into a Go supervisor that emulates the Linux ABI.
 
-The supervisor is Go (with `purego` for host calls). The in-guest stub and every
-native helper are Zig. The two talk over a shared-memory channel.
+The Rust supervisor is the current control plane (`crates/laboon`); the original Go
+supervisor remains in the tree as the working native guest backend until the three
+per-OS backends are ported. See docs/PORT_STATUS.md. The in-guest stub and every
+native helper are Zig. The two talk over the shared-memory channel.
 
 ## Rule 1: only syscall instructions are rewritten
 
@@ -20,10 +22,12 @@ instrument, or interpret guest code. The rewriter locates the syscall sites in a
 loaded image and patches those instructions to trap into the supervisor; every
 other byte of the program executes untouched.
 
-- A syscall the rewriter missed must reach the host backstop (seccomp on Linux,
-  Seatbelt on macOS, the AppContainer on Windows), which kills the guest
-  (`ErrKilled`). That is the design: a miss is a loud failure, never a silent
-  emulation path around the rewriter.
+- A syscall the rewriter missed reaches the host backstop. On Linux the seccomp
+  text-range check TRAPs (`SECCOMP_TRAP_TAG`) and the SIGSYS handler routes the
+  call to the supervisor, so static rewriting is an optimization and the trap is
+  the correctness backstop; `ErrKilled` fires only for a genuinely rejected call.
+  macOS Seatbelt and the Windows instrumentation callback kill. Never add a
+  silent emulation path around the rewriter.
 - The rewriter finds syscall sites **without a disassembler** — hand-rolled
   per-architecture classifiers, with `arm64asm`/`x86asm` used only as test
   oracles. Do not pull in a full disassembler to "fix" a miss; fix the
@@ -67,12 +71,14 @@ become an I/O engine.
   Do not widen the guest filter or make the hop loop read writable memory for
   convenience; route the call through the hop thread instead.
 
-## Rule 4: native code is Zig, supervisor code is Go
+## Rule 4: native code is Zig, supervisor code is Rust
 
 - Every stub and native helper is Zig. No C. The freestanding stub links no
   libc.
-- The supervisor is Go. Host system calls it cannot make from Go go through
-  `purego`, not a cgo shim.
+- The Rust supervisor uses typed host bindings, not a cgo shim. The legacy Go
+  supervisor used `purego`; it is retained only as the native backend reference.
+- `crates/laboon/src/zig/abi.rs` freezes the 128-byte channel layout. Any change
+  to the Zig side must keep those offsets byte-identical.
 
 ## Rule 5: libraries take options, not environment
 
@@ -89,13 +95,12 @@ become an I/O engine.
 - Platforms are `linux`, `darwin`, `windows` × `amd64`, `arm64`. A change to a
   syscall handler, the rewriter, or the channel is cross-platform until proven
   otherwise — gate the item, then run the full corpus.
-- The repository is a Go workspace (`go.work`). The core library is the root
-  module; `cmd/laboon` is a module of its own so the library stays lean, and a
-  future daemon (Docker-API compatible plus ConnectRPC) is its own module too,
-  keeping heavy client deps out of the core. Build the CLI with
-  `go build ./cmd/laboon`.
-- `go test ./...` for the Go side; the sandbox suite (`go test ./sandbox/`) is
-  the main gate for guest-behavior changes. Zig stubs build through `build/`.
+- The Rust workspace is the build entry point: `cargo build --workspace` builds the
+  library, the `laboon` CLI and the `laboond` daemon. The Go workspace (`go.work`)
+  remains as the native backend reference; build its CLI with `go build ./cmd/laboon`.
+- `cargo run -p laboon-cli -- invariants` and the live CLI witnesses are the gate
+  for control-plane changes. Zig stubs rebuild through `make stubs`; the committed
+  `.bin` blobs are embedded with `include_bytes!` so a Rust build needs no Zig.
 - Never use a sleep, timeout, or periodic recheck as a correctness fix, and
   never inject a delay to reproduce a race — fix the synchronization.
 - Keep comments minimal; prefer code that reads without them. Do not tag a

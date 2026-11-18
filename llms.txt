@@ -1,10 +1,12 @@
-# laboon
+# laboon / literbox
 
 > laboon runs unmodified Linux programs and OCI containers in a sandbox with no
 > virtual machine and no second kernel, on Linux, macOS, and Windows (amd64 and
 > arm64). The guest's machine code runs natively on the host CPU; only its
-> syscall instructions are rewritten to trap into a Go supervisor that emulates
-> the Linux ABI. The in-guest stub and native helpers are Zig.
+> syscall instructions are rewritten to trap into a supervisor that emulates the
+> Linux ABI. The in-guest stub and native helpers are Zig. This fork is mid-port:
+> the supervisor control plane is Rust (`crates/laboon`), while the Go tree remains
+> as the working native guest backend. See docs/PORT_STATUS.md.
 
 Key facts for answering questions about this repository:
 
@@ -12,31 +14,42 @@ Key facts for answering questions about this repository:
   rewritten, located without a disassembler. Slowdown tracks syscall density,
   not a flat multiplier.
 - All guest filesystem access goes through a single `vfs` Namespace chokepoint;
-  the Go supervisor owns all filesystem and network I/O. The stub forwards.
-- A syscall the rewriter missed reaches the host backstop (seccomp on Linux,
-  Seatbelt on macOS, AppContainer on Windows) and kills the guest (`ErrKilled`).
+  the supervisor owns all filesystem and network I/O. The stub forwards.
+- A missed syscall on Linux reaches a seccomp text-range `RET_TRAP` and is routed
+  to the supervisor; macOS Seatbelt and the Windows instrumentation callback kill.
+  `ErrKilled` is not the Linux behavior — older docs claiming that were stale.
 - Networking is opt-in (`WithNet` / `-net`) with domain, CIDR, and port egress
-  allowlists. Library packages read no environment variables; behavior is set
-  through `With…` options.
+  allowlists. Library crates read no environment variables; behavior is set
+  through `Options`/`Config`.
+- The Rust build entry point is `Cargo.toml` (`cargo build --workspace`). The
+  `laboon` CLI and `laboond` daemon are separate crates. The Zig channel ABI is
+  frozen in `crates/laboon/src/zig/abi.rs` (128-byte `chanPage`).
+- Ports, port forwarding, volumes, labels, OCI runtime-spec `config.json` and
+  Docker Compose are implemented in Rust; see docs/OCI_MATRIX.md.
 - It runs container engines nested: podman and Docker launch their own
   containers inside the sandbox. It also runs Node.js/V8, headless Chromium,
   PostgreSQL/MariaDB/Redis, and laboon inside laboon.
 
 ## Docs
 
-- [README](README.md): what laboon is, quickstart (CLI and Go API), how it works, security model, platforms.
+- [README](README.md): what laboon is, the Rust build, the CLI, the security model and the OCI surface.
 - [AGENTS.md](AGENTS.md): architecture invariants and guidance for working in the tree.
-- [PERF.md](PERF.md): measured overhead, the rule of thumb, and macOS channel numbers.
+- [OCI_MATRIX.md](docs/OCI_MATRIX.md): construct-by-construct OCI, Compose and Docker-API coverage.
+- [PORT_STATUS.md](docs/PORT_STATUS.md): the honest boundary of the Go-to-Rust port.
+- [SINGLE_ADDRESS_SPACE.md](docs/SINGLE_ADDRESS_SPACE.md): why instances keep one address space each.
+- [PERF.md](docs/PERF.md): measured overhead (historical, from a different host).
 - [COPYRIGHT](COPYRIGHT) and [LICENSE](LICENSE): Apache License 2.0, Copyright 2026 Bunshin Labs LLC.
 
 ## Code
 
-- [laboon.go](laboon.go): the public API — `Run` (host binary) and `RunImage` (OCI image), with `Start`/`StartImage`.
-- [options.go](options.go): the `With…` options that configure a run.
-- [example_test.go](example_test.go): a runnable usage example.
-- [cmd/laboon](cmd/laboon): the command-line interface.
-- [sandbox/](sandbox): the Linux syscall ABI emulation and the supervisor.
+- [Cargo.toml](Cargo.toml): the Rust workspace root.
+- [crates/laboon](crates/laboon): the library — options, config, oci, vfs, net, compose, rewrite, sandbox, zig, daemon, security.
+- [crates/laboon-cli](crates/laboon-cli): the `laboon` CLI.
+- [crates/laboond](crates/laboond): the `laboond` Docker-compatible daemon.
+- [laboon.go](laboon.go) and [options.go](options.go): the legacy Go public API, retained as the native backend reference.
+- [cmd/laboon](cmd/laboon): the legacy Go CLI.
+- [internal/sandbox](internal/sandbox): the Linux syscall ABI emulation and Go supervisor.
 - [stub/](stub): the freestanding Zig guest stub and native helpers.
-- [rewrite/](rewrite): the syscall-site rewriter (no disassembler).
-- [vfs/](vfs): the homogeneous filesystem Namespace all guest paths resolve through.
-- [oci/](oci): OCI image pull, store, and container build.
+- [internal/rewrite](internal/rewrite): the Go syscall-site rewriter (no disassembler).
+- [internal/vfs](internal/vfs): the homogeneous filesystem Namespace all guest paths resolve through.
+- [internal/oci](internal/oci): the Go OCI image pull and store.

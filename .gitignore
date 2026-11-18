@@ -26,3 +26,19 @@
 /macos/m*/*.elf
 /macos/m*/*.elf.o
 /macos/m*/*.bin
+
+# Rust build output
+/target
+
+# Agent/daemon scratch
+.agentplug-kv/
+go.work.sum
+
+# gm runtime state: keep the PRD/unknown receipts, ignore everything else
+.gm/*
+!.gm/prd/
+!.gm/mutables/
+!.gm/prd-log.jsonl
+!.gm/mutables-log.jsonl
+!.gm/unknowns-log.jsonl
+!.gm/receipts/
