@@ -26,11 +26,12 @@
         "reproduced on the host: case-insensitive APFS + os.Root.Symlink('thunar','Thunar') + r.OpenFile('thunar', O_CREATE|O_TRUNC) -> 'openat thunar: too many levels of symbolic links'",
         "image has usr/bin/Thunar -> thunar AND regular usr/bin/thunar (63,187 flattened tar entries, zero duplicate paths)",
         "internal/oci/unpack_unix.go now calls replaceLink before writing a directory, regular file or hard link; second pull succeeded",
-        "go test ./internal/oci/... and ./internal/sandbox/... pass; go build ./cmd/laboon clean",
-        "probe.log: Ubuntu 24.04.5 LTS, /usr/share/xubuntu, XFCE binaries, WEBTOP_PROBE_DONE"
+        "go test ./internal/oci/... and ./internal/sandbox/... pass; go build ./cmd/laboon clean (gates, not the proof of this fix)",
+        "live A/B: first pull failed with that exact ELOOP; the rebuilt CLI unpacked all 63,187 flattened entries; an adversarial verifier neutralized replaceLink via Go -overlay and reproduced the original error while the committed suite still passed",
+        "probe.log: PRETTY_NAME='Ubuntu 24.04 LTS' (VERSION='24.04 LTS (Noble Numbat)'), /usr/share/xubuntu, XFCE binaries, WEBTOP_PROBE_DONE"
       ],
       "adapter_1": "ENTRYPOINT /init is s6-overlay; laboon runs one program, so the derived image clears ENTRYPOINT and uses its own start script. The XFCE session itself is the stock /usr/bin/xfce4-session.",
-      "adapter_2": "Stock KasmVNC Xvnc serves HTTP/websocket on 3000. Its traditional -rfbport mode completes the RFB handshake (ServerInit 1280x800 bpp=32 depth=24 name='x11') but sends zero framebuffer updates: 'ComparingUpdateTracker: 0 pixels in / 0 pixels out', 'EncodeManager: 0 rects, 0 pixels', across raw/full-encoding-list/-CompareFB 0/pointer-first variants. x11vnc + Xvfb (four apt packages) are added; RFB capture then returned raw_bytes=4096000, distinct_colors=3667."
+      "adapter_2": "Stock KasmVNC Xvnc serves HTTP/websocket on 3000. Its traditional -rfbport mode completes the RFB handshake (ServerInit 1280x800 bpp=32 depth=24 name='x11') but sends zero framebuffer updates: 'ComparingUpdateTracker: 0 pixels in / 0 pixels out', 'EncodeManager: 0 rects, 0 pixels', across raw/full-encoding-list/-CompareFB 0/pointer-first variants. Five apt packages (x11vnc, Xvfb, scrot, xdotool, netsurf-gtk) are added. The derived guest's RFB capture then returned raw_bytes=4096000 with distinct_colors=6714 (final-5905-desktop.png) and 8837 after the terminal was used (final-restored.png)."
     },
     {
       "id": "X3",
@@ -55,12 +56,12 @@
         "with -net: getent hosts example.com -> 2606:4700:10::..., TCP 1.1.1.1:443 OK",
         "with -net: curl https://example.com/ -> HTTP 200 104.20.23.154; https://www.google.com/ -> HTTP 200",
         "with -net: apt-get update inside the stock Xubuntu guest fetched 65.2 MB",
-        "with -net: windowed Chromium on Xvfb rendered the real Example Domain page",
-        "without -net: Chromium shows 'No internet / Reconnecting to Wi-Fi / ERR_INTERNET_DISCONNECTED'",
+        "without -net: Chromium in the separate examples/xfce Alpine guest shows 'No internet / Reconnecting to Wi-Fi / ERR_INTERNET_DISCONNECTED'",
+        "with -net: NetSurf in the stock Xubuntu guest rendered the real Example Domain page (netsurf-http.png)",
         "-allow-domains example.com REFUSED other DNS queries and blocked direct-IP connects; the flags only restrict",
         "internal/sandbox/egress.go:99-127 default allows all non-loopback; net_unix.go:872-879 intercepts :53; msg_unix.go:658-713 answers in-supervisor"
       ],
-      "root_cause": "A guest launched without -net has virtual INET sockets with no host reach and no DNS proxy, so Chromium renders its generic offline boilerplate. 'Reconnecting to Wi-Fi' is Chromium's suggestion text, not a wifi driver failure. The Go runtime does not generate /etc/resolv.conf; start-xubuntu.sh writes 'nameserver 8.8.8.8' for deterministic glibc clients.",
+      "root_cause": "A guest launched without -net has virtual INET sockets with no host reach and no DNS proxy, so a browser renders its generic offline boilerplate. 'Reconnecting to Wi-Fi' is Chromium's suggestion text, witnessed in the separate Alpine example; it is not a wifi driver failure. The Go runtime does not generate /etc/resolv.conf; start-xubuntu.sh writes 'nameserver 8.8.8.8' for deterministic glibc clients.",
       "honest_boundary": "802.11 wifi cannot be emulated: laboon pairs socket endpoints, not packets (internal/sandbox/VNET.md:19-26). No AF_PACKET/TUN, raw sockets, ICMP, nl80211 or wireless extensions; netlink RTM_GETLINK mirrors host interfaces. NetworkManager/wpa_supplicant/iw are absent from the image. ping failing is expected. Working DNS+TCP+HTTPS egress and a browser that loads real pages is the honest equivalent."
     },
     {
@@ -68,11 +69,11 @@
       "claim": "The stock Firefox renders web pages under laboon",
       "verdict": "REFUTED",
       "evidence": [
-        "firefox.log: 'Sandbox: chroot: EPERM' and '[Parent ...] process exited on signal 11'",
+        "final-5906/firefox.log: 'Sandbox: chroot: EPERM' and '[Parent 129, IPC I/O Parent] WARNING: process 251 exited on signal 11'",
         "MOZ_DISABLE_CONTENT_SANDBOX=1, all sandbox-disable env variants, MOZ_FORCE_DISABLE_E10S=1, security.sandbox.content.level=0, network.trr.mode=5 and layers.acceleration.disabled=true were each tried; all produced a blank or perpetually loading page",
         "https://example.com/ appears in Firefox's address bar but its content area stays blank"
       ],
-      "root_cause": "Firefox's content sandbox calls chroot(), which laboon's vfs-Namespace-only filesystem refuses; the renderer dies. This is a browser compatibility limit, NOT a network failure: curl, apt, NetSurf and Chromium all reach the same URLs in the same guest."
+      "root_cause": "Firefox's content sandbox calls chroot(), which laboon's vfs-Namespace-only filesystem refuses; the renderer dies. This is a browser compatibility limit, NOT a network failure: curl, apt and NetSurf all reach the same URLs in the same guest. Chromium is not installed in this image; its offline boilerplate was witnessed in the separate Alpine example."
     },
     {
       "id": "X4c",
@@ -102,11 +103,12 @@
   "live_cutover": {
     "target": "TCP 5905",
     "verification_port": "5906",
-    "image": "laboon-xubuntu:stock",
+    "image": "laboon-xubuntu:stock (DERIVED, not the pristine stock rootfs)",
+    "derivation": "5 added apt packages, ENTRYPOINT cleared, CMD replaced by /usr/local/bin/start-xubuntu.sh, s6-overlay /init and KasmVNC bypassed, custom /etc/resolv.conf and chown /config. The XFCE session, xfce4-terminal, Firefox, Thunar and Xubuntu theme are the image's own.",
     "base_digest": "sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55",
     "built_image_manifest_digest": "sha256:c8a72c77917be850bfd3b5cb41c6716c83fbeb4cf35c7506b7fd27344938160a",
     "built_config_digest": "sha256:b2891ffc80f03dd8e8cae16974fc0ebbf02115dd695ffbd03690c52f9632d079",
-    "vnc_readiness": "x11vnc starts 7s after launch, before the XFCE session"
+    "vnc_readiness": "x11vnc starts 5s after launch (stages.log 22:35:49 -> 22:35:54) and is alive at 22:35:57, before the XFCE session"
   },
   "known_warnings": [
     "Firefox's content sandbox tries chroot() -> EPERM and crashes renderers under laboon; it stays installed but is not launched. Verified against five sandbox-disable variants.",

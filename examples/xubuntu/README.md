@@ -55,8 +55,10 @@ mkdir -p /tmp/laboon-xubuntu-out
 ```
 
 `-net` is **not optional**: it is the switch that enables the supervisor's DNS
-interception and host-socket egress. Without it Chromium/Firefox render the
-generic offline page whose boilerplate says "Reconnecting to Wi-Fi".
+interception and host-socket egress. Without it a browser gets no DNS and no
+host reach; Chromium in the separate `examples/xfce` Alpine guest renders the
+generic offline page whose boilerplate says "Reconnecting to Wi-Fi". Chromium is
+not installed in this stock webtop image.
 
 ## Three fixes
 
@@ -83,7 +85,12 @@ of symbolic links`. The image contains `usr/bin/Thunar -> thunar` and the
 regular file `usr/bin/thunar`; macOS APFS is case-insensitive, so the alias
 becomes a self-link and `os.Root.OpenFile` followed it into `ELOOP`.
 `internal/oci/unpack_unix.go` now removes a symlink before writing a directory,
-regular file or hard link over it. `go test ./internal/oci/...` passes.
+regular file or hard link over it. The witnesses are live: the first pull of the
+stock image failed with that exact ELOOP, the rebuilt CLI unpacked all 63,187
+flattened tar entries successfully, and an adversarial verifier reproduced the
+original error by neutralizing `replaceLink` via a Go `-overlay` while the
+committed suite still passed. `go test ./internal/oci/...` remains a gate, not
+the proof of this fix.
 
 ### 3. Network / "wifi"
 
@@ -97,9 +104,9 @@ TCP 1.1.1.1:443 OK, example.com:443 OK
 curl https://example.com/ -> HTTP 200 104.20.23.154
 curl https://www.google.com/ -> HTTP 200 142.251.153.119
 apt-get update inside the stock Xubuntu guest -> Fetched 65.2 MB
-windowed Chromium on Xvfb -> "Example Domain - Chromium" with the real page
+windowed Chromium in the separate examples/xfce Alpine guest -> "Example Domain - Chromium"
 NetSurf on the stock rootfs -> "Example Domain - NetSurf", real page (netsurf-http.png)
-VNC-typed curl in the native terminal -> LIVE_5905_XUBUNTU_OK / Ubuntu 24.04 LTS / HTTP 200 (live-terminal-witness.png)
+VNC-typed `sh /out/w.sh` in the native terminal -> FINAL_5905_NATIVE_OK / Ubuntu 24.04 LTS / HTTP 200 / DONE (live-terminal-witness.png)
 ```
 
 `internal/sandbox/egress.go:99-127` allows everything except loopback and
@@ -128,8 +135,8 @@ handshake with `ServerInit 1280x800 bpp=32 depth=24`, but sends **no**
 framebuffer updates under laboon (`ComparingUpdateTracker: 0 pixels in / 0
 pixels out`, `EncodeManager: 0 rects, 0 pixels`, across four encoding sets and
 `-CompareFB 0`). `x11vnc` + `Xvfb` are the pair already proven in this repo, so
-the Dockerfile adds only those. The stock XFCE session itself
-(`/usr/bin/xfce4-session`) is unchanged.
+the Dockerfile adds those plus `scrot`, `xdotool` and `netsurf-gtk` (five apt
+packages). The stock XFCE session itself (`/usr/bin/xfce4-session`) is unchanged.
 
 Firefox **is installed** (stock) but cannot render under laboon: its content
 sandbox calls `chroot()`, which the vfs-Namespace-only filesystem refuses
@@ -168,4 +175,4 @@ open raw sockets. None of these affect the desktop, terminal or egress.
 | `xubuntu-live-5905.png` | live 5905 cutover: Xubuntu wallpaper + browser + native terminal |
 | `live-terminal-witness.png` | VNC-typed `FINAL_5905_NATIVE_OK` / `Ubuntu 24.04 LTS` / `HTTP 200` / `DONE` |
 | `network-evidence.txt` | `getent` + `curl` HTTP 200 for example.com and google.com |
-| `xubuntu-xwd.png` | stock XFCE session on the image's own KasmVNC X server |
+| `xubuntu-xwd.png` | stock XFCE session captured with `xwd` off the added Xvfb `:99` |
