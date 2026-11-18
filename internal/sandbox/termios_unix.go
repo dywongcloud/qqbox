@@ -230,7 +230,8 @@ func (g *dguest) ttyIoctl(d *dfile, req, arg uint64) int64 {
 		}
 		return 0
 	case lxTIOCPKT:
-		// Packet mode is not emulated on the slave side either; see ptmxIoctl.
+		// Packet mode is a master-side property; ptmxIoctl forwards it to the
+		// host pty master. A slave has no packet stream to configure.
 		return 0
 	case lxTIOCGPTN, lxTIOCSPTLCK, lxTIOCGPTLCK, lxTIOCGPTPEER:
 		return sErr(lxENOTTY) // a slave, not a ptmx
