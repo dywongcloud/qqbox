@@ -104,7 +104,8 @@
     "verification_port": "5906",
     "image": "laboon-xubuntu:stock",
     "base_digest": "sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55",
-    "built_config_digest": "sha256:c8a72c77917be850bfd3b5cb41c6716c83fbeb4cf35c7506b7fd27344938160a",
+    "built_image_manifest_digest": "sha256:c8a72c77917be850bfd3b5cb41c6716c83fbeb4cf35c7506b7fd27344938160a",
+    "built_config_digest": "sha256:b2891ffc80f03dd8e8cae16974fc0ebbf02115dd695ffbd03690c52f9632d079",
     "vnc_readiness": "x11vnc starts 7s after launch, before the XFCE session"
   },
   "known_warnings": [
