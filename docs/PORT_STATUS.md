@@ -54,6 +54,26 @@ plane for a complete runtime.
   and every security primitive (`enforce_wx`, `enforce_memory_cap`, `enforce_mount`,
   `enforce_egress`, `backstop_verdict`) is wired into the live `prepare` path.
 
+## Interfaces added for upstream-UX parity
+
+The upstream laboon README documents five interfaces. Three existed in Rust
+(`qqbox`, `qqboxd`, the `qqbox` library); two were added so the Rust tree offers
+the same user experience rather than documenting commands that do not exist:
+
+- `crates/qqbox-mcp` → `qqbox-mcp`: JSON-RPC 2.0 MCP server over newline-delimited
+  stdio and streamable HTTP. `initialize`, `ping`, `tools/list`, `tools/call`.
+  The `run` tool calls `qqbox::run_image` and returns `isError: true` with the
+  real `UnsupportedPlatform` diagnostic; it does not fabricate a run. Seven
+  control-plane tools are fully witnessed (invariants, routes, runtime-spec
+  validate, image-config validate, ports, compose plan, version).
+- `crates/qqbox-runtime` → `qqbox-runtime`: OCI runtime shim with
+  `create`/`start`/`state`/`kill`/`delete`/`features`. `create` parses, validates
+  and applies `config.json` fail-closed and writes real JSON state; `start`
+  reports the native-backend diagnostic. Witnessed live.
+
+These are control-plane integrations. Neither removes the need for the three
+native guest-execution backends, and `go-removal` stays pending for that reason.
+
 ## Adversarial verification findings still open
 
 Four independent adversarial verifiers attacked the built artifact. The live findings
