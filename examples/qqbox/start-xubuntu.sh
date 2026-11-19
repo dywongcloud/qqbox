@@ -13,6 +13,28 @@ chmod 700 "$XDG_RUNTIME_DIR"; chown -R 0:0 /config 2>/dev/null || true
 rm -f /out/ready.txt /out/result.txt /out/stages.log /run/dbus/pid /run/dbus/system_bus_socket
 stage() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >>/out/stages.log; }
 
+# Ubuntu 26.04 routes scalable icons through glycin, whose loaders are spawned
+# by bwrap; bwrap's mount(MS_SLAVE) fails under qqbox and xfce4-panel aborts.
+# Exec the real glycin loader without that unusable mount sandbox. Idempotent:
+# the image's Dockerfile also installs this shim, so preserve the original once.
+if [ ! -x /usr/bin/bwrap.qqbox-orig ]; then
+  cp /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig 2>/dev/null || true
+fi
+cat > /usr/bin/bwrap <<'SHIM'
+#!/bin/sh
+i=1
+for a in "$@"; do
+  case "$a" in
+    /usr/libexec/glycin-loaders/*)
+      shift "$((i-1))"; exec "$@" ;;
+  esac
+  i=$((i+1))
+done
+exec /usr/bin/bwrap.qqbox-orig "$@"
+SHIM
+chmod 755 /usr/bin/bwrap
+echo "bwrap_shim_installed=$(test -x /usr/bin/bwrap.qqbox-orig && echo yes || echo no)" > /out/bwrap-shim.txt
+
 # 20packagekit's gdbus hook and PackageKit's system-service file ask the bus
 # to activate a User=root service, which needs the setuid helper qqbox cannot
 # privilege-escalate. Remove both triggers; the root-user bus below handles
