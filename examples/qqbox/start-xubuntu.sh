@@ -277,6 +277,10 @@ stage "chromium_started"
   done
   echo "npm_payload=$(npm --version 2>&1) (apt npm is unavailable on 26.04; Node 18 payload is used)"
   grep -rin 'PermissionsInvalid\|setuid helper' /out/apt-final-*.log /out/dbus*.log || echo NO_DBUS_ERROR
+  echo '=== dock / taskbar ==='
+  echo "bwrap_shim=$(head -1 /usr/bin/bwrap) fallback=$(test -x /usr/bin/bwrap.qqbox-orig && echo present || echo missing)"
+  echo "xfce4_panel_procs=$(pgrep -c xfce4-panel || true)"
+  xwininfo -root -tree 2>/dev/null | grep -i xfce4-panel || echo NO_PANEL_WINDOW
   echo '=== wallpaper ==='
   cat /out/wallpaper.txt
   xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitorscreen/workspace0/last-image 2>&1

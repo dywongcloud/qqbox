@@ -201,6 +201,45 @@ install does not kill the stub. Until then `--no-sandbox --single-process
 isolation and V8 JIT are off. Headless `--headless=new --dump-dom` times out;
 windowed rendering under Xvfb is the supported path.
 
+## The dock / taskbar (and why it disappeared on 26.04)
+
+On the first Xubuntu 26 build the bottom dock was missing entirely. Live
+`panel.log` showed the cause:
+
+```
+(xfce4-panel): Gtk-WARNING: Invalid icon size 16
+Gtk:ERROR:gtkiconhelper.c:495:ensure_surface_for_gicon: assertion failed
+(error == NULL): Failed to load
+/usr/share/icons/Adwaita/scalable/status/image-missing.svg:
+Loader process exited early with status '1'
+Command: "bwrap" ... "/usr/libexec/glycin-loaders/2+/glycin-svg"
+```
+
+Ubuntu 26.04's gdk-pixbuf 2.44 routes scalable icons through **glycin**, whose
+loaders are spawned by bubblewrap. Under qqbox, `bwrap --unshare-all ...`
+fails verbatim with `bwrap: Failed to make / slave: Bad address`. xfce4-panel
+aborts on the GTK assertion, so there is no Applications menu, no launchers and
+no tasklist. `xfdesktop` dies on the same loader path. Installing
+`librsvg2-common` alone does NOT fix it: the native `libpixbufloader_svg.so`
+appears in `loaders.cache`, but GTK still prefers the glycin registrations in
+`/usr/share/glycin-loaders/2+/conf.d/`; removing those registrations produces
+`No image loaders are configured`. A `GDK_PIXBUF_MODULE_FILE` override alone
+also fails (witnessed).
+
+Fix, baked into the image: replace `/usr/bin/bwrap` with a narrow compatibility
+shim that execs the **real** glycin loader with its own argv when it sees a
+`/usr/libexec/glycin-loaders/...` argument, and delegates every other
+invocation to the preserved `/usr/bin/bwrap.qqbox-orig`. Only the mount sandbox
+that qqbox cannot provide is dropped; qqbox's `unshare()` is already
+success-without-effect, so bubblewrap could never provide real isolation here.
+The guest remains confined by qqbox itself. This is disclosed rather than
+hidden.
+
+Witnessed with the shim: `xfce4-panel 1280x41+0+0 +0+759`, two live panel
+processes, 2,623 distinct colors in the bottom 50px band, and a screenshot
+showing the Applications menu, three launcher icons and a tasklist with both
+`Example Domain - Chromium` and `QQBOX-TERMINAL`.
+
 ## Wallpapers (how it works)
 
 The stock Xubuntu 26 image ships backdrops in `/usr/share/xfce4/backdrops/`

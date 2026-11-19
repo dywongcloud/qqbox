@@ -111,6 +111,26 @@ RUN mkdir -p /opt/claude-code && tar -xzf /tmp/claude-code.tgz -C /opt/claude-co
       pip3 --version; vim --version | head -1; vi --version | head -1; \
       git --version; gh --version | head -1; } > /etc/qqbox-toolchain.txt 2>&1 || true
 
+# Ubuntu 26.04's GTK icon pipeline routes every scalable icon through glycin,
+# whose loaders are spawned by bubblewrap. bwrap calls mount(MS_SLAVE), which
+# qqbox's supervisor rejects ("Failed to make / slave: Bad address"), so
+# xfce4-panel aborts on a GTK icon-helper assertion and the dock/taskbar
+# disappears. Exec the REAL glycin loader without bwrap's unusable mount
+# sandbox. qqbox's unshare() is already success-without-effect, so bwrap could
+# never provide real isolation here; the guest remains confined by qqbox.
+RUN cp /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig && \
+    printf '%s\n' '#!/bin/sh' \
+      'i=1' \
+      'for a in "$@"; do' \
+      '  case "$a" in' \
+      '    /usr/libexec/glycin-loaders/*)' \
+      '      shift "$((i-1))"; exec "$@" ;;' \
+      '  esac' \
+      '  i=$((i+1))' \
+      'done' \
+      'exec /usr/bin/bwrap.qqbox-orig "$@"' > /usr/bin/bwrap && \
+    chmod 755 /usr/bin/bwrap
+
 COPY start-xubuntu.sh /usr/local/bin/start-xubuntu.sh
 RUN chmod +x /usr/local/bin/start-xubuntu.sh
 

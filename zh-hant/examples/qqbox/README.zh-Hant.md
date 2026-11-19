@@ -84,6 +84,26 @@ rm -f /etc/apt/apt.conf.d/20packagekit \
   因此改附 noble 的 Node 18 二進位檔、六個 SONAME、五個外部化 builtin，
   以及 npm registry 的 npm 9.2.0。
 
+## 底部工作列為何消失
+
+Xubuntu 26 的第一個建置完全沒有底部工作列。實測 `panel.log` 顯示：
+26.04 的 gdk-pixbuf 2.44 把可縮放圖示交給 glycin，而 glycin 的載入器由
+bubblewrap 啟動；qqbox 下 `bwrap` 明確失敗為
+`bwrap: Failed to make / slave: Bad address`，`xfce4-panel` 因此在 GTK
+icon-helper 斷言上中止，Applications 選單、啟動器與工作列全部消失。
+只安裝 `librsvg2-common` 無效（GTK 仍優先使用
+`/usr/share/glycin-loaders/2+/conf.d/` 的登錄），單純移除登錄則變成
+`No image loaders are configured`。
+
+修復（已寫入映像檔）：把 `/usr/bin/bwrap` 換成狹義相容墊片，只在參數中出現
+`/usr/libexec/glycin-loaders/...` 時直接執行**真正的** glycin 載入器並保留其
+參數；其餘呼叫一律交回保存的 `/usr/bin/bwrap.qqbox-orig`。這裡只捨棄 qqbox
+無法提供的 mount 沙箱；qqbox 的 `unshare()` 本來就是「回報成功但無效果」，
+bubblewrap 在此不可能提供真正的隔離，來賓仍受 qqbox 本身限制。此取捨如實
+揭露。實測：`xfce4-panel 1280x41+0+0 +0+759`、兩個面板行程、底部 50px
+有 2,623 種顏色，畫面可見 Applications 選單、三個啟動器與含
+`Example Domain - Chromium`、`QQBOX-TERMINAL` 的工作列。
+
 ## 建置與執行
 
 ```sh
