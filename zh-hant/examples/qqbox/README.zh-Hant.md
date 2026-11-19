@@ -23,7 +23,7 @@
 | 底部工作列 | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759`。 |
 | vi／vim | `vim 9.1` 與 `vim-tiny`（`vi`），兩者編輯檔案皆 rc=0。 |
 | GNU 工具鏈 | 約 70 個套件，見英文版 README。 |
-| 套件安裝 | `apt-get install` 可重複執行且 rc=0；`GDBus ... Spawn.PermissionsInvalid` 已修復。 |
+| 套件安裝 | `apt-get install` 可重複執行且 rc=0（`fastfetch`／`tree`／`htop` 皆為 rc=0）；`GDBus ... Spawn.PermissionsInvalid` 已修復。26.04 已移除 `neofetch`，即使 `apt-get update` 成功，`apt-get install -y neofetch` 仍回傳 rc=100 `E: Unable to locate package neofetch`；改以 `fastfetch` 2.57.1 取代。`npm` 同樣無法由 apt 安裝，9.2.0 來自 Node 18 payload。 |
 | Chromium | Debian Chromium 150.0.7871.100 `linux/arm64`，四個 bookworm SONAME 隨附。 |
 | Node／npm／Claude Code | Ubuntu 26.04 的 Node 22 在 qqbox 下因 futex 而 rc=134；改用 noble Node 18.19.1、npm 9.2.0、Claude Code 1.0.128（純 JS），皆已實測。 |
 
@@ -89,10 +89,15 @@ rm -f /etc/apt/apt.conf.d/20packagekit \
 ```sh
 sh fetch-chromium.sh
 sh fetch-extras.sh
-qqbox build -net -t qqbox-xubuntu:26 -f Dockerfile -o qqbox-xubuntu26.tar .
-qqbox -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 -mount /tmp/qqbox-out:/out
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
+"$QQBOX_RUNTIME" build -net -t qqbox-xubuntu:26 -f Dockerfile -o qqbox-xubuntu26.tar .
+"$QQBOX_RUNTIME" -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 -mount /tmp/qqbox-out:/out
 vncviewer 127.0.0.1:5905
 ```
+
+`build` 與 `-image` 是**移除前的 Go 執行期二進位檔**的指令（保存在版本庫
+之外）。本專案的 Rust `qqbox` CLI 沒有 `build` 子命令，也沒有 `-image` 旗標
+（`qqbox build --help` 回傳 rc=2）；請勿換成 Rust 二進位檔。
 
 Chromium 的真實沙箱在 qqbox 下不可啟用（27 種組態實測 rc=1／134），
 並非效能開關而是安全邊界；`/dev/dri` 不存在，SwiftShader 軟體 WebGL 1.0 可用。

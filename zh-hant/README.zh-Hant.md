@@ -91,8 +91,10 @@ cargo build --workspace
 ```
 
 Windows 請改用 `qqbox.exe`。原生後端備妥之後，指令會印出 Alpine 的發行資訊
-（包含 `ID=alpine`）並成功結束；目前會印出前述 `UnsupportedPlatform` 診斷
-訊息。來賓只看到映像的檔案系統，沒有外部網路。加入 PATH 之後，指令即為
+（包含 `ID=alpine`）並成功結束；目前會先在拉取階段失敗：
+`status: registry request failed: … status code 401`（rc=1，未設定 registry
+權杖），若已設定權杖則會抵達前述 `UnsupportedPlatform` 診斷訊息。來賓只看到
+映像的檔案系統，沒有外部網路。加入 PATH 之後，指令即為
 `qqbox run-image alpine:3.20 cat /etc/os-release`。
 
 CLI 也揭露已通過型別檢查的控制平面，以下皆以
@@ -347,10 +349,20 @@ HTTP 模式。Windows 請用 `qqbox-mcp.exe`。例如呼叫 `run` 工具：
 ```sh
 sh examples/qqbox/fetch-chromium.sh
 sh examples/qqbox/fetch-extras.sh
-qqbox build -net -t qqbox-xubuntu:26 -f examples/qqbox/Dockerfile -o qqbox-xubuntu26.tar examples/qqbox
-qqbox -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 -mount /tmp/qqbox-out:/out
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
+"$QQBOX_RUNTIME" build -net -t qqbox-xubuntu:26 \
+  -f examples/qqbox/Dockerfile -o qqbox-xubuntu26.tar examples/qqbox
+"$QQBOX_RUNTIME" -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 \
+  -mount /tmp/qqbox-out:/out
 vncviewer 127.0.0.1:5905
 ```
+
+`build` 與 `-image` 是**移除前的 Go 執行期二進位檔**的指令，該檔案保存在
+版本庫之外，專供啟動此桌面。本專案的 Rust `qqbox` CLI 沒有 `build` 子命令，
+也沒有 `-image` 旗標（`qqbox build --help` 回傳 rc=2）；對應的 Rust 介面是
+`qqbox run-image`、`qqbox runtime-spec` 與 `qqboxd` Docker API daemon。
+請勿把這兩行換成 Rust 二進位檔。見
+[docs/PORT_STATUS.zh-Hant.md](docs/PORT_STATUS.zh-Hant.md)。
 
 ## 授權
 

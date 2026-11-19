@@ -73,7 +73,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
       procps psmisc util-linux htop jq bc time strace lsof tmux screen \
       gnupg bash-completion command-not-found locales gettext \
       socat netcat-openbsd telnet xxd units pciutils usbutils parted \
-      e2fsprogs dosfstools plocate perl fastfetch && \
+      e2fsprogs dosfstools plocate perl fastfetch dc ed info && \
     dpkg --audit && \
     rm -rf /var/lib/apt/lists/*
 

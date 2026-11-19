@@ -213,6 +213,9 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             match qqbox::run_image(&ctx, &reference, &opts) {
                 Ok(code) => println!("exit: {code}"),
                 Err(e) => {
+                    // A failed pull or an unprepared guest is a command failure,
+                    // not a successful run. Print the diagnostic AND exit 1 so
+                    // callers (and CI) do not mistake it for a completed run.
                     println!("image: {reference}");
                     println!(
                         "ref: {}",
@@ -221,6 +224,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                             .name()
                     );
                     println!("status: {e}");
+                    return Err(e.to_string());
                 }
             }
         }

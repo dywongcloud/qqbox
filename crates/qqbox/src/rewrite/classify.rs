@@ -247,8 +247,10 @@ mod tests {
 
     #[test]
     fn arm64_sites_are_word_aligned() {
+        // `svc #0` is instruction word 0xd4000001; aarch64 is little-endian,
+        // so the in-memory bytes are 01 00 00 d4, not d4 00 00 01.
         let code = [
-            0x90, 0xd4, 0x00, 0x00, 0x01, 0x90, 0x90, 0x90, 0xd4, 0x00, 0x00, 0x01,
+            0x90, 0x01, 0x00, 0x00, 0xd4, 0x90, 0x90, 0x90, 0x01, 0x00, 0x00, 0xd4,
         ];
         assert_eq!(classify(Arch::Arm64, &code), vec![8]);
     }
@@ -256,7 +258,7 @@ mod tests {
     #[test]
     fn truncated_words_are_ignored() {
         assert!(classify(Arch::Amd64, &[0x0f]).is_empty());
-        assert!(classify(Arch::Arm64, &[0xd4, 0x00, 0x00]).is_empty());
+        assert!(classify(Arch::Arm64, &[0x01, 0x00, 0x00]).is_empty());
     }
 
     #[test]
@@ -282,7 +284,7 @@ mod tests {
     #[test]
     fn patch_emits_arm64_branch() {
         let mut code = [
-            0xd5, 0x03, 0x20, 0x1f, 0xd4, 0x00, 0x00, 0x01, 0xd6, 0x5f, 0x03, 0xc0,
+            0xd5, 0x03, 0x20, 0x1f, 0x01, 0x00, 0x00, 0xd4, 0xd6, 0x5f, 0x03, 0xc0,
         ];
         let sites = classify(Arch::Arm64, &code);
         assert_eq!(sites, vec![4]);

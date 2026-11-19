@@ -24,7 +24,7 @@ default. This is the exact Ubuntu 26 base carrying Xubuntu 26 artwork.
 | bottom dock/taskbar | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759` on an 800px screen, applications menu, three launchers, tasklist. |
 | vi / vim | `vim 9.1`, `vim-tiny` (the `vi` binary). Both witnessed editing a file with rc=0 and verified contents. |
 | GNU userland | ~70 common packages: coreutils, findutils, grep, gawk, sed, diffutils, patch, make/gcc/g++/binutils/build-essential, autoconf/automake/libtool/pkg-config/cmake/ninja/gdb, tar/gzip/bzip2/xz/zip/unzip/cpio, procps/psmisc/util-linux, net-tools/iproute2/dnsutils/traceroute, wget/curl/rsync/openssh-client, less/man-db/nano/tree/file/which, jq/htop/bc/time/strace/lsof/tmux/screen, gnupg, locales/gettext, socat/netcat/telnet/xxd, pciutils/usbutils/parted/e2fsprogs, perl, fastfetch. |
-| apt / package registries | Works repeatedly after the DBus fix; `apt-get install neofetch`-class failures are gone. |
+| apt / package registries | Works repeatedly after the DBus fix (`fastfetch`/`tree`/`htop` rc=0). `neofetch` was removed from the 26.04 archive: `apt-get install -y neofetch` returns rc=100 `E: Unable to locate package neofetch` even after `apt-get update`; `fastfetch` 2.57.1 is the shipped substitute. `npm` is likewise unavailable from apt on 26.04 — npm 9.2.0 comes from the Node 18 payload. |
 | GDBus setuid helper | **Fixed** — root-user system bus config, see below. |
 | real Chromium | Debian bookworm Chromium 150.0.7871.100 `linux/arm64`, four bundled bookworm libs for resolute. Renders `https://example.com/` (DOM 2,375 bytes) over VNC. |
 | Chromium sandbox | **NOT ACHIEVABLE** — 27 sandbox-enabled variants tried, rc=1/134. See below. |
@@ -42,8 +42,15 @@ default. This is the exact Ubuntu 26 base carrying Xubuntu 26 artwork.
 sh fetch-chromium.sh     # downloads + extracts the pinned Debian Chromium debs
 sh fetch-extras.sh       # copies the real Tencent BrowserSkill extension/skill,
                          # downloads the pure-JS Claude Code 1.0.128 npm tarball
-qqbox build -net -t qqbox-xubuntu:26 -f Dockerfile -o qqbox-xubuntu26.tar .
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
+"$QQBOX_RUNTIME" build -net -t qqbox-xubuntu:26 -f Dockerfile \
+  -o qqbox-xubuntu26.tar .
 ```
+
+`build` and `-image` below are commands of the **pre-removal Go runtime
+binary**, preserved off-repo to boot this desktop. The Rust `qqbox` CLI in this
+tree has no `build` subcommand and no `-image` flag (`qqbox build --help`
+returns rc=2).
 
 Neither `chromium/` (~339 MiB) nor `claude/claude-code.tgz` (~34 MiB) is
 committed. `fetch-extras.sh` refuses to invent the Tencent BrowserSkill artifacts
@@ -57,7 +64,7 @@ Debian Chromium 150 is used instead.
 
 ```sh
 mkdir -p /tmp/qqbox-out
-qqbox -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 \
+"$QQBOX_RUNTIME" -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 \
   -mount /tmp/qqbox-out:/out
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```

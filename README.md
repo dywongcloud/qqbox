@@ -111,10 +111,13 @@ cargo build --workspace
 ```
 
 On Windows, invoke `qqbox.exe` instead. The command prints Alpine's release
-information, including `ID=alpine`, once a native backend is available. Today it
-prints the `UnsupportedPlatform` diagnostic described above. The guest has the
-image's filesystem and no external network access. Once installed on your PATH,
-the command is `qqbox run-image alpine:3.20 cat /etc/os-release`.
+information, including `ID=alpine`, once a native backend is available. Today
+the pull fails first: `status: registry request failed: … status code 401`
+(rc=1) against an unauthenticated registry config; on a host with a configured
+registry token it reaches the `UnsupportedPlatform` diagnostic described above.
+The guest has the image's filesystem and no external network access. Once
+installed on your PATH, the command is
+`qqbox run-image alpine:3.20 cat /etc/os-release`.
 
 The CLI also exposes the typed control plane, all witnessed with
 `cargo run -p qqbox-cli -- <command>`:
@@ -388,10 +391,20 @@ this fork, booted with the pre-removal Go runtime binary preserved off-repo;
 ```sh
 sh examples/qqbox/fetch-chromium.sh
 sh examples/qqbox/fetch-extras.sh
-qqbox build -net -t qqbox-xubuntu:26 -f examples/qqbox/Dockerfile -o qqbox-xubuntu26.tar examples/qqbox
-qqbox -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 -mount /tmp/qqbox-out:/out
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
+"$QQBOX_RUNTIME" build -net -t qqbox-xubuntu:26 \
+  -f examples/qqbox/Dockerfile -o qqbox-xubuntu26.tar examples/qqbox
+"$QQBOX_RUNTIME" -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 \
+  -mount /tmp/qqbox-out:/out
 vncviewer 127.0.0.1:5905
 ```
+
+`build` and `-image` are commands of the **pre-removal Go runtime binary**,
+preserved off-repo to boot this desktop. The Rust `qqbox` CLI in this tree has
+no `build` subcommand and no `-image` flag (`qqbox build --help` returns rc=2);
+its equivalent surface is `qqbox run-image`, `qqbox runtime-spec` and the
+`qqboxd` Docker API daemon. Do not substitute the Rust binary into these two
+lines. See [docs/PORT_STATUS.md](docs/PORT_STATUS.md).
 
 ## License
 

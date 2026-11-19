@@ -103,6 +103,43 @@ Still open, recorded rather than hidden:
   metadata connection can be demonstrated end to end. All security findings are
   control-plane acceptance/rejection results.
 
+## Adversarial-synthesis corrections (witnessed after the sweep)
+
+An eight-agent adversarial workflow (`wbets20lq`) re-derived every claim from
+scratch. Four of its findings were real defects; all four are fixed here:
+
+- `cargo test -p qqbox --lib` was red (7 passed, 2 failed). The two aarch64
+  tests encoded `svc #0` as big-endian `d4 00 00 01`; the classifier correctly
+  matches the little-endian in-memory bytes `01 00 00 d4`. The test vectors
+  were corrected. `cargo test --workspace` now returns rc=0 (9 passed).
+- `qqbox run-image` printed `status: registry request failed: … 401` but exited
+  0, so callers mistook a failed pull for a successful run. It now returns
+  `Err` and exits 1 while still printing the diagnostic. Witnessed rc=1.
+- `README.md`, `zh-hant/README.zh-Hant.md`, `examples/qqbox/README.md` and
+  `zh-hant/examples/qqbox/README.zh-Hant.md` documented the Go-era
+  `qqbox build` / `qqbox -image` commands. The Rust CLI rejects both with rc=2;
+  those lines now explicitly name the off-repo pre-removal Go runtime binary.
+- `examples/qqbox/README.md` claimed "`apt-get install neofetch`-class failures
+  are gone". On 26.04 `neofetch` is absent from the archive: rc=100
+  `E: Unable to locate package neofetch` even after `apt-get update`. The docs
+  now record that `fastfetch` 2.57.1 is the shipped substitute and that npm
+  9.2.0 comes from the Node 18 payload, not apt.
+
+The synthesis also confirmed three root causes and refuted three false ones:
+the GDBus error is emitted by the `20packagekit` hook (not apt/dpkg), the real
+defect is `execve` ignoring `S_ISUID` (the helper's 4754 mode is intact, so
+`chmod` cannot fix it), and the 24.04 rc=100 installs were an unconfigured
+`node-neo-async` dpkg state. It independently witnessed the Xubuntu 26 image,
+the `xwallpaper` backdrop, vi/vim and the GNU toolchain, and the root-user
+system bus. `dc`, `ed` and `info` were found missing; they install rc=0 and
+are now in the image.
+
+Still honestly unresolved from that sweep: no supervisor-side `S_ISUID` fix,
+no real `docker run --runtime=qqbox` / containerd / Podman integration (only
+`curl` against `qqboxd` and `qqbox-runtime` against a real bundle), no
+translation-fidelity review of the zh-Hant docs, and the MCP `run` tool still
+returns `isError: true` by design because no native backend exists.
+
 ## Inherited platform limits (from the security recon)
 
 These belonged to the removed Go runtime and describe work a future Rust
