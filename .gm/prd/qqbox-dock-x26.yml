@@ -1,7 +1,0 @@
-id: qqbox-dock-x26
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Restore the bottom dock and taskbar navigation on Xubuntu 26 desktop
-description: The user reports the dock and taskbar navigation is missing from the current desktop build. Investigate why xfce4-panel is absent or not rendering applications menu, launchers and tasklist on the 26.04 image, fix it, and witness a live VNC screenshot with the panel at the bottom.
-acceptance_criteria: A live 5905 screenshot shows an XFCE panel at 1280x41+0+759 with applications menu, launchers and tasklist; xwininfo lists xfce4-panel; the panel process is alive; fix committed and pushed.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending
