@@ -263,6 +263,13 @@ env -u PULSE_SERVER HOME=/tmp/qbox-home PULSE_RUNTIME_PATH=/tmp/qbox-pa \
 export PULSE_SERVER=unix:/tmp/qbox-pa/native
 stage "pulseaudio_started $(cat /out/pulseaudio-rc.txt)"
 
+# gnome-keyring prompts "Choose password for new keyring" on first Chromium
+# start (Chromium tries to use the login keyring). Chromium is launched with
+# --password-store=basic, so disable the keyring autostart entries too.
+for f in /etc/xdg/autostart/gnome-keyring-*.desktop; do
+  [ -f "$f" ] && printf '\nHidden=true\n' >> "$f"
+done
+
 # ---- X server + VNC ----
 Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac > /out/xvfb.log 2>&1 &
 sleep 4
@@ -294,26 +301,54 @@ Exec=/usr/local/bin/qqbox-terminal
 OnlyShowIn=XFCE;
 DESK
 
-# ---- XFCE session (provides the session bus for xfconfd/xfdesktop) ----
-# xfce4-session owns ONE xfwm4/xfce4-panel/xfdesktop/xfconfd via autostart.
-# Manually starting duplicates produced "Another Window Manager is already
-# running", "Another desktop manager is already running", two panels and two
-# xfconfd processes. Only paint the backdrop ourselves.
-dbus-run-session -- /usr/bin/xfce4-session > /out/xfce.log 2>&1 &
+# ---- Event-driven desktop supervision (NO xfce4-session) ----
+# xfce4-session was a single point of failure: when it died, the session bus
+# it owned died too, every client got "ICE I/O Error" / "Disconnected from
+# session manager", and ALL windows (dock, taskbar, terminal, Chromium)
+# vanished while the wallpaper root pixmap survived. Remove that dependency:
+# own one persistent session bus + xfconfd, and supervise each desktop
+# component with `wait $pid` (blocks on child exit; no polling, no sleep,
+# no periodic recheck). A circuit breaker stops a component that crashes
+# immediately on every start.
+export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
+echo "session_bus=$DBUS_SESSION_BUS_ADDRESS" > /out/session-bus.txt
+supervise() {
+  name=$1; shift
+  (
+    fast=0
+    while :; do
+      t0=$SECONDS
+      "$@" > "/out/$name.log" 2>&1 & p=$!
+      echo "$(date -u +%H:%M:%S) $name started pid=$p" >> /out/supervisor.log
+      wait "$p"; rc=$?
+      echo "$(date -u +%H:%M:%S) $name exited rc=$rc" >> /out/supervisor.log
+      if [ $((SECONDS - t0)) -lt 2 ]; then
+        fast=$((fast + 1))
+        [ "$fast" -gt 5 ] && { echo "$(date -u +%H:%M:%S) $name circuit-breaker: 6 immediate exits" >> /out/supervisor.log; exit 1; }
+      else
+        fast=0
+      fi
+      echo "$(date -u +%H:%M:%S) $name restarting" >> /out/supervisor.log
+      [ "$name" = chromium ] && rm -f /tmp/chrome-qqbox/Singleton* 2>/dev/null
+    done
+  ) &
+  echo $! > "/out/$name.supervisor.pid"
+}
+supervise xfconfd /usr/lib/aarch64-linux-gnu/xfce4/xfconf/xfconfd
+supervise wm xfwm4 --compositor=off --replace
+supervise panel xfce4-panel
+supervise desktop xfdesktop --disable-wm-check
+supervise terminal /usr/local/bin/qqbox-terminal
+supervise chromium /usr/local/bin/chromium --window-size=1000,700 \
+  --window-position=150,120 --password-store=basic \
+  --user-data-dir=/tmp/chrome-qqbox https://example.com/
 sleep 18
 xwallpaper --zoom "$WALL" > /out/xwallpaper.log 2>&1; echo "xwallpaper_rc=$?" > /out/xwallpaper-rc.txt
 sleep 3
 scrot -o /out/01-wallpaper.png 2>/dev/null || true
-stage "wallpaper_and_bottom_panel_started $(cat /out/xwallpaper-rc.txt)"
-
-# The session starts the terminal from autostart/qqbox-terminal.desktop.
-stage "native_terminal_started_by_session"
-
-# ---- Chromium with the preloaded qqbox + Tencent BrowserSkill extensions ----
-/usr/local/bin/chromium --window-size=1000,700 --window-position=150,120 \
-  --user-data-dir=/tmp/chrome-qqbox https://example.com/ > /out/chromium.log 2>&1 &
-sleep 18
-stage "chromium_started"
+stage "supervised_desktop_started wallpaper=$(cat /out/xwallpaper-rc.txt)"
+stage "native_terminal_started_by_supervisor"
+stage "chromium_started_by_supervisor"
 
 # ---- evidence ----
 {

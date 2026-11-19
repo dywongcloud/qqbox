@@ -15,4 +15,4 @@ exec /opt/chromium/chromium \
   --disable-breakpad --crash-dumps-dir=/tmp/crash \
   --load-extension=/opt/tencent-browserskill,/opt/qqbox-extension \
   --disable-extensions-except=/opt/tencent-browserskill,/opt/qqbox-extension \
-  --no-first-run --no-default-browser-check "$@"
+  --no-first-run --no-default-browser-check --password-store=basic "$@"
