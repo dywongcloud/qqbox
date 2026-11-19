@@ -1,6 +1,6 @@
 # `examples/xfce`：Alpine 上的 XFCE 桌面（繁體中文）
 
-> 這是一個以 Alpine 為基底的 XFCE 桌面範例，透過 `x11vnc` 在 VNC TCP 5905 提供畫面。它展示的不是合成截圖，而是來賓內真正執行的 XFCE 工作階段、原生 `xfce4-terminal` 與 `linux/arm64` Chrome-for-Testing。qqbox 讓未經修改的 Linux ELF 與 OCI 容器直接在宿主 CPU 上執行，沒有虛擬機器，也沒有第二個核心；只有系統呼叫與同類指令被重寫並陷入監督器，`vfs` Namespace 是唯一的檔案系統。
+> 這是一個以 Alpine 為基底的 XFCE 桌面範例，透過 `x11vnc` 在 VNC TCP 5905 提供畫面。它展示的不是合成截圖，而是來賓內真正執行的 XFCE 工作階段、原生 `xfce4-terminal` 與 Debian Chromium 150 `linux/arm64`。qqbox 讓未經修改的 Linux ELF 與 OCI 容器直接在宿主 CPU 上執行，沒有虛擬機器，也沒有第二個核心；只有系統呼叫與同類指令被重寫並陷入監督器，`vfs` Namespace 是唯一的檔案系統。
 
 ## 內容與啟動條件
 
@@ -14,7 +14,7 @@
 
 ## 瀏覽器與圖形
 
-安裝的是真實的 `linux/arm64` Chrome-for-Testing，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態都如實回報：不能以「已啟用硬體加速」或「沙箱正常」之類的說法掩飾。macOS 的圖形處理器不會透傳給 Linux ELF 來賓，合成 `/sys` 也缺少部分背光與電源服務；這些警告不影響桌面、終端機與對外連線。色彩、字型與視窗管理由來賓內的 XFCE 與 Xvfb 提供，監督器只負責系統呼叫與資料平面，不會替來賓偽造圖形能力。
+安裝的是真實的 Debian Chromium 150 `linux/arm64`，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態都如實回報：不能以「已啟用硬體加速」或「沙箱正常」之類的說法掩飾。macOS 的圖形處理器不會透傳給 Linux ELF 來賓，合成 `/sys` 也缺少部分背光與電源服務；這些警告不影響桌面、終端機與對外連線。色彩、字型與視窗管理由來賓內的 XFCE 與 Xvfb 提供，監督器只負責系統呼叫與資料平面，不會替來賓偽造圖形能力。
 
 ## 網路與 ICMP 的界線
 

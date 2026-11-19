@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "qqbox witness",
+  "version": "1.0.0",
+  "description": "Harmless qqbox witness: sets a qqbox badge, logs tab URLs via chrome.tabs, and marks a local HTTP page so a dump-dom run can prove it loaded.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["http://127.0.0.1:38765/*"],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "action": {
+    "default_title": "qqbox witness"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1:38765/*"],
+      "js": ["content_script.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

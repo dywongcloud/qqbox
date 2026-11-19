@@ -1,7 +1,0 @@
-id: qqbox-external-dns
-subject: External hostname resolution works
-description: Verify getent/curl/Chromium resolve public hostnames with -net.
-acceptance_criteria: getent hosts and HTTPS fetch by hostname both succeed in a live guest.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

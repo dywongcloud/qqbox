@@ -27,7 +27,7 @@
 | 目的地限制 | `-allow-domains`、`-allow-cidrs`、`-allow-ports` | 三者只收緊、不放寬；加上去只會縮小可達的目的地，不能取代 `-net`，也不會授予新權限。 |
 | 套件登錄 | `-net` | `apt` 與 `apk` 的安裝可正常運作；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效並修復 `/var/lib/dpkg/status`。 |
 | ICMP echo（`ping`） | 使用者空間 ICMP echo 客戶端 + 宿主未特權 `SOCK_DGRAM`／`IPPROTO_ICMP` | 這是唯一的支援路徑；`SOCK_RAW` 不可用，路徑外的 `ping` 失敗是預期結果。以 DNS、TCP 與 HTTPS 的實際連線作為網路可用的證據。 |
-| Chrome-for-Testing 沙箱與圖形 | 如實回報 | setuid 沙箱特權不授予，沙箱狀態與 `SwiftShader` 軟體渲染狀態照實呈現；macOS 圖形處理器不透傳給 Linux ELF 來賓，硬體加速不可用。 |
+| Debian Chromium 150 沙箱與圖形 | 如實回報 | setuid 沙箱特權不授予，沙箱狀態與 `SwiftShader` 軟體渲染狀態照實呈現；macOS 圖形處理器不透傳給 Linux ELF 來賓，硬體加速不可用。 |
 | VNC TCP 5905 | `x11vnc` + `-net` 連接埠轉送 | `x11vnc -nopw` 在區域網路可達，部署時改用 `-rfbauth` 加密碼；這是部署選擇，不是隔離不變量。 |
 
 ## 3. 不在契約內
@@ -36,7 +36,7 @@
 | --- | --- | --- |
 | 802.11 無線網路、`nl80211`、`wpa_supplicant`、`NetworkManager` | 不在契約內 | qqbox 配對通訊端點而非封包，沒有無線網卡可模擬。 |
 | `AF_PACKET`、`TUN`、原始通訊端、`SOCK_RAW`、來賓核心內 ICMP | 不在契約內 | 沒有封包層，也沒有第二個核心；未特權環境拿不到 `SOCK_RAW`。 |
-| 第二個核心、虛擬機器、macOS 圖形處理器透傳、Chrome-for-Testing setuid 沙箱特權 | 不在契約內 | 來賓機器碼在宿主 CPU 上原生執行；這些能力需要 qqbox 不授予的特權或硬體路徑。 |
+| 第二個核心、虛擬機器、macOS 圖形處理器透傳、Chromium 沙箱 | 不在契約內 | 來賓機器碼在宿主 CPU 上原生執行；這些能力需要 qqbox 不授予的特權或硬體路徑。 |
 | 靜默丟棄不支援的安全欄位 | 明確禁止 | 無法實作的欄位必須附診斷訊息拒絕，這是本表要消滅的失敗模式。 |
 
 ## 證據與邊界

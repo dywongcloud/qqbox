@@ -61,7 +61,7 @@ ICMP echo（`ping`）有明確支援的路徑：由使用者空間的 ICMP echo 
 
 桌面範例見 [examples/README.zh-Hant.md](examples/README.zh-Hant.md)：`examples/xfce` 是 Alpine 桌面，`examples/xubuntu` 是原廠的 `linuxserver/webtop` ubuntu-xfce，兩者都以 `x11vnc` 在 VNC TCP 5905 上提供畫面，並以 RFB 通訊協定傳送桌面。原生的 `xfce4-terminal`（VTE）之所以能正常畫出文字，是因為 `TIOCPKT` 以指標形式的 ioctl 正確轉送；終端機配色來自 `Xfconf`。`x11vnc -nopw` 在區域網路內可被連上，部署時應改用 `-rfbauth` 加上密碼保護。
 
-瀏覽器是實際的 `linux/arm64` Chrome-for-Testing，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與軟體渲染（`SwiftShader`）狀態都如實回報，不以「已啟用硬體加速」之類的說法掩飾；macOS 的圖形處理器也不會透傳給 Linux ELF 來賓。讀取、寫入、開啟、關閉都經由監督器，沒有第二條通往宿主的捷徑。
+瀏覽器是實際的 Debian Chromium 150 `linux/arm64`，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與軟體渲染（`SwiftShader`）狀態都如實回報，不以「已啟用硬體加速」之類的說法掩飾；macOS 的圖形處理器也不會透傳給 Linux ELF 來賓。讀取、寫入、開啟、關閉都經由監督器，沒有第二條通往宿主的捷徑。
 
 ## 6. 安全模型
 
@@ -71,7 +71,7 @@ ICMP echo（`ping`）有明確支援的路徑：由使用者空間的 ICMP echo 
 
 - 最重要的是：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 這三組原生來賓執行後端尚未移植到 Rust。Go 原始碼已移除，儲存庫是 Rust 與 Zig；因此從原始碼建置只能準備控制平面，不能執行來賓。這句話不應該被「建置成功」或「見證通過」稀釋。
 - 無線網路層不在契約內：802.11、`nl80211`、`wpa_supplicant`、`NetworkManager`、`AF_PACKET`、`TUN`、`SOCK_RAW` 與來賓核心內的 ICMP 皆不提供；`ping` 只在上述使用者空間 echo 路徑上有效，路徑外失敗是預期結果。
-- Chrome-for-Testing 的 setuid 沙箱特權不授予，圖形處理器不透傳，`SwiftShader` 與沙箱狀態如實呈現。
+- Chromium 的 setuid 沙箱特權不授予，圖形處理器不透傳，`SwiftShader` 與沙箱狀態如實呈現。
 - `-net` 未啟用時沒有 DNS 與宿主可達性；`-allow-*` 只用來收緊。`-nopw` 的 VNC 會暴露在區域網路，須以 `-rfbauth` 保護。
 - 不得以 `sleep`、timeout 或週期性重查當作正確性的修正；遇到競態請修正同步本身。若某個限制被宣稱已解除，請要求對抗式驗證的記錄與證據，而不是接受口頭結論。
 

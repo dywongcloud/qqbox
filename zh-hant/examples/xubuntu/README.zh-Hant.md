@@ -1,6 +1,6 @@
 # `examples/xubuntu`：原廠 Xubuntu／XFCE 桌面（繁體中文）
 
-> 這是以原廠 `linuxserver/webtop` ubuntu-xfce 映像檔為基底的桌面範例，透過 `x11vnc` 在 VNC TCP 5905 提供畫面，並以確切的 `linux/arm64` 資訊清單摘要固定版本：`sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`。它展示的是原廠桌面、原生 `xfce4-terminal` 與真實的 `linux/arm64` Chrome-for-Testing，在「沒有虛擬機器、沒有第二個核心」的 qqbox 沙箱中運作。
+> 這是以原廠 `linuxserver/webtop` ubuntu-xfce 映像檔為基底的桌面範例，透過 `x11vnc` 在 VNC TCP 5905 提供畫面，並以確切的 `linux/arm64` 資訊清單摘要固定版本：`sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`。它展示的是原廠桌面、原生 `xfce4-terminal` 與真實的 Debian Chromium 150 `linux/arm64`，在「沒有虛擬機器、沒有第二個核心」的 qqbox 沙箱中運作。
 
 ## 原廠映像檔與支援範圍
 
@@ -14,7 +14,7 @@
 
 ## 瀏覽器、圖形與 ICMP
 
-瀏覽器是真實的 `linux/arm64` Chrome-for-Testing，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 圖形處理器不會透傳給 Linux ELF 來賓，硬體加速不可用。合成 `/sys` 缺少部分背光、電源與桌面服務，相關警告不影響畫面、終端機與對外連線。
+瀏覽器是真實的 Debian Chromium 150 `linux/arm64`，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 圖形處理器不會透傳給 Linux ELF 來賓，硬體加速不可用。合成 `/sys` 缺少部分背光、電源與桌面服務，相關警告不影響畫面、終端機與對外連線。
 
 ICMP echo（`ping`）只在使用者空間 ICMP echo 客戶端與宿主未特權的 `SOCK_DGRAM`／`IPPROTO_ICMP` 通訊端上有效；未特權環境沒有 `SOCK_RAW`。qqbox 配對通訊端點而非封包，所以沒有 `AF_PACKET`、`TUN`、原始通訊端與來賓核心內 ICMP，802.11 無線網路、`nl80211`、`wpa_supplicant`、`NetworkManager` 也無法模擬。在支援路徑外看到 `ping` 失敗是預期結果；請以 DNS 解析、TCP 與 HTTPS 的實際連線（例如取得 HTTP 200 的真實頁面）作為「網路可用」的證據，並留下記錄與證據供對抗式驗證。
 

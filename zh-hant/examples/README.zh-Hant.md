@@ -13,7 +13,7 @@
 
 `-net` 是必要條件：套件登錄的 `apt` 與 `apk` 安裝都要靠它。啟用後監督器攔截每一個送往 `:53` 的 DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓後續安裝不會被前面的失敗卡住。少了 `-net`，來賓沒有 DNS 也沒有宿主可達性，瀏覽器只會顯示通用的離線頁面；`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只用來收緊，不能用來開啟連線或授予新權限。
 
-瀏覽器是實際的 `linux/arm64` Chrome-for-Testing，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 的圖形處理器不會透傳給 Linux ELF 來賓，請不要期待硬體加速。合成 `/sys` 缺少部分背光與電源服務、桌面出現的警告，不影響終端機、畫面與對外連線；把它們如實記錄下來，比用「已啟用」之類的說法掩飾更有價值。
+瀏覽器是實際的 Debian Chromium 150 `linux/arm64`，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 的圖形處理器不會透傳給 Linux ELF 來賓，請不要期待硬體加速。合成 `/sys` 缺少部分背光與電源服務、桌面出現的警告，不影響終端機、畫面與對外連線；把它們如實記錄下來，比用「已啟用」之類的說法掩飾更有價值。
 
 ## 網路與 ICMP 的界線
 
