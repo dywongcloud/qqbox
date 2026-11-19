@@ -1,0 +1,7 @@
+id: qqbox-xfce-pty-errors
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Fix random XFCE errors and child PTY errors on the live 5905 desktop
+description: The user reports random XFCE error dialogs and child PTY errors. Investigate the live desktop logs, identify the exact errors (session manager, duplicate xfdesktop, WM screen, gnome-keyring, udev, V8 proxy, pty), fix the ones that are real, and witness a clean boot.
+acceptance_criteria: A fresh live 5905 boot shows no GTK assertion/child-execute/PTY errors in xfce/panel/terminal/wm/xfdesktop logs, terminal opens a real PTY and echoes typed commands, dock and wallpaper stay intact.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

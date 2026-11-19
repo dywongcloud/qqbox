@@ -73,7 +73,8 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
       procps psmisc util-linux htop jq bc time strace lsof tmux screen \
       gnupg bash-completion command-not-found locales gettext \
       socat netcat-openbsd telnet xxd units pciutils usbutils parted \
-      e2fsprogs dosfstools plocate perl fastfetch dc ed info && \
+      e2fsprogs dosfstools plocate perl fastfetch dc ed info \
+      xdg-user-dirs gnome-keyring && \
     dpkg --audit && \
     rm -rf /var/lib/apt/lists/*
 
@@ -98,7 +99,7 @@ RUN chmod +x /opt/chromium/chromium /opt/chromium/chromium-wrapper.sh && \
     mkdir -p /tmp/crash && chmod 1777 /tmp/crash && \
     printf 'qbox\n' > /etc/hostname && \
     printf '127.0.0.1 localhost qbox\n::1 localhost ip6-localhost ip6-loopback qbox\n' > /etc/hosts && \
-    printf 'export HOSTNAME=qbox\nPS1=\x27\\u@qbox:\\w\\$ \x27\n' >> /root/.bashrc
+    printf 'export HOSTNAME=qbox\nPS1=\047\\u@qbox:\\w\\$ \047\n' >> /root/.bashrc
 
 COPY extension /opt/qqbox-extension
 COPY tencent-browserskill /opt/tencent-browserskill
@@ -118,6 +119,13 @@ RUN mkdir -p /opt/claude-code && tar -xzf /tmp/claude-code.tgz -C /opt/claude-co
 # disappears. Exec the REAL glycin loader without bwrap's unusable mount
 # sandbox. qqbox's unshare() is already success-without-effect, so bwrap could
 # never provide real isolation here; the guest remains confined by qqbox.
+# Ubuntu's /usr/share/applications/chromium.desktop points at
+# /usr/local/bin/wrapped-chromium -> /usr/bin/chromium -> the snap stub
+# /usr/bin/chromium-browser, which segfaults when clicked from the dock.
+# Point that chain at the working Debian Chromium wrapper.
+RUN ln -sf /opt/chromium/chromium-wrapper.sh /usr/local/bin/wrapped-chromium && \
+    sed -i 's|^Exec=.*|Exec=/usr/local/bin/chromium|' /usr/share/applications/chromium.desktop
+
 RUN cp /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig && \
     printf '%s\n' '#!/bin/sh' \
       'i=1' \

@@ -35,6 +35,20 @@ SHIM
 chmod 755 /usr/bin/bwrap
 echo "bwrap_shim_installed=$(test -x /usr/bin/bwrap.qqbox-orig && echo yes || echo no)" > /out/bwrap-shim.txt
 
+# Install helpers missing on earlier builds; the rebuilt image bakes them.
+if ! command -v xdg-user-dir >/dev/null 2>&1 || ! command -v gnome-keyring-daemon >/dev/null 2>&1; then
+  timeout 200 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/out/hygiene-update.log 2>&1 || true
+  timeout 250 apt-get install -y --no-install-recommends xdg-user-dirs gnome-keyring >/out/hygiene-install.log 2>&1 || true
+fi
+echo "xdg_user_dir=$(command -v xdg-user-dir || echo MISSING) gnome_keyring=$(command -v gnome-keyring-daemon || echo MISSING)" > /out/hygiene.txt
+# The stock chromium.desktop points at the Ubuntu snap stub, which segfaults
+# when clicked from the dock. Override it with the working Debian wrapper.
+if [ -f /usr/share/applications/chromium.desktop ]; then
+  sed -i 's|^Exec=.*|Exec=/usr/local/bin/chromium|' /usr/share/applications/chromium.desktop
+fi
+ln -sf /opt/chromium/chromium-wrapper.sh /usr/local/bin/wrapped-chromium
+echo "chromium_override_rc=$? exec=$(grep '^Exec=' /usr/share/applications/chromium.desktop 2>/dev/null)" >> /out/hygiene.txt
+
 # 20packagekit's gdbus hook and PackageKit's system-service file ask the bus
 # to activate a User=root service, which needs the setuid helper qqbox cannot
 # privilege-escalate. Remove both triggers; the root-user bus below handles
@@ -58,6 +72,20 @@ cat >> /root/.bashrc <<'BASH'
 export HOSTNAME=qbox
 PS1='\u@qbox:\w\$ '
 BASH
+# The image's /root/.bashrc may carry a literal \x27 from an older build;
+# sourcing it emits "x27: command not found" in EVERY interactive child PTY.
+if [ -f /root/.bashrc ]; then
+  python3 - <<'PY'
+p = '/root/.bashrc'
+lines = [l for l in open(p) if '\\x27' not in l]
+open(p, 'w').writelines(lines)
+PY
+fi
+# A child bash inherits SHELLOPTS from the wrapper below. Setting it empty
+# disables `monitor` before bash's job-control init, so it never calls
+# tcsetpgrp on a PTY qqbox cannot fully emulate ("no job control in background:
+# Bad file descriptor").
+
 cat > /out/qbox-bashrc <<'RC'
 [ -f /root/.bashrc ] && . /root/.bashrc
 RC
@@ -76,6 +104,21 @@ gdbus call --system --dest org.freedesktop.PackageKit --object-path / \
   --method org.freedesktop.DBus.Peer.Ping > /out/dbus-packagekit.txt 2>&1
 echo "packagekit_ping_rc=$? (ServiceUnknown is expected; PermissionsInvalid is not)" >> /out/dbus-packagekit.txt
 stage "system_bus_started $(cat /out/dbus-rc.txt)"
+
+# ---- xfconf: disable GNOME compat and desktop-icon plugins ----
+# LaunchGNOME=true makes xfce4-session spawn gnome-keyring-daemon, which was
+# missing => "Failed to execute child process". Desktop icons trigger
+# xfdesktop_regular_file_icon_new / thunarx GLib CRITICAL assertions on every
+# right-click. Both are disabled; the wallpaper is painted by xwallpaper.
+mkdir -p "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml"
+cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-session" version="1.0">
+  <property name="compat" type="empty">
+    <property name="LaunchGNOME" type="bool" value="false"/>
+  </property>
+</channel>
+XML
 
 # ---- xfconf: wallpaper + solid-color native terminal with a qbox prompt ----
 cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" <<'XML'
@@ -129,8 +172,7 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml" <<XM
     </property>
   </property>
   <property name="desktop-icons" type="empty">
-    <property name="style" type="int" value="2"/>
-    <property name="icon-size" type="uint" value="48"/>
+    <property name="style" type="int" value="0"/>
   </property>
 </channel>
 XML
@@ -229,26 +271,43 @@ x11vnc -display :99 -nopw -forever -shared -rfbport "$VNC_PORT" \
 sleep 3
 stage "vnc_alive"
 
+# ---- terminal launcher, started BY the session (no SM warning) ----
+mkdir -p "$XDG_CONFIG_HOME/autostart"
+cat > /usr/local/bin/qqbox-shell <<'LAUNCH'
+#!/bin/sh
+export SHELLOPTS=
+exec bash --rcfile /out/qbox-bashrc -i
+LAUNCH
+chmod 755 /usr/local/bin/qqbox-shell
+cat > /usr/local/bin/qqbox-terminal <<'LAUNCH'
+#!/bin/sh
+exec xfce4-terminal --disable-server --title QQBOX-TERMINAL \
+  --dynamic-title-mode=none --geometry 84x26+120+110 \
+  --working-directory=/out --command /usr/local/bin/qqbox-shell
+LAUNCH
+chmod 755 /usr/local/bin/qqbox-terminal
+cat > "$XDG_CONFIG_HOME/autostart/qqbox-terminal.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=QQBOX Terminal
+Exec=/usr/local/bin/qqbox-terminal
+OnlyShowIn=XFCE;
+DESK
+
 # ---- XFCE session (provides the session bus for xfconfd/xfdesktop) ----
+# xfce4-session owns ONE xfwm4/xfce4-panel/xfdesktop/xfconfd via autostart.
+# Manually starting duplicates produced "Another Window Manager is already
+# running", "Another desktop manager is already running", two panels and two
+# xfconfd processes. Only paint the backdrop ourselves.
 dbus-run-session -- /usr/bin/xfce4-session > /out/xfce.log 2>&1 &
 sleep 18
-xfwm4 --compositor=off > /out/wm.log 2>&1 &
-sleep 4
-xfce4-panel > /out/panel.log 2>&1 &
-sleep 5
-/usr/bin/xfdesktop --disable-wm-check > /out/xfdesktop.log 2>&1 &
-sleep 6
 xwallpaper --zoom "$WALL" > /out/xwallpaper.log 2>&1; echo "xwallpaper_rc=$?" > /out/xwallpaper-rc.txt
 sleep 3
 scrot -o /out/01-wallpaper.png 2>/dev/null || true
 stage "wallpaper_and_bottom_panel_started $(cat /out/xwallpaper-rc.txt)"
 
-xfce4-terminal --disable-server --title QQBOX-TERMINAL \
-  --dynamic-title-mode=none --geometry 84x26+120+110 \
-  --working-directory=/out --command 'bash --rcfile /out/qbox-bashrc -i' \
-  > /out/terminal.log 2>&1 &
-sleep 8
-stage "native_terminal_started"
+# The session starts the terminal from autostart/qqbox-terminal.desktop.
+stage "native_terminal_started_by_session"
 
 # ---- Chromium with the preloaded qqbox + Tencent BrowserSkill extensions ----
 /usr/local/bin/chromium --window-size=1000,700 --window-position=150,120 \
@@ -278,7 +337,7 @@ stage "chromium_started"
   vi -es -u NONE -c '1s/qqbox-vim/qqbox-vi/' -c 'wq' /out/vi-edit.txt; echo "vi_rc=$?"; cat /out/vi-edit.txt
   echo '=== hostname / prompt ==='
   hostname; cat /etc/hostname
-  bash --rcfile /out/qbox-bashrc -i -c 'echo "PS1=$PS1"'
+  grep -F 'PS1=' /out/qbox-bashrc /etc/profile.d/qqbox-prompt.sh /root/.bashrc | tail -3
   echo '=== audio ==='
   pactl info 2>&1 | head -12
   pactl list short sinks 2>&1

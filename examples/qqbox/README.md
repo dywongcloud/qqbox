@@ -201,6 +201,30 @@ install does not kill the stub. Until then `--no-sandbox --single-process
 isolation and V8 JIT are off. Headless `--headless=new --dump-dom` times out;
 windowed rendering under Xvfb is the supported path.
 
+## Clean session and child PTY (no random XFCE errors)
+
+The first 26.04 boots emitted a stream of errors from duplicate processes and
+startup scripts. All are fixed and witnessed in a fresh live boot:
+
+| error | root cause | fix |
+| --- | --- | --- |
+| `x27: command not found` in EVERY interactive child PTY | the Dockerfile wrote `PS1=\x27…\x27` with `printf`; dash does not interpret `\x`, so the literal `\x27` landed in `/root/.bashrc` | Dockerfile uses octal `\047`; startup script removes any stale `\x27` lines in place |
+| `bash: initialize job control: no job control in background: Bad file descriptor` | bash's job-control init calls `tcsetpgrp` on a PTY qqbox cannot fully emulate | terminal child wrapper exports `SHELLOPTS=` (monitor off); witnessed clean `root@qbox:/out#` with typed input echoed |
+| `bash: cannot set terminal process group (1): Inappropriate ioctl for device` | the evidence script ran `bash -i -c` with no PTY | replaced with a plain `grep -F 'PS1='` check; the real terminal is witnessed by typed RFB input |
+| `Another Window Manager (Xfwm4) is already running` / `Could not find a screen to manage` / `Another desktop manager is already running` | the startup script started `xfwm4`, `xfce4-panel`, `xfdesktop` **and** `xfce4-session`, which autostarts its own copies (two panels, two xfconfd) | `xfce4-session` owns exactly one of each; manual duplicates removed |
+| `Failed to run gnome-keyring-daemon: Failed to execute child process` (No such file) | `xfce4-session` compat `LaunchGNOME=true` | `xfce4-session.xml` sets `compat/LaunchGNOME=false`; `gnome-keyring` also installed |
+| `FileNotFoundError: 'xdg-user-dir'` Python traceback from `xdg-xubuntu-templates` | `xdg-user-dirs` absent | installed |
+| `xfdesktop_regular_file_icon_new: assertion 'G_IS_FILE_INFO' failed`, `thunarx_menu_provider…` GLib CRITICAL | desktop-icon plugins on the vfs-only root | `desktop-icons/style=0` (wallpaper still painted by `xwallpaper`) |
+| `Failed to connect to session manager: SESSION_MANAGER environment variable not defined` | terminal launched outside the session | terminal launched from `autostart/qqbox-terminal.desktop`, owned by `xfce4-session` |
+| `/usr/bin/chromium: ... Segmentation fault` when clicked from the dock | the stock `chromium.desktop` → `wrapped-chromium` → Ubuntu snap stub | `.desktop` Exec overridden to `/usr/local/bin/chromium` and `wrapped-chromium` symlinked to the Debian wrapper |
+
+Remaining log lines are informational, not errors: one
+`libxfce4util-WARNING: Failed to get a systemd proxy` (qqbox has no systemd
+`login1`), `_NET_*` "assuming" messages before xfwm4 publishes properties,
+and the expected `org.freedesktop.PackageKit ServiceUnknown` after the
+DBus-trigger removal. A fresh boot's panel/terminal/wm/xfdesktop logs contain
+no ERROR, CRITICAL, assertion, child-exec, PTY or Traceback lines.
+
 ## The dock / taskbar (and why it disappeared on 26.04)
 
 On the first Xubuntu 26 build the bottom dock was missing entirely. Live

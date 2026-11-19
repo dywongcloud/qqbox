@@ -84,6 +84,29 @@ rm -f /etc/apt/apt.conf.d/20packagekit \
   因此改附 noble 的 Node 18 二進位檔、六個 SONAME、五個外部化 builtin，
   以及 npm registry 的 npm 9.2.0。
 
+## 清除隨機 XFCE 錯誤與子 PTY 錯誤
+
+早期 26.04 開機流程會產生一連串錯誤，皆已修復並實測：
+
+| 錯誤 | 成因 | 修復 |
+| --- | --- | --- |
+| 每個互動式子 PTY 出現 `x27: command not found` | Dockerfile 的 `printf` 使用 `\x27`，dash 不解譯 `\x`，使字面 `\x27` 寫入 `/root/.bashrc` | 改用八進位 `\047`，啟動腳本就地移除殘留 `\x27` 行 |
+| `bash: initialize job control: no job control in background: Bad file descriptor` | bash 工作控制初始化呼叫 qqbox 無法完整模擬的 `tcsetpgrp` | 終端機子行程 wrapper 匯出 `SHELLOPTS=`（關閉 monitor）；實測乾淨的 `root@qbox:/out#` 與 RFB 打字回顯 |
+| `bash: cannot set terminal process group (1)` | 證據腳本在無 PTY 下執行 `bash -i -c` | 改為 `grep -F 'PS1='`；真正的終端機由 RFB 打字見證 |
+| `Another Window Manager ... is already running`、`Another desktop manager ...` | 啟動腳本同時啟動 `xfwm4`／`xfce4-panel`／`xfdesktop`，而 `xfce4-session` 又各自 autostart 一份（兩個面板、兩個 xfconfd） | 由 `xfce4-session` 擁有各一份，移除手動重複啟動 |
+| `Failed to run gnome-keyring-daemon: Failed to execute child process` | `xfce4-session` 的 `compat/LaunchGNOME=true` | `xfce4-session.xml` 設 `LaunchGNOME=false`，並安裝 `gnome-keyring` |
+| `FileNotFoundError: 'xdg-user-dir'` Python traceback | 缺少 `xdg-user-dirs` | 已安裝 |
+| `xfdesktop_regular_file_icon_new ... assertion` 與 `thunarx` GLib CRITICAL | vfs-only 根目錄上的桌面圖示外掛 | `desktop-icons/style=0`，桌布仍由 `xwallpaper` 繪製 |
+| `SESSION_MANAGER environment variable not defined` | 終端機在 session 之外啟動 | 改由 `autostart/qqbox-terminal.desktop` 讓 `xfce4-session` 啟動 |
+| 從工作列點擊 Chromium 時 `/usr/bin/chromium ... Segmentation fault` | 原廠 `chromium.desktop` → `wrapped-chromium` → Ubuntu snap stub | `.desktop` 的 Exec 覆寫為 `/usr/local/bin/chromium`，`wrapped-chromium` 指向 Debian wrapper |
+
+其餘日誌為資訊性質而非錯誤：一則 `libxfce4util-WARNING: Failed to get a
+systemd proxy`（qqbox 沒有 systemd `login1`）、xfwm4 發布屬性前的 `_NET_*`
+「assuming」訊息，以及移除 D-Bus 觸發點後預期中的
+`org.freedesktop.PackageKit ServiceUnknown`。全新開機的
+panel／terminal／wm／xfdesktop 日誌沒有 ERROR、CRITICAL、assertion、
+child-exec、PTY 或 Traceback 行。
+
 ## 底部工作列為何消失
 
 Xubuntu 26 的第一個建置完全沒有底部工作列。實測 `panel.log` 顯示：
