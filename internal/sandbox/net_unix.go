@@ -239,6 +239,12 @@ func newSockFile(fd, family, typ, proto int) *dfile {
 	unix.CloseOnExec(fd)
 	unix.SetNonblock(fd, true)
 	sockNoSigpipe(fd)
+	if family == lxAFInet && typ == lxSockDgram && proto == unix.IPPROTO_ICMP {
+		// A Linux ping socket (SOCK_DGRAM/IPPROTO_ICMP) receives only the ICMP
+		// message; Darwin's ICMP datagram socket prepends the IPv4 header. Ask
+		// the host socket to strip it, so ping(8) sees the reply it expects.
+		icmpPingSock(fd)
+	}
 	if family == lxAFUnix && typ != lxSockStream {
 		// Darwin caps a unix datagram at the send buffer (2 KiB by default);
 		// Linux allows far larger ones.

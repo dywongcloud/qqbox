@@ -17,6 +17,9 @@ func sockNoSigpipe(int) {}
 
 func pipeNoSigpipe(int) {}
 
+// Linux ping sockets already deliver the bare ICMP message.
+func icmpPingSock(int) {}
+
 // tcpClosed reports whether TCP socket fd is in the CLOSED state (not still
 // connecting).
 func tcpClosed(fd int) bool {

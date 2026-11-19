@@ -18,6 +18,13 @@ func sockNoSigpipe(fd int) { unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_NOS
 
 func pipeNoSigpipe(fd int) { unix.FcntlInt(uintptr(fd), unix.F_SETNOSIGPIPE, 1) }
 
+// icmpPingSock gives an AF_INET SOCK_DGRAM IPPROTO_ICMP host socket Linux
+// ping-socket receive semantics. Darwin otherwise prepends the IPv4 header to
+// each received ICMP message, which Linux ping(8) discards as a non-echo type;
+// IP_STRIPHDR drops that header and leaves the ICMP message (checksum included)
+// untouched.
+func icmpPingSock(fd int) { unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_STRIPHDR, 1) }
+
 // tcpClosed reports whether TCP socket fd is in the CLOSED state (not still
 // connecting).
 func tcpClosed(fd int) bool {
