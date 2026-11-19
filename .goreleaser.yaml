@@ -25,6 +25,28 @@ builds:
       - x86_64-apple-darwin
       - x86_64-pc-windows-msvc
 
+  - id: qqbox-mcp
+    builder: rust
+    main: ./crates/qqbox-mcp
+    binary: qqbox-mcp
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+      - aarch64-apple-darwin
+      - x86_64-apple-darwin
+      - x86_64-pc-windows-msvc
+
+  - id: qqbox-runtime
+    builder: rust
+    main: ./crates/qqbox-runtime
+    binary: qqbox-runtime
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+      - aarch64-apple-darwin
+      - x86_64-apple-darwin
+      - x86_64-pc-windows-msvc
+
 archives:
   - id: binaries
     formats: [tar.gz]
@@ -35,6 +57,9 @@ archives:
       - docs/OCI_MATRIX.md
       - docs/PORT_STATUS.md
       - docs/SINGLE_ADDRESS_SPACE.md
+      - docs/permissions-and-limits.md
+      - NOTICE.md
+      - zh-hant/README.zh-Hant.md
       - examples/oci-config.json
       - examples/compose.yaml
       - examples/runtime-spec.json

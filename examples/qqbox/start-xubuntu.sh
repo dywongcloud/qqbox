@@ -1,15 +1,16 @@
 #!/bin/bash
-# Tencent qqbox desktop: bottom dock, audio, root@qbox, real Chromium with a
-# preloaded extension, and live witness evidence.
+# Tencent qqbox Xubuntu 26 desktop: working Xubuntu wallpaper, bottom dock,
+# root-user system bus (apt works), PulseAudio, root@qbox prompt, real Chromium
+# with a preloaded extension, and live witness evidence.
 set -x
 export HOME=/config DISPLAY=:99 XDG_RUNTIME_DIR=/tmp/xdg SHELL=/bin/bash
-export XDG_CONFIG_HOME=/config/.config XDG_CONFIG_DIRS=/etc/xdg
+export XDG_CONFIG_HOME=/config/.config XDG_CONFIG_DIRS=/etc/xdg/xdg-xubuntu:/etc/xdg
 VNC_PORT=${VNC_PORT:-5905}
 mkdir -p "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml" \
-  /tmp/.X11-unix /var/run/dbus "$XDG_RUNTIME_DIR" /out /tmp/crash \
+  /tmp/.X11-unix /run/dbus /var/run/dbus "$XDG_RUNTIME_DIR" /out /tmp/crash \
   /tmp/qbox-pa /tmp/qbox-home/.config/pulse /tmp/qbox-home/.local/share
 chmod 700 "$XDG_RUNTIME_DIR"; chown -R 0:0 /config 2>/dev/null || true
-rm -f /out/ready.txt /out/result.txt /out/stages.log
+rm -f /out/ready.txt /out/result.txt /out/stages.log /run/dbus/pid /run/dbus/system_bus_socket
 stage() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >>/out/stages.log; }
 
 # ---- hostname: qbox (sethostname works inside qqbox) ----
@@ -32,7 +33,18 @@ cat > /out/qbox-bashrc <<'RC'
 RC
 stage "hostname_qbox=$(hostname)"
 
-# ---- xfconf: solid-color native terminal with a qbox prompt ----
+# ---- root-user system bus: fixes GDBus Spawn.PermissionsInvalid ----
+# dbus-daemon --system drops to messagebus and needs the setuid-root launch
+# helper, which qqbox's execve cannot privilege-escalate. This config keeps the
+# bus as root so apt's D-Bus activations (PackageKit, systemd1, ...) work.
+dbus-daemon --config-file=/etc/dbus-1/qqbox-system.conf --fork > /out/dbus.log 2>&1
+echo "system_bus_rc=$?" > /out/dbus-rc.txt
+gdbus call --system --dest org.freedesktop.PackageKit --object-path / \
+  --method org.freedesktop.DBus.Peer.Ping > /out/dbus-ping.txt 2>&1
+echo "dbus_ping_rc=$?" >> /out/dbus-ping.txt
+stage "system_bus_started $(cat /out/dbus-rc.txt)"
+
+# ---- xfconf: wallpaper + solid-color native terminal with a qbox prompt ----
 cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfwm4" version="1.0"><property name="general" type="empty">
@@ -52,8 +64,38 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml" <<'
   <property name="misc-bell" type="bool" value="false"/>
 </channel>
 XML
+# The stock Xubuntu 26 wallpapers live in /usr/share/xfce4/backdrops/.
+# xfdesktop refuses to paint without a WM registered, so start xfwm4 and pass
+# --disable-wm-check. xfconfd needs a session bus; xfce4-session supplies one.
+if [ -f /usr/share/xfce4/backdrops/xubuntu-wallpaper.png ]; then
+  WALL=/usr/share/xfce4/backdrops/xubuntu-wallpaper.png
+elif [ -f /usr/share/xfce4/backdrops/xubuntu-resolute-plucky-remix.png ]; then
+  WALL=/usr/share/xfce4/backdrops/xubuntu-resolute-plucky-remix.png
+else
+  WALL=$(ls /usr/share/xfce4/backdrops/*.png 2>/dev/null | head -1)
+fi
+echo "wallpaper=$WALL" > /out/wallpaper.txt
+cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml" <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitors" type="array"><value type="string" value="monitor0"/></property>
+      <property name="monitor0" type="empty">
+        <property name="image-path" type="string" value="$WALL"/>
+        <property name="image-style" type="int" value="5"/>
+        <property name="image-show" type="bool" value="true"/>
+      </property>
+    </property>
+  </property>
+  <property name="desktop-icons" type="empty">
+    <property name="style" type="int" value="2"/>
+    <property name="icon-size" type="uint" value="48"/>
+  </property>
+</channel>
+XML
 
-# ---- bottom dock/taskbar: p=10 is bottom on XFCE 4.18 ----
+# ---- bottom dock/taskbar: p=10 is bottom on XFCE 4.18+ ----
 mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/qqbox-terminal.desktop" <<'DESK'
 [Desktop Entry]
@@ -105,19 +147,13 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<'XML
   <property name="plugins" type="empty">
     <property name="plugin-1" type="string" value="applicationsmenu"/>
     <property name="plugin-2" type="string" value="launcher">
-      <property name="items" type="array">
-        <value type="string" value="qqbox-terminal.desktop"/>
-      </property>
+      <property name="items" type="array"><value type="string" value="qqbox-terminal.desktop"/></property>
     </property>
     <property name="plugin-3" type="string" value="launcher">
-      <property name="items" type="array">
-        <value type="string" value="qqbox-files.desktop"/>
-      </property>
+      <property name="items" type="array"><value type="string" value="qqbox-files.desktop"/></property>
     </property>
     <property name="plugin-4" type="string" value="launcher">
-      <property name="items" type="array">
-        <value type="string" value="qqbox-browser.desktop"/>
-      </property>
+      <property name="items" type="array"><value type="string" value="qqbox-browser.desktop"/></property>
     </property>
     <property name="plugin-5" type="string" value="separator">
       <property name="expand" type="bool" value="true"/>
@@ -129,7 +165,7 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<'XML
 </channel>
 XML
 printf 'nameserver 8.8.8.8\n' > /etc/resolv.conf
-stage "config_written"
+stage "config_written wallpaper=$WALL"
 
 # ---- audio: PulseAudio null sink (no /dev/snd in qqbox) ----
 cat > /tmp/qbox-pa/default.pa <<'PA'
@@ -137,8 +173,6 @@ load-module module-null-sink sink_name=qqbox sink_properties=device.description=
 load-module module-native-protocol-unix socket=/tmp/qbox-pa/native auth-anonymous=1
 set-default-sink qqbox
 PA
-# PULSE_SERVER must NOT be exported to the daemon: pulseaudio refuses to
-# autostart when a user-configured server is set. Clients get it below.
 env -u PULSE_SERVER HOME=/tmp/qbox-home PULSE_RUNTIME_PATH=/tmp/qbox-pa \
   PULSE_CONFIG_PATH=/tmp/qbox-home/.config/pulse PULSE_NO_AUTOSPAWN=1 \
   pulseaudio -n --file=/tmp/qbox-pa/default.pa --start --exit-idle-time=-1 \
@@ -147,21 +181,25 @@ env -u PULSE_SERVER HOME=/tmp/qbox-home PULSE_RUNTIME_PATH=/tmp/qbox-pa \
 export PULSE_SERVER=unix:/tmp/qbox-pa/native
 stage "pulseaudio_started $(cat /out/pulseaudio-rc.txt)"
 
-# ---- X server + VNC first ----
+# ---- X server + VNC ----
 Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac > /out/xvfb.log 2>&1 &
 sleep 4
-xsetroot -display :99 -solid '#204a87' 2>/dev/null || true
 x11vnc -display :99 -nopw -forever -shared -rfbport "$VNC_PORT" \
   -o /out/x11vnc.log > /out/x11vnc.stdout 2>&1 &
 sleep 3
 stage "vnc_alive"
 
-dbus-daemon --system --fork > /out/dbus.log 2>&1 || true
+# ---- XFCE session (provides the session bus for xfconfd/xfdesktop) ----
 dbus-run-session -- /usr/bin/xfce4-session > /out/xfce.log 2>&1 &
 sleep 18
+xfwm4 --compositor=off > /out/wm.log 2>&1 &
+sleep 4
+/usr/bin/xfdesktop --disable-wm-check > /out/xfdesktop.log 2>&1 &
+sleep 8
 xfce4-panel > /out/panel.log 2>&1 &
 sleep 5
-stage "bottom_panel_started"
+scrot -o /out/01-wallpaper.png 2>/dev/null || true
+stage "wallpaper_and_bottom_panel_started"
 
 xfce4-terminal --disable-server --title QQBOX-TERMINAL \
   --dynamic-title-mode=none --geometry 84x26+120+110 \
@@ -170,45 +208,61 @@ xfce4-terminal --disable-server --title QQBOX-TERMINAL \
 sleep 8
 stage "native_terminal_started"
 
-# ---- Chromium with the preloaded qqbox extension ----
-/usr/local/bin/chromium --load-extension=/opt/qqbox-extension \
-  --window-size=1000,700 --window-position=150,120 \
+# ---- Chromium with the preloaded qqbox + Tencent BrowserSkill extensions ----
+/usr/local/bin/chromium --window-size=1000,700 --window-position=150,120 \
   --user-data-dir=/tmp/chrome-qqbox https://example.com/ > /out/chromium.log 2>&1 &
 sleep 18
 stage "chromium_started"
 
 # ---- evidence ----
 {
+  echo '=== os-release ==='; grep -E 'PRETTY_NAME|VERSION_ID|VERSION_CODENAME|ID=' /etc/os-release
   echo '=== toolchain ==='
-  for b in python3 pip3 pip node npm git gh claude chromium; do
-    printf '%-10s ' "$b"; command -v "$b" || echo MISSING
+  for b in python3 pip3 pip node npm git gh claude chromium vi vim vim.tiny \
+           nano less man find xargs grep awk sed diff patch make gcc g++ \
+           tree ifconfig ip ss dig wget curl rsync zip unzip tar ps htop jq \
+           strace lsof tmux gpg xfdesktop xfconf-query pactl Xvfb x11vnc \
+           scrot xdotool ping fastfetch; do
+    printf '%-12s ' "$b"; command -v "$b" || echo MISSING
   done
   echo '--- versions ---'
   python3 --version; pip3 --version; node --version; npm --version
   git --version; gh --version | head -1; claude --version
+  vim --version | head -1; vi --version | head -1
   env LD_LIBRARY_PATH=/opt/chromium/extra-libs:/opt/chromium /opt/chromium/chromium --version
+  echo '--- vi/vim edit witness ---'
+  printf 'hello\n' > /out/vi-edit.txt
+  vim -Es -u NONE -c '1s/hello/qqbox-vim/' -c 'wq' /out/vi-edit.txt; echo "vim_rc=$?"; cat /out/vi-edit.txt
+  vi -es -u NONE -c '1s/qqbox-vim/qqbox-vi/' -c 'wq' /out/vi-edit.txt; echo "vi_rc=$?"; cat /out/vi-edit.txt
   echo '=== hostname / prompt ==='
-  hostname; cat /etc/hostname; echo "PS1=${PS1-<unset>}"
+  hostname; cat /etc/hostname
+  bash --rcfile /out/qbox-bashrc -i -c 'echo "PS1=$PS1"'
   echo '=== audio ==='
   pactl info 2>&1 | head -12
   pactl list short sinks 2>&1
-  python3 - <<'PY'
-import wave, struct, math
-w = wave.open('/out/tone.wav', 'wb')
-w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
-w.writeframes(b''.join(struct.pack('<h', int(12000*math.sin(2*math.pi*440*t/8000)) for t in range(2400)))
-w.close()
-PY
+  python3 -c "import wave,struct,math;w=wave.open('/out/tone.wav','wb');w.setnchannels(1);w.setsampwidth(2);w.setframerate(8000);w.writeframes(b''.join(struct.pack('<h',int(12000*math.sin(2*math.pi*440*t/8000))) for t in range(2400)));w.close()"
   paplay /out/tone.wav 2>&1; echo "paplay_rc=$?"
   echo '=== network ==='
   getent hosts example.com | head -2
   curl -4 -sS -m 12 -o /dev/null -w 'HTTP %{http_code} %{remote_ip}\n' https://example.com/
   ping -c 3 -W 3 google.com 2>&1 | tail -3
   echo "ping_rc=$?"
-  echo '=== extension ==='
-  ls -la /opt/qqbox-extension/
-  echo '=== skill ==='
-  ls -la /root/.claude/skills/tencent-browser/
+  echo '=== D-Bus setuid-helper fix ==='
+  cat /out/dbus-rc.txt; cat /out/dbus-ping.txt
+  echo '--- repeat apt installs (the user failing case) ---'
+  apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/out/apt-final-update.log 2>&1; echo "apt_update_rc=$?"
+  for p in fastfetch tree npm; do
+    apt-get install -y --no-install-recommends "$p" >"/out/apt-final-$p.log" 2>&1
+    echo "$p rc=$? dpkg=$(dpkg-query -W -f='${Status}' "$p" 2>/dev/null)"
+  done
+  grep -rin 'PermissionsInvalid\|setuid helper' /out/apt-final-*.log /out/dbus*.log || echo NO_DBUS_ERROR
+  echo '=== wallpaper ==='
+  cat /out/wallpaper.txt
+  xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/image-path 2>&1
+  echo "xfdesktop_procs=$(pgrep -c xfdesktop)"
+  echo '=== extension / skill ==='
+  ls -la /opt/qqbox-extension/ /opt/tencent-browserskill/ | head -20
+  ls -la /root/.claude/skills/
 } > /out/requirements.txt 2>&1
 
 ps aux > /out/processes.txt 2>&1 || true

@@ -28,13 +28,25 @@ Key facts for answering questions about this repository:
   frozen in `crates/qqbox/src/zig/abi.rs` (128-byte `chanPage`).
 - Ports, port forwarding, volumes, labels, OCI runtime-spec `config.json` and
   Docker Compose are implemented in Rust; see docs/OCI_MATRIX.md.
-- It runs container engines nested: podman and Docker launch their own
-  containers inside the sandbox. It also runs Node.js/V8, headless Chromium,
-  PostgreSQL/MariaDB/Redis, and qqbox inside qqbox.
+- The upstream Go runtime ran container engines nested (podman and Docker),
+  Node.js/V8, headless Chromium, PostgreSQL/MariaDB/Redis, and laboon inside
+  laboon. Those workload claims are NOT claims about this Rust-only tree: the
+  three native guest-execution backends are not ported, so `qqbox run` returns
+  `Error::UnsupportedPlatform`. The witnessed control-plane surface is below.
+- Five user interfaces, matching upstream laboon's UX but in Rust: the `qqbox`
+  standalone CLI, the `qqboxd` Docker-API daemon (48 routes, bearer auth, drive
+  it with a Moby/Docker client), the `qqbox-runtime` OCI runtime shim
+  (create/start/state/kill/delete/features), the `qqbox-mcp` MCP server
+  (stdio + streamable HTTP, `run` tool plus seven witnessed control-plane tools),
+  and the `qqbox` Rust library (`run_image(&ctx, ref, &opts)`).
+- The Xubuntu 26.04.1 LTS desktop example (examples/qqbox/) boots with working
+  Xubuntu wallpapers, a bottom dock, PulseAudio, Chromium 150, vi/vim and GNU
+  tools, and `root@qbox`. It is booted with the pre-removal Go runtime binary
+  preserved off-repo, not with a from-source Rust build.
 
 ## Docs
 
-- [README](README.md): what qqbox is, the Rust build, the CLI, the security model and the OCI surface.
+- [README](README.md): upstream laboon UX ported to Rust — install, five interfaces, Moby/Docker client, OCI runtime, MCP server, Rust library, security model, performance, AI agents and desktop sandboxes.
 - [AGENTS.md](AGENTS.md): architecture invariants and guidance for working in the tree.
 - [OCI_MATRIX.md](docs/OCI_MATRIX.md): construct-by-construct OCI, Compose and Docker-API coverage.
 - [PORT_STATUS.md](docs/PORT_STATUS.md): the honest boundary of the Go-to-Rust port.
@@ -48,6 +60,9 @@ Key facts for answering questions about this repository:
 - [crates/qqbox](crates/qqbox): the library — options, config, oci, vfs, net, compose, rewrite, sandbox, zig, daemon, security.
 - [crates/qqbox-cli](crates/qqbox-cli): the `qqbox` CLI.
 - [crates/qqboxd](crates/qqboxd): the `qqboxd` Docker-compatible daemon.
+- [crates/qqbox-mcp](crates/qqbox-mcp): the `qqbox-mcp` MCP server (stdio and HTTP).
+- [crates/qqbox-runtime](crates/qqbox-runtime): the `qqbox-runtime` OCI runtime shim.
+- [examples/qqbox](examples/qqbox): the reproducible Xubuntu 26 desktop image.
 - [crates/qqbox/src/sandbox](crates/qqbox/src/sandbox): sandbox control plane.
 - [crates/qqbox/src/rewrite](crates/qqbox/src/rewrite): syscall-site classification and cache.
 - [crates/qqbox/src/vfs](crates/qqbox/src/vfs): the filesystem Namespace all guest paths resolve through.
@@ -56,7 +71,7 @@ Key facts for answering questions about this repository:
 
 ## Traditional Chinese (繁體中文)
 
-- [zh-hant/README.zh-Hant.md](zh-hant/README.zh-Hant.md): 專案總覽、建置、安全模型。
+- [zh-hant/README.zh-Hant.md](zh-hant/README.zh-Hant.md): 上游 laboon 使用體驗的 Rust 版鏡像。
 - [zh-hant/AGENTS.zh-Hant.md](zh-hant/AGENTS.zh-Hant.md): 貢獻者規則。
 - [zh-hant/llms.zh-Hant.txt](zh-hant/llms.zh-Hant.txt): 模型導向的快速參考。
 - [zh-hant/SECURITY.zh-Hant.md](zh-hant/SECURITY.zh-Hant.md): 威脅模型與回報流程。

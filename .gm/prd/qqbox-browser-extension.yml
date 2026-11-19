@@ -1,7 +1,0 @@
-id: qqbox-browser-extension
-subject: Preload the Tencent browser skill and a browser extension into Chromium
-description: Resolve what the Tencent browser skill is, install it, and preload a real unpacked Chromium extension by default via --load-extension.
-acceptance_criteria: Chromium starts with the extension loaded (chrome://extensions or process command line) and the skill is present on disk.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

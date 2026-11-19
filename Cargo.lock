@@ -529,6 +529,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "qqbox-mcp"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "qqbox",
+ "serde",
+ "serde_json",
+ "tiny_http",
+]
+
+[[package]]
+name = "qqbox-runtime"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "qqbox",
+ "serde_json",
+]
+
+[[package]]
 name = "qqboxd"
 version = "0.1.0"
 dependencies = [

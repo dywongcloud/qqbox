@@ -1,0 +1,323 @@
+//! MCP server for qqbox. Implements JSON-RPC 2.0 `initialize`,
+//! `tools/list` and `tools/call` over stdio (newline-delimited JSON) or
+//! streamable HTTP. The `run` tool calls the Rust library directly; because
+//! the three native guest-execution backends are not ported yet, it returns
+//! the library's `UnsupportedPlatform` diagnostic as a tool error rather than
+//! pretending the guest ran. See docs/PORT_STATUS.md.
+
+use clap::Parser;
+use qqbox::daemon::Daemon;
+use qqbox::security;
+use qqbox::{run_image, Context, Options};
+use serde_json::{json, Value};
+use std::io::{self, BufRead, Write};
+
+const PROTOCOL: &str = "2025-06-18";
+
+#[derive(Parser)]
+#[command(name = "qqbox-mcp", version, about = "MCP server for qqbox sandboxes")]
+struct Cli {
+    /// Streamable HTTP bind address instead of stdio, for example 127.0.0.1:8080.
+    #[arg(long)]
+    http: Option<String>,
+    /// Allow the `run` tool to request guest networking.
+    #[arg(long)]
+    allow_net: bool,
+    /// Default per-run timeout in seconds (informational until a backend is ported).
+    #[arg(long, default_value_t = 120)]
+    timeout: u64,
+    /// Per-stream output cap in bytes.
+    #[arg(long, default_value_t = 1048576)]
+    max_output: usize,
+}
+
+fn tool_list() -> Value {
+    json!([
+        {
+            "name": "run",
+            "description": "Run a command in a disposable sandbox created from an OCI image. Returns exit code, stdout and stderr. Currently returns the native-backend diagnostic because the Rust guest backends are not ported.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "image": {"type": "string", "description": "OCI image reference"},
+                    "command": {"type": "array", "items": {"type": "string"}},
+                    "network": {"type": "boolean", "description": "request external networking"}
+                },
+                "required": ["image", "command"]
+            }
+        },
+        {
+            "name": "qqbox_invariants",
+            "description": "List the enforced qqbox security invariants.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "qqbox_routes",
+            "description": "List the Docker Engine API routes served by qqboxd.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "qqbox_runtime_spec_validate",
+            "description": "Parse and validate an OCI runtime-spec config.json; unsupported security constructs are rejected.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+        },
+        {
+            "name": "qqbox_config_validate",
+            "description": "Parse and print every construct of an OCI image config JSON file.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+        },
+        {
+            "name": "qqbox_ports_check",
+            "description": "Parse publish specs such as 8080:80 and print the forwarding plan.",
+            "inputSchema": {"type": "object", "properties": {"specs": {"type": "array", "items": {"type": "string"}}}, "required": ["specs"]}
+        },
+        {
+            "name": "qqbox_compose_plan",
+            "description": "Lower a Compose YAML/JSON file to a dependency-ordered instance plan.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "project": {"type": "string"}}, "required": ["path"]}
+        },
+        {
+            "name": "qqbox_version",
+            "description": "Report the qqbox version, host OS and architecture.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }
+    ])
+}
+
+fn text_result(text: String, is_error: bool) -> Value {
+    json!({"content": [{"type": "text", "text": text}], "isError": is_error})
+}
+
+fn call_tool(name: &str, args: &Value, cli: &Cli) -> Value {
+    match name {
+        "run" => {
+            let image = args.get("image").and_then(Value::as_str).unwrap_or("");
+            let command: Vec<String> = args
+                .get("command")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let wants_net = args
+                .get("network")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if image.is_empty() || command.is_empty() {
+                return text_result("image and a non-empty command are required".into(), true);
+            }
+            if wants_net && !cli.allow_net {
+                return text_result(
+                    "network=true requires the server to start with --allow-net".into(),
+                    true,
+                );
+            }
+            let opts = Options {
+                args: Some(command.clone()),
+                net: wants_net,
+                ..Options::default()
+            };
+            let ctx = Context::default();
+            match run_image(&ctx, image, &opts) {
+                Ok(code) => text_result(
+                    json!({"exitCode": code, "stdout": "", "stderr": ""}).to_string(),
+                    false,
+                ),
+                Err(err) => text_result(
+                    json!({
+                        "exitCode": null,
+                        "stdout": "",
+                        "stderr": err.to_string(),
+                        "qqboxDiagnostic": "the Rust control plane prepared the run but no native guest backend is ported; see docs/PORT_STATUS.md"
+                    })
+                    .to_string(),
+                    true,
+                ),
+            }
+        }
+        "qqbox_invariants" => text_result(security::audit().join("\n"), false),
+        "qqbox_routes" => text_result(Daemon::routes().join("\n"), false),
+        "qqbox_runtime_spec_validate" => {
+            let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+            match std::fs::read(path)
+                .map_err(qqbox::Error::from)
+                .and_then(|b| qqbox::oci::runtime::parse(&b))
+                .and_then(|spec| qqbox::oci::runtime::validate(&spec).map(|_| spec))
+            {
+                Ok(spec) => text_result(
+                    json!({"valid": true, "ociVersion": spec.oci_version, "root": spec.root.path})
+                        .to_string(),
+                    false,
+                ),
+                Err(err) => text_result(err.to_string(), true),
+            }
+        }
+        "qqbox_config_validate" => {
+            let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+            match std::fs::read(path)
+                .map_err(qqbox::Error::from)
+                .and_then(|b| qqbox::oci::parse_image_config(&b))
+            {
+                Ok(cfg) => text_result(
+                    serde_json::to_string_pretty(&cfg).unwrap_or_default(),
+                    false,
+                ),
+                Err(err) => text_result(err.to_string(), true),
+            }
+        }
+        "qqbox_ports_check" => {
+            let specs: Vec<String> = args
+                .get("specs")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut lines = Vec::new();
+            for s in specs {
+                match qqbox::net::ports::parse_published_port(&s)
+                    .and_then(|p| qqbox::net::ports::expand(&p).map(|e| (p, e)))
+                {
+                    Ok((p, e)) => lines.push(format!(
+                        "{s} -> {e:?} ({})",
+                        qqbox::net::ports::render_published_port(&p)
+                    )),
+                    Err(err) => lines.push(format!("{s} -> ERROR: {err}")),
+                }
+            }
+            text_result(lines.join("\n"), false)
+        }
+        "qqbox_compose_plan" => {
+            let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+            let project = args
+                .get("project")
+                .and_then(Value::as_str)
+                .unwrap_or("qqbox");
+            match std::fs::read(path)
+                .map_err(qqbox::Error::from)
+                .and_then(|b| qqbox::compose::parse(&b))
+                .and_then(|f| qqbox::compose::validate(&f).map(|_| f))
+                .and_then(|f| qqbox::compose::plan(&f, project))
+                .and_then(|p| qqbox::compose::to_json(&p))
+            {
+                Ok(s) => text_result(s, false),
+                Err(err) => text_result(err.to_string(), true),
+            }
+        }
+        "qqbox_version" => text_result(
+            json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "host": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+                "timeoutSeconds": cli.timeout,
+                "maxOutputBytes": cli.max_output
+            })
+            .to_string(),
+            false,
+        ),
+        other => text_result(format!("unknown tool: {other}"), true),
+    }
+}
+
+fn handle(req: &Value, cli: &Cli) -> Option<Value> {
+    let method = req.get("method").and_then(Value::as_str).unwrap_or("");
+    let id = req.get("id").cloned();
+    id.as_ref()?; // notification
+    let result = match method {
+        "initialize" => json!({
+            "protocolVersion": PROTOCOL,
+            "capabilities": {"tools": {"listChanged": false}},
+            "serverInfo": {"name": "qqbox-mcp", "version": env!("CARGO_PKG_VERSION")}
+        }),
+        "ping" => json!({}),
+        "tools/list" => json!({"tools": tool_list()}),
+        "tools/call" => {
+            let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
+            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            call_tool(name, &args, cli)
+        }
+        _ => {
+            return Some(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": -32601, "message": format!("method not found: {method}")}
+            }))
+        }
+    };
+    Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+}
+
+fn stdio(cli: &Cli) -> io::Result<()> {
+    let stdin = io::stdin();
+    let mut out = io::stdout();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let req: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(resp) = handle(&req, cli) {
+            writeln!(out, "{resp}")?;
+            out.flush()?;
+        }
+    }
+    Ok(())
+}
+
+fn http(cli: &Cli, addr: &str) -> io::Result<()> {
+    let server = tiny_http::Server::http(addr).map_err(|e| io::Error::other(e.to_string()))?;
+    eprintln!("qqbox-mcp listening on http://{addr}/");
+    for mut req in server.incoming_requests() {
+        let mut body = String::new();
+        let _ = req.as_reader().read_to_string(&mut body);
+        let parsed: Result<Value, _> = serde_json::from_str(&body);
+        let (status, payload) = match parsed {
+            Ok(v) => match handle(&v, cli) {
+                Some(resp) => (200, resp.to_string()),
+                None => (202, String::new()),
+            },
+            Err(err) => (
+                400,
+                json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":err.to_string()}})
+                    .to_string(),
+            ),
+        };
+        let data = if status == 202 {
+            "accepted".to_string()
+        } else {
+            payload
+        };
+        let response = tiny_http::Response::from_string(data)
+            .with_status_code(tiny_http::StatusCode(status))
+            .with_header(
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                    .expect("static header"),
+            );
+        let _ = req.respond(response);
+    }
+    Ok(())
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let result = match &cli.http {
+        Some(addr) => http(&cli, addr),
+        None => stdio(&cli),
+    };
+    if let Err(err) = result {
+        eprintln!("qqbox-mcp: {err}");
+        std::process::exit(1);
+    }
+}

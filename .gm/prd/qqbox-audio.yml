@@ -1,7 +1,0 @@
-id: qqbox-audio
-subject: Make audio functional in the guest
-description: Install and run a real audio server (PulseAudio null sink or equivalent), verify a sink exists and a WAV can be played with pactl/paplay.
-acceptance_criteria: pactl info shows a working daemon and a sink; paplay of a generated WAV returns 0.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

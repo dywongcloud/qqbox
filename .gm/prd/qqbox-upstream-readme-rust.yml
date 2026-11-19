@@ -1,0 +1,7 @@
+id: qqbox-upstream-readme-rust
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Port the upstream laboon README/user experience to Rust
+description: 'Rewrite README.md, llms.txt, AGENTS.md and zh-Hant counterparts to preserve the upstream laboon user experience for Rust: moby/docker client driving sandboxes, OCI runtime, MCP server and Rust library API.'
+acceptance_criteria: Docs contain exact, verified Rust crate paths/commands for all four surfaces, link zh-Hant, and honestly disclose that deleting Go removed the native guest backends.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

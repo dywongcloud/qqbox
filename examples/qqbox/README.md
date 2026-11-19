@@ -1,22 +1,40 @@
-# Fully provisioned Tencent qqbox Xubuntu desktop
+# Fully provisioned Tencent qqbox Xubuntu 26 desktop
 
-This is the reproducible successor to `examples/xubuntu/`. It boots the stock
-`linuxserver/webtop` ubuntu-xfce arm64 image under the native qqbox guest
-runtime and serves it over VNC TCP 5905 with:
+This is the reproducible Xubuntu **26.04.1 LTS (Resolute Raccoon)** desktop,
+running under the native qqbox guest runtime on macOS/arm64 and served over VNC
+TCP 5905. It is the successor to `examples/xubuntu/` (Ubuntu 24.04).
+
+The base is `linuxserver/webtop` `ubuntu-xfce-ce206d66-ls292`, pinned to the
+linux/arm64 manifest `sha256:4721b798561ebabc9bfee60d3220f8c5d57b17fb78ab83168c94628e07e55e99`.
+Live witness: `PRETTY_NAME="Ubuntu 26.04.1 LTS"`, `VERSION_CODENAME=resolute`,
+`xubuntu-wallpapers 26.04.1`, `/etc/apt/sources.d/ubuntu.sources` → `resolute`.
+
+**Honest boundary:** this is Ubuntu 26.04 + XFCE + Xubuntu's own 26.04 settings,
+artwork and wallpapers, not the Xubuntu *distribution* (`/etc/os-release` still
+says `ID=ubuntu`). Xubuntu 26.04 publishes no arm64 OCI image and xubuntu.org
+does not publish OCI images at all; `linuxserver/webtop` has no `xubuntu` tag.
+`xubuntu-desktop` 2.272 *is* available in the resolute archive, but installing
+that metapackage would replace the already-working desktop, so it is not the
+default. This is the exact Ubuntu 26 base carrying Xubuntu 26 artwork.
 
 | requirement | status |
 | --- | --- |
-| bottom dock/taskbar | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759` on an 800px screen, with applications menu, three launchers and a tasklist. |
-| real Chromium | Debian bookworm Chromium 150.0.7871.100 `linux/arm64` (not NetSurf, not the Ubuntu snap stub). Renders `https://example.com/` over VNC. |
-| Chromium sandbox | **NOT ACHIEVABLE** — 27 sandbox-enabled variants tried, all rc=1/134. See below. |
+| Xubuntu 26 | Ubuntu 26.04.1 LTS + Xubuntu 26.04.1 settings/artwork/wallpapers, witnessed in `/etc/os-release`. |
+| wallpaper / backgrounds | Real Xubuntu backdrop renders: `xfce4-desktop.xml` `image-path` → `/usr/share/xfce4/backdrops/xubuntu-wallpaper.png` (→ `xubuntu-resolute-plucky-remix.png`), `xfconfd` + `xfwm4` + `xfdesktop --disable-wm-check`. Live screenshot: 9,049 distinct colors and desktop icons, not the old solid `#204a87`. |
+| bottom dock/taskbar | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759` on an 800px screen, applications menu, three launchers, tasklist. |
+| vi / vim | `vim 9.1`, `vim-tiny` (the `vi` binary). Both witnessed editing a file with rc=0 and verified contents. |
+| GNU userland | ~70 common packages: coreutils, findutils, grep, gawk, sed, diffutils, patch, make/gcc/g++/binutils/build-essential, autoconf/automake/libtool/pkg-config/cmake/ninja/gdb, tar/gzip/bzip2/xz/zip/unzip/cpio, procps/psmisc/util-linux, net-tools/iproute2/dnsutils/traceroute, wget/curl/rsync/openssh-client, less/man-db/nano/tree/file/which, jq/htop/bc/time/strace/lsof/tmux/screen, gnupg, locales/gettext, socat/netcat/telnet/xxd, pciutils/usbutils/parted/e2fsprogs, perl, fastfetch. |
+| apt / package registries | Works repeatedly after the DBus fix; `apt-get install neofetch`-class failures are gone. |
+| GDBus setuid helper | **Fixed** — root-user system bus config, see below. |
+| real Chromium | Debian bookworm Chromium 150.0.7871.100 `linux/arm64`, four bundled bookworm libs for resolute. Renders `https://example.com/` (DOM 2,375 bytes) over VNC. |
+| Chromium sandbox | **NOT ACHIEVABLE** — 27 sandbox-enabled variants tried, rc=1/134. See below. |
 | GPU | No `/dev/dri`; SwiftShader WebGL 1.0 works (`gl.clear()`/`readPixels()` round trip, `glError=0`). |
-| audio | PulseAudio null sink: `pactl info` rc=0, `pactl list short sinks` lists `qqbox`, `paplay` rc=0. No `/dev/snd`/host playback. |
+| audio | PulseAudio null sink: `pactl info` rc=0, `paplay` rc=0. No `/dev/snd`/host playback. |
 | prompt | `root@qbox` via `hostname qbox` + `PS1='\u@qbox:\w\$ '`. |
 | ping / DNS / HTTPS | `ping -c 3 google.com` 0% loss, `getent hosts` rc=0, `curl -4 https://example.com/` HTTP 200. IPv6 AAAA records are not reachable. |
-| apt / apk | `apt-get install` works in this Ubuntu image; `apk` was witnessed in a separate Alpine guest. |
-| toolchain | `python3 3.12.3`, `pip3 24.0`, `node v18.19.1`, `npm 9.2.0`, `git 2.43.0`, `gh 2.45.0`, `claude 1.0.128` (pure-JS build). |
-| browser extension | Real Tencent BrowserSkill 0.5.0 MV3 extension preloaded from `/opt/tencent-browserskill` plus a local qqbox witness extension at `/opt/qqbox-extension`. With the required `--single-process --no-zygote` flags Chromium logs `Cannot use V8 Proxy resolver in single process mode`, so the service worker does not run; multi-process mode loads the extension (CDP service-worker target witnessed). |
-| Tencent browser skill | Resolves to the public `Tencent/BrowserSkill` (MIT): the host has `~/.tclaude/skills/browser-skill/SKILL.md` and `bsk` 0.5.0 (a macOS Mach-O binary). The skill docs and the real MV3 extension are installed into the guest; `bsk` itself cannot run in a Linux guest. A `tencent-browser/SKILL.md` pointer documents the boundary. |
+| toolchain | `python3 3.14`, `pip3 25.1`, `node v18`, `npm 9.2`, `git 2.53`, `gh 2.46`, `claude 1.0.128` (pure-JS build). |
+| browser extension | Real Tencent BrowserSkill 0.5.0 MV3 extension preloaded from `/opt/tencent-browserskill` plus a qqbox MV3 extension at `/opt/qqbox-extension`. With the required `--single-process --no-zygote`, MV3 service workers do not run; multi-process mode loads them. |
+| Tencent browser skill | Resolves to `Tencent/BrowserSkill` (MIT): host `~/.tclaude/skills/browser-skill/SKILL.md` and `bsk` 0.5.0 (macOS Mach-O, cannot run in a Linux guest). Skill docs and the real MV3 extension are installed. |
 
 ## Build
 
@@ -24,42 +42,66 @@ runtime and serves it over VNC TCP 5905 with:
 sh fetch-chromium.sh     # downloads + extracts the pinned Debian Chromium debs
 sh fetch-extras.sh       # copies the real Tencent BrowserSkill extension/skill,
                          # downloads the pure-JS Claude Code 1.0.128 npm tarball
-qqbox build -net -t qqbox-xubuntu:complete -f Dockerfile -o qqbox-complete.tar .
+qqbox build -net -t qqbox-xubuntu:26 -f Dockerfile -o qqbox-xubuntu26.tar .
 ```
 
-Neither `chromium/` (~338 MiB) nor `claude/claude-code.tgz` (~34 MiB) is
-committed; `fetch-extras.sh` also refuses to invent the Tencent BrowserSkill
-artifacts if the host has not installed them.
+Neither `chromium/` (~339 MiB) nor `claude/claude-code.tgz` (~34 MiB) is
+committed. `fetch-extras.sh` refuses to invent the Tencent BrowserSkill artifacts
+if the host has not installed them.
 
-**Extension caveat:** Chromium's `--single-process --no-zygote` (needed under
-qqbox) conflicts with MV3 extensions: loading the real BrowserSkill extension
-in that mode segfaults (rc=139, `Cannot use V8 Proxy resolver in single process
-mode`). Multi-process mode loads the extension (rc=0, `Extensions.LoadAll2` and
-`Extensions.LoadingFromCommandLine` histograms = 1) but the multi-process
-zygote path hangs for windowed rendering. The wrapper preloads both extensions
-so `--load-extension` is present by default; the honest status is that the
-extension's service worker cannot run in the only windowed configuration that
-works under qqbox. Fixing this requires the supervisor changes above.
-
-`-net` is required for the `RUN apt-get` steps. The Dockerfile pins `FROM` to
-`docker.io/linuxserver/webtop@sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`.
-It neutralizes a crashing `ldconfig.real` dpkg trigger and repairs `libc-bin`
-status so later `apt-get install` keeps working. Chrome-for-Testing 158 was
-tried and segfaults instantly under qqbox (rc=139 in every flag combination),
-so Debian Chromium 150 is used instead.
+`-net` is required for the `RUN apt-get` steps. Chrome-for-Testing 158 was tried
+and segfaults instantly under qqbox (rc=139 in every flag combination), so
+Debian Chromium 150 is used instead.
 
 ## Run
 
 ```sh
 mkdir -p /tmp/qqbox-out
-qqbox -image qqbox-xubuntu:complete -net -e VNC_PORT=5905 \
+qqbox -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 \
   -mount /tmp/qqbox-out:/out
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
 
 The startup script writes `requirements.txt`, `windows.txt`,
-`qqbox-desktop.png`, `audio.txt`, `hostname.txt`, `pulseaudio.log`,
-`pulseaudio-rc.txt`, `chromium.log` and `result.txt` into `/out`.
+`qqbox-desktop.png`, `01-wallpaper.png`, `audio.txt`, `hostname.txt`,
+`dbus-ping.txt`, `pulseaudio.log`, `chromium.log` and `result.txt` into `/out`.
+
+## The GDBus setuid-helper failure (fixed)
+
+Reproduced verbatim inside a guest with `dbus-daemon --system --fork` running:
+
+```
+$ gdbus call --system --dest org.freedesktop.PackageKit --object-path / \
+    --method org.freedesktop.DBus.Peer.Ping
+Error: GDBus.Error:org.freedesktop.DBus.Error.Spawn.PermissionsInvalid:
+The permission of the setuid helper is not correct
+```
+
+The same error appeared in `apt-get -f install` output (line 165 of the log).
+Root cause: `dbus-daemon --system` drops to the `messagebus` user and activates
+system services (`PackageKit`, `systemd1`, …) through
+`/usr/lib/dbus-1.0/dbus-daemon-launch-helper`, a setuid-root binary. qqbox's
+`execve` **ignores `S_ISUID`** (the same reason Chromium's SUID sandbox helper
+cannot work), so the helper cannot gain root and the stat-based permission check
+fails. The helper's mode is fine (`4754 root:messagebus`); chmod'ing it to 4755
+or 4750 does not help (both still rc=1). It is a supervisor property, not a
+guest file-mode bug.
+
+Fix: start the system bus as **root** with `/etc/dbus-1/qqbox-system.conf`
+(`<user>root</user>`, explicit `<listen>`, standard system service dirs). With
+root as the bus owner, activations do not need the setuid helper. Witnessed:
+`dbus_ping_rc=0`, `NO_DBUS_ERROR`, and `apt-get install` rc=0. A real fix would
+be supervisor-side: honour `S_ISUID` on emulated `execve`.
+
+**Two related 26.04 dpkg fixes.** (1) The static-pie `/usr/sbin/ldconfig`
+segfaults under qqbox's rewriter, so `libc-bin`'s postinst exits 139 and leaves
+dpkg half-configured. Ubuntu 26.04 is usrmerged, so `libc-bin` owns
+`/usr/sbin/ldconfig` — a plain overwrite is restored at unpack. The durable fix
+is `dpkg-divert --local --rename --divert /usr/sbin/ldconfig.qqbox-real
+/usr/sbin/ldconfig` plus a no-op script. (2) `apt-get` can have its HTTP method
+killed (`Method http has died unexpectedly! … signal 9`) under host CPU/memory
+contention; the build uses `Acquire::Retries=2` and
+`Acquire::http::Timeout=25`.
 
 ## Why Chromium's sandbox cannot be on
 
@@ -89,24 +131,37 @@ install does not kill the stub. Until then `--no-sandbox --single-process
 isolation and V8 JIT are off. Headless `--headless=new --dump-dom` times out;
 windowed rendering under Xvfb is the supported path.
 
+## Wallpapers (how it works)
+
+The stock Xubuntu 26 image ships backdrops in `/usr/share/xfce4/backdrops/`
+(`xubuntu-resolute-plucky-remix.png`, `xubuntu-questing.png`, …) and points
+`xfce4-desktop.xml` at `xubuntu-wallpaper.png`. The previous boot painted a
+solid `xsetroot -solid '#204a87'` because `xfdesktop` was never started with a
+working `xfconfd`/WM. The fix: write `$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml`
+with `image-path`, `image-style=5`, `image-show=true`; set
+`XDG_CONFIG_DIRS=/etc/xdg/xdg-xubuntu:/etc/xdg`; start `xfce4-session` under
+`dbus-run-session` (session bus for `xfconfd`), then `xfwm4 --compositor=off`
+and `xfdesktop --disable-wm-check`. Without `--disable-wm-check`, xfdesktop
+exits with `No window manager registered on screen 0`. Live witness: 1280x800
+PNG with 9,049 distinct colors and a Home desktop icon.
+
 ## Audio (honest boundary)
 
 `pulseaudio` with `module-null-sink` gives a real, working audio server in the
 guest. `PULSE_SERVER` must **not** be exported to the daemon (it refuses to
 autostart when a user-configured server is set); clients get it. There is no
 host audio device and no `/dev/snd`, so nothing reaches the host speakers.
-`aplay -D null` rc=0. `modprobe snd-dummy` fails (no kernel modules).
 
 ## Files
 
 | file | purpose |
 | --- | --- |
-| `Dockerfile` | pinned base + toolchain + Chromium + Claude Code + skill + extension |
-| `start-xubuntu.sh` | bottom panel, audio, `root@qbox`, VNC, Chromium, evidence capture |
-| `chromium-wrapper.sh` | Chromium launch flags + SwiftShader + PULSE_SERVER |
+| `Dockerfile` | pinned 26.04 base, dpkg/ldconfig + DBus fixes, GNU tools, Chromium, Claude Code, skill, extensions |
+| `start-xubuntu.sh` | root bus, wallpaper, bottom panel, audio, `root@qbox`, VNC, Chromium, evidence capture |
+| `chromium-wrapper.sh` | Chromium launch flags + SwiftShader + PULSE_SERVER, bundled bookworm libs |
 | `fetch-chromium.sh` | reproducible Chromium payload assembly |
 | `fetch-extras.sh` | copies real Tencent BrowserSkill artifacts + fetches Claude Code 1.0.128 |
-| `chromium/` | assembled payload (not committed: ~338 MiB binary) |
-| `extension/` | real MV3 extension |
-| `skills/tencent-browser/SKILL.md` | honest skill substitute |
+| `chromium/` | assembled payload (not committed: ~339 MiB binary, four bookworm SONAMEs) |
+| `extension/` | real MV3 qqbox witness extension |
+| `skills/tencent-browser/SKILL.md` | honest skill pointer |
 | `claude/claude-code.tgz` | Claude Code 1.0.128 npm tarball (~34 MiB) |

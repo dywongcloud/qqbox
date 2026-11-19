@@ -12,7 +12,7 @@ export ZIG
 .DEFAULT_GOAL := build
 
 .PHONY: build build-release check fmt clippy test stubs stubs-linux \
-	stubs-windows stubs-macos cli daemon run invariants version routes \
+	stubs-windows stubs-macos cli daemon mcp runtime run invariants version routes \
 	witness clean
 
 # ------------------------------------------------------------- rust build -----
@@ -39,6 +39,12 @@ cli:
 
 daemon:
 	$(CARGO) run -q -p qqboxd -- --routes
+
+mcp:
+	$(CARGO) run -q -p qqbox-mcp -- --help
+
+runtime:
+	$(CARGO) run -q -p qqbox-runtime -- features
 
 # --------------------------------------------------------------- stubs -------
 stubs-linux:
@@ -82,6 +88,8 @@ witness: build
 	$(CARGO) run -q -p qqbox-cli -- network-plan examples/compose.yaml
 	$(CARGO) run -q -p qqbox-cli -- daemon-probe /containers/create --method POST --body examples/container-create.json
 	$(CARGO) run -q -p qqboxd -- --routes
+	$(CARGO) run -q -p qqbox-runtime -- features
+	$(CARGO) run -q -p qqbox-mcp -- --help >/dev/null
 
 clean:
 	$(CARGO) clean

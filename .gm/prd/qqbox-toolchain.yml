@@ -1,7 +1,0 @@
-id: qqbox-toolchain
-subject: Install python3/pip, nodejs/npm, git, gh and Claude Code
-description: Install via apt/npm registries in the derived image and verify each binary reports a version.
-acceptance_criteria: python3, pip3, node, npm, git, gh and claude --version all succeed in a live guest.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

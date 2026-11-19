@@ -8,12 +8,17 @@ qqbox runs an unmodified Linux program — a static or dynamic ELF binary, or a
 whole OCI container — inside a host process on Linux, macOS, or Windows, on
 amd64 or arm64. There is no virtual machine and no second kernel. The guest's
 own machine code runs natively on the host CPU; only its `syscall`/`svc`
-instructions are redirected into a Go supervisor that emulates the Linux ABI.
+instructions are redirected into a Rust supervisor that emulates the Linux ABI.
 
-The Rust supervisor is the current control plane (`crates/qqbox`); the original Go
-supervisor remains in the tree as the working native guest backend until the three
-per-OS backends are ported. See docs/PORT_STATUS.md. The in-guest stub and every
-native helper are Zig. The two talk over the shared-memory channel.
+All Go source and Go build tooling were removed at the user's request; the tree is
+Rust + Zig only. The Rust control plane (`crates/qqbox`) prepares runs and owns
+OCI/Compose/daemon/runtime-spec/MCP/library surfaces. The three native
+guest-execution backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF,
+Windows LPAC) are NOT ported to Rust, so `qqbox run` returns
+`Error::UnsupportedPlatform` after preparing the control plane. See
+docs/PORT_STATUS.md. The live Xubuntu 26 desktop is booted with the pre-removal
+Go runtime binary preserved off-repo. The in-guest stub and every native helper
+are Zig; stub and supervisor talk over the shared-memory channel.
 
 ## Rule 1: only syscall instructions are rewritten
 
@@ -51,8 +56,8 @@ chokepoint. There is no second way to touch a file.
 
 ## Rule 3: the supervisor owns the data plane
 
-File and network I/O live in the Go supervisor. The stub forwards; it does not
-become an I/O engine.
+File and network I/O live in the Rust supervisor. The stub forwards; it does
+not become an I/O engine.
 
 - The stub handles only what must run in the guest address space: thread
   control (`clone`/`futex`/thread-exit), signal trampolines, and the hot stdio
@@ -75,19 +80,19 @@ become an I/O engine.
 
 - Every stub and native helper is Zig. No C. The freestanding stub links no
   libc.
-- The Rust supervisor uses typed host bindings, not a cgo shim. The retained Go
-  supervisor's host-call layer is `x/sys/unix` on Linux, `goffi`/libffi on macOS,
-  `process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
-  The `purego` claim was stale; no Go source or Go module files remain in the tree.
+- The Rust supervisor uses typed host bindings, not a cgo shim. No Go source or
+  Go module files remain in the tree; the `x/sys/unix`, `goffi`/libffi and
+  `purego` claims were Go-era drift. The host-op thread design is specified in
+  `crates/qqbox/src/sandbox/mod.rs` and is gated on the native backend port.
 - `crates/qqbox/src/zig/abi.rs` freezes the 128-byte channel layout. Any change
   to the Zig side must keep those offsets byte-identical.
 
 ## Rule 5: libraries take options, not environment
 
-- `qqbox`, `sandbox`, `oci`, `vfs`, and `rewrite` read **no** environment
-  variables; behavior is set through Rust `Options`, a `Config`,
-  or their Rust equivalents `Options` / `Config` in `crates/qqbox`. Only
-  `cmd/qqbox`, examples, and test tooling read the environment.
+- `qqbox::sandbox`, `qqbox::oci`, `qqbox::vfs` and `qqbox::rewrite` read **no**
+  environment variables; behavior is set through `Options` or `Config` in
+  `crates/qqbox`. Only the binaries (`qqbox`, `qqboxd`, `qqbox-mcp`,
+  `qqbox-runtime`) and examples read the environment.
 - The public default is permissive where a developer expects it (RWX guest
   memory allowed, no network) and tightened by an explicit option
   (`WithRejectRWX`, `WithNet` plus the egress allowlist options). Keep new
@@ -98,9 +103,10 @@ become an I/O engine.
 - Platforms are `linux`, `darwin`, `windows` × `amd64`, `arm64`. A change to a
   syscall handler, the rewriter, or the channel is cross-platform until proven
   otherwise — gate the item, then run the full corpus.
-- The Rust workspace is the only build entry point: `cargo build --workspace` builds
-  the library, the `qqbox` CLI and the `qqboxd` daemon. There is no Go workspace.
-  Native guest-execution backends are not yet ported; see docs/PORT_STATUS.md.
+- The Rust workspace is the only build entry point: `cargo build --workspace`
+  builds the library plus the `qqbox`, `qqboxd`, `qqbox-mcp` and `qqbox-runtime`
+  binaries. There is no Go workspace. Native guest-execution backends are not
+  yet ported; see docs/PORT_STATUS.md.
 - `cargo run -p qqbox-cli -- invariants` and the live CLI witnesses are the gate
   for control-plane changes. Zig stubs rebuild through `make stubs`; the committed
   `.bin` blobs are embedded with `include_bytes!` so a Rust build needs no Zig.

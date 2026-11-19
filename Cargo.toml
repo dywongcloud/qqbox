@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/qqbox", "crates/qqbox-cli", "crates/qqboxd"]
+members = ["crates/qqbox", "crates/qqbox-cli", "crates/qqboxd", "crates/qqbox-mcp", "crates/qqbox-runtime"]
 
 [workspace.package]
 version = "0.1.0"

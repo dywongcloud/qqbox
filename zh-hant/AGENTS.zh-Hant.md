@@ -44,7 +44,7 @@
 
 ## 在這個儲存庫工作
 
-- 建置入口是 `cargo build --workspace`，見證是 `make witness`；兩者都屬於控制平面。
+- 建置入口是 `cargo build --workspace`，見證是 `make witness`；兩者都屬於控制平面。工作區產生四個執行檔：`qqbox`（CLI）、`qqboxd`（Docker API daemon）、`qqbox-mcp`（MCP 伺服器）、`qqbox-runtime`（OCI runtime shim）。
 - 誠實邊界：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生後端尚未移植到 Rust，Go 原始碼已移除。從原始碼建置只能準備控制平面，不能執行來賓；不要在說明文件、註解或提交訊息裡把這件事寫成「已可執行」。
 - 變更若影響多個宿主，先閘住該項目，再跑完整語料；不要用未經見證的宣稱填補空白。
 - 註解保持精簡，程式碼本身要能讀懂。不要在程式碼、註解或提交訊息裡標註工具或模式名稱。

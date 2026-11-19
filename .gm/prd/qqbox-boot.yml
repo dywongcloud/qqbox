@@ -1,7 +1,0 @@
-id: qqbox-boot
-subject: Boot the live desktop with all requirements satisfied
-description: Cut over VNC 5905 to an instance with ping, registry installs, Chromium and external DNS all witnessed.
-acceptance_criteria: RFB handshake on 5905 plus a screenshot showing Chromium and a native terminal.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

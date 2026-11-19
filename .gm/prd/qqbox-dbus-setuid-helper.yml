@@ -1,0 +1,7 @@
+id: qqbox-dbus-setuid-helper
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Fix GDBus Spawn.PermissionsInvalid on apt installs
+description: 'apt installs (npm, neofetch, etc.) fail with ''GDBus.Error:org.freedesktop.DBus.Error.Spawn.PermissionsInvalid: The permission of the setuid helper is not correct''. Root-cause and fix so apt works repeatedly.'
+acceptance_criteria: Reproduce the exact error live, then witness apt-get install -y neofetch and npm rc=0 with dpkg -s confirming installation, after the fix.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

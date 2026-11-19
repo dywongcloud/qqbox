@@ -1,7 +1,0 @@
-id: qqbox-dock-taskbar
-subject: Add a bottom dock/taskbar to the Xubuntu desktop
-description: Write an xfconf xfce4-panel config with a bottom-positioned panel, launchers and a tasklist; verify it is visible in a live VNC framebuffer.
-acceptance_criteria: A live 5905 screenshot shows a panel along the bottom edge with launcher icons and a window list.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

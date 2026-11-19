@@ -13,12 +13,13 @@
 - 已支援 OCI 表面：映像檔設定、連接埠與連接埠轉送、`/etc/hosts`／`/etc/resolv.conf`／`/etc/hostname` 產生、磁碟區、標籤、健康檢查、重新啟動政策、Compose（JSON 與 YAML，含 `depends_on` 條件）、多架構 index、capabilities、`seccomp`／`AppArmor`、資源限制。無法實作的安全欄位明確拒絕，不靜默丟棄。
 - 瀏覽器是真實的 Debian Chromium 150 `linux/arm64`，不是 NetSurf；setuid 沙箱特權不授予，沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 圖形處理器不透傳給 Linux ELF 來賓。
 - 桌面範例 `examples/xfce`（Alpine）與 `examples/xubuntu`（原廠 `linuxserver/webtop` ubuntu-xfce，arm64 資訊清單 `sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`）以 `x11vnc` 在 VNC TCP 5905 提供畫面；`xfce4-terminal`（VTE）可用是因為 `TIOCPKT` 以指標形式 ioctl 轉送，配色來自 `Xfconf`。`x11vnc -nopw` 在區域網路可達，請用 `-rfbauth` 加密碼。
-- 建置：`cargo build --workspace`、`make witness`。`crates/qqbox` 是核心，`crates/qqbox-cli` 產生 CLI `qqbox`，`crates/qqboxd` 產生與 Docker 相容的 `qqboxd`（48 條路由、零信任 bearer 權杖，每條路由都要求 `Authorization: Bearer <secret>`）。
+- 建置：`cargo build --workspace`、`make witness`。`crates/qqbox` 是核心；`crates/qqbox-cli` 產生 CLI `qqbox`；`crates/qqboxd` 產生與 Docker 相容的 `qqboxd`（48 條路由、零信任 bearer 權杖，可用 Moby／Docker 用戶端驅動）；`crates/qqbox-mcp` 產生 MCP 伺服器（stdio 與 streamable HTTP）；`crates/qqbox-runtime` 產生 OCI runtime shim（`create`／`start`／`state`／`kill`／`delete`／`features`）。這五個介面對應上游 laboon 的使用者體驗，但均為 Rust。
+- Xubuntu 26 桌面範例 `examples/qqbox` 具備可運作的桌布、底部工作列、PulseAudio、Chromium 150、`root@qbox`、vi／vim 與 GNU 工具鏈；以保存在版本庫之外的移除前 Go 執行期二進位檔啟動。`GDBus.Error:org.freedesktop.DBus.Error.Spawn.PermissionsInvalid` 的成因是 qqbox 的 `execve` 忽略 setuid，導致系統匯流排無法透過 setuid helper 啟動服務；以 root 使用者的 D-Bus 設定檔啟動系統匯流排即可修復。
 - 誠實邊界：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生來賓執行後端尚未移植到 Rust；Go 原始碼已移除。因此從原始碼建置 Rust 工作區只準備控制平面，不能執行來賓；`make witness` 是控制平面見證，不是來賓執行證明。對抗式驗證的記錄與證據不可被口頭宣稱取代。
 
 ## 說明文件
 
-- [繁體中文 README](README.zh-Hant.md)：是什麼、架構、建置、執行、安全模型、已知限制。
+- [繁體中文 README](README.zh-Hant.md)：上游 laboon 使用者體驗的 Rust 版鏡像，含五種介面、Moby／Docker 用戶端、OCI runtime、MCP 伺服器與 Rust 程式庫。
 - [英文版 README](../README.md)、[英文版 llms.txt](../llms.txt)
 - [AGENTS.zh-Hant.md](AGENTS.zh-Hant.md)：六條架構規則與「為什麼／如何套用」。
 - [SECURITY.zh-Hant.md](SECURITY.zh-Hant.md)：威脅模型、權杖、對外允許清單、VNC 暴露、通報方式。

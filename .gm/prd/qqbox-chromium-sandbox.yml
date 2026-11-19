@@ -1,7 +1,0 @@
-id: qqbox-chromium-sandbox
-subject: Run Chromium with its real sandbox enabled
-description: User says --no-sandbox is wrong and the sandbox should be on. Attempt the SUID and namespace sandboxes with live witnesses; report exact blockers if laboon cannot support them.
-acceptance_criteria: Either Chromium renders a page with sandbox enabled and chrome://sandbox reports enabled layers, or the blocker is surfaced with exact rc/errors.
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

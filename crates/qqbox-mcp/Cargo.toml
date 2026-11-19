@@ -1,0 +1,16 @@
+[package]
+name = "qqbox-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qqbox = { path = "../qqbox" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tiny_http.workspace = true
+
+[[bin]]
+name = "qqbox-mcp"
+path = "src/main.rs"
