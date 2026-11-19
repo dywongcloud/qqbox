@@ -1,0 +1,29 @@
+{
+  "Image": "alpine:3.20",
+  "Cmd": ["echo", "hostconfig-ok"],
+  "Entrypoint": ["/bin/sh", "-c"],
+  "Env": ["WITNESS=ok"],
+  "WorkingDir": "/workspace",
+  "User": "1000:1000",
+  "Labels": {"com.example.team": "sandbox", "com.example.tier": "witness"},
+  "ExposedPorts": {"8080/tcp": {}, "5353/udp": {}},
+  "Volumes": {"/data": {}},
+  "Hostname": "witness",
+  "StopSignal": "SIGTERM",
+  "StopTimeout": 10,
+  "Tty": true,
+  "HostConfig": {
+    "Binds": ["/tmp/host:/mnt/host:ro"],
+    "PortBindings": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]},
+    "NetworkMode": "bridge",
+    "Dns": ["127.0.0.53"],
+    "ExtraHosts": ["metadata.local:10.0.0.9"],
+    "CapAdd": ["NET_ADMIN"],
+    "SecurityOpt": ["no-new-privileges", "seccomp=default"],
+    "RestartPolicy": {"Name": "unless-stopped"},
+    "LogConfig": {"Type": "json-file"},
+    "Resources": {"Memory": 268435456, "PidsLimit": 256},
+    "ReadonlyRootfs": true
+  },
+  "NetworkingConfig": {"EndpointsConfig": {"front": {}}}
+}

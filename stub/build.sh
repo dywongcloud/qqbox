@@ -4,10 +4,10 @@
 #
 # Two variants per architecture:
 #   - the primary stub: an ET_EXEC linked at STUB_PRIMARY (a fixed high window,
-#     clear of guest images). The top-level laboon launches this one by a real
+#     clear of guest images). The top-level qqbox launches this one by a real
 #     kernel exec, which places ET_EXEC at its fixed address with no collision.
-#   - the PIE stub: an ET_DYN carrying the ".note.laboon" window note. A laboon
-#     running inside laboon launches this; its outer's loader reads the note and
+#   - the PIE stub: an ET_DYN carrying the ".note.qqbox" window note. A qqbox
+#     running inside qqbox launches this; its outer's loader reads the note and
 #     places it at a FREE high window (sandbox/load_linux.go), so nesting
 #     composes to any depth -- one relocatable binary per level, not a fixed set
 #     of windows. The stub derives its window from its own load base at runtime
@@ -17,7 +17,17 @@
 # the loader tries for a PIE; it is written per build and restored at the end.
 set -e
 cd "$(dirname "$0")"
-ZIG=${ZIG:-/tmp/zig-linux-x86_64-0.13.0/zig}
+# The freestanding sources were authored against Zig 0.13.0. Prefer ZIG,
+# then the installed zig; a different major version needs a source migration.
+ZIG=${ZIG:-$(command -v zig 2>/dev/null || printf %s /tmp/zig-linux-x86_64-0.13.0/zig)}
+if ! "$ZIG" version >/dev/null 2>&1; then
+    printf '%s\n' 'qqbox: no usable zig toolchain; set ZIG=<path>' >&2
+    exit 1
+fi
+case "$("$ZIG" version 2>/dev/null)" in
+    0.13.*) ;;
+    *) printf '%s\n' "qqbox: warning: Zig $("$ZIG" version 2>/dev/null) may not build sources written for 0.13.0" >&2 ;;
+esac
 
 STUB_PRIMARY=0x6f0000000000
 

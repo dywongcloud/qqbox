@@ -1,0 +1,36 @@
+{
+  "ociVersion": "1.0.2",
+  "process": {
+    "terminal": true,
+    "consoleSize": {"height": 24, "width": 80},
+    "user": {"uid": 1000, "gid": 1000, "umask": 18, "additionalGids": [10, 20], "username": "witness"},
+    "args": ["/bin/sh", "-c", "echo runtime-spec-ok"],
+    "env": ["PATH=/usr/bin:/bin", "WITNESS=ok"],
+    "cwd": "/workspace",
+    "capabilities": {"bounding": ["CAP_NET_ADMIN"], "effective": ["CAP_NET_ADMIN"]},
+    "rlimits": [{"type": "RLIMIT_NOFILE", "soft": 1024, "hard": 4096}],
+    "noNewPrivileges": true,
+    "apparmorProfile": "qqbox-default",
+    "oomScoreAdj": 0
+  },
+  "root": {"path": "rootfs", "readonly": true},
+  "hostname": "witness",
+  "domainname": "example.test",
+  "mounts": [
+    {"destination": "/proc", "type": "proc", "source": "proc"},
+    {"destination": "/dev", "type": "tmpfs", "source": "tmpfs", "options": ["nosuid", "size=65536"]},
+    {"destination": "/host", "type": "bind", "source": "/tmp/host", "options": ["ro", "rbind"]}
+  ],
+  "hooks": {"prestart": [{"path": "/usr/bin/true", "args": ["true"]}]},
+  "annotations": {"org.qqbox.witness": "true"},
+  "linux": {
+    "namespaces": [{"type": "pid"}, {"type": "network"}],
+    "uidMappings": [{"containerID": 0, "hostID": 1000, "size": 1}],
+    "devices": [{"path": "/dev/fuse", "type": "c", "major": 10, "minor": 229}],
+    "resources": {"memory": {"limit": 268435456}, "pids": {"limit": 256}},
+    "seccomp": {"defaultAction": "SCMP_ACT_ALLOW"},
+    "maskedPaths": ["/proc/kcore"],
+    "readonlyPaths": ["/proc/sys"],
+    "sysctl": {"net.core.somaxconn": "1024"}
+  }
+}

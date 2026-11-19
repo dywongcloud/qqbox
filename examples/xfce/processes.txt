@@ -1,0 +1,26 @@
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.0   1920  1920 ?        Ss   07:06   0:00 sh /out/run.sh
+root          13  3.7  0.0  17488 17488 ?        S    07:06   0:01 Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac
+message+      24  0.0  0.0   1088  1088 ?        Ss   07:06   0:00 dbus-daemon --system --fork
+root          27  0.0  0.0    896   896 ?        S    07:06   0:00 dbus-run-session -- startxfce4
+root          29  1.3  0.0   1392  1392 ?        S    07:06   0:00 dbus-daemon --nofork --print-address 4 --session
+root          30  1.5  0.0   8336  8336 ?        Sl   07:06   0:00 xfce4-session
+root          36  0.0  0.0   2896  2896 ?        Sl   07:06   0:00 /usr/libexec/at-spi-bus-launcher
+root          41  0.0  0.0   1904  1904 ?        S    07:06   0:00 /usr/bin/dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --nofork --print-address 11 --address=unix:path=/tmp/xdg/at-spi/bus_99
+root          46  2.1  0.0   2336  2336 ?        Sl   07:06   0:00 /usr/lib/xfce4/xfconf/xfconfd
+root          52  0.1  0.0   3568  3568 ?        Sl   07:06   0:00 /usr/libexec/at-spi2-registryd --use-gnome-session
+root          58  8.5  0.0  18608 18608 ?        Sl   07:06   0:02 xfwm4
+root          63  1.4  0.0   8288  8288 ?        Sl   07:07   0:00 xfsettingsd
+root          67  4.6  0.0  26576 26576 ?        Sl   07:07   0:01 xfce4-panel
+root          72  0.7  0.0  13808 13808 ?        Sl   07:07   0:00 Thunar --daemon
+root          82  2.2  0.0  30272 30272 ?        Sl   07:07   0:00 xfdesktop
+root          87  0.9  0.0  12688 12688 ?        Sl   07:07   0:00 xfce4-power-manager
+root          90  1.6  0.1  62960 62960 ?        SNl  07:07   0:00 /usr/lib/tumbler-1/tumblerd
+root         107  0.8  0.0  15520 15520 ?        Sl   07:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libsystray.so 6 12582924 systray Status Tray Plugin Provides status notifier items (application indicators) and legacy systray items
+root         110  1.0  0.0  23280 23280 ?        Sl   07:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libxfce4powermanager.so 9 12582925 power-manager-plugin Power Manager Plugin Display the battery levels of your devices and control the brightness of your display
+root         114  0.9  0.0  19136 19136 ?        Sl   07:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libactions.so 14 12582926 actions Action Buttons Log out, lock or other system actions
+root         160  5.2  0.0  34432 34432 ?        Sl   07:07   0:00 xfce4-terminal --title=QQBOX-XFCE-WITNESS --geometry=80x24+140+140 -e sh -c "echo QQBOX_XFCE_DESKTOP_RUNNING; uname -a; sleep 300"
+root         167  0.0  0.0   1712  1712 ?        S    07:07   0:00 dbus-launch --autolaunch=1cad1ceb9f18a9152f39a8056afd4c3e --binary-syntax --close-stderr
+root         168  0.5  0.0   1808  1808 ?        Ss   07:07   0:00 /usr/bin/dbus-daemon --syslog-only --fork --print-pid 5 --print-address 7 --session
+root         172  1.2  0.0   4448  4448 ?        Sl   07:07   0:00 /usr/lib/xfce4/xfconf/xfconfd
+root         181 50.0  0.0   9312  4032 ?        R    07:07   0:00 ps aux

@@ -1,5 +1,5 @@
 // vmm.zig — the HVF backend's VM monitor: run an unmodified Linux guest inside a
-// Hypervisor.framework VM and surface each `svc` as a syscall for laboon's
+// Hypervisor.framework VM and surface each `svc` as a syscall for qqbox's
 // existing supervisor to service (see BACKEND.md). This is the Zig form of the
 // proven C spikes (../hvf/hvspike5.c). run() surfaces each `svc`; serveSyscall()
 // posts it over the existing channel and handles REP_PEEK/REP_POKE against the

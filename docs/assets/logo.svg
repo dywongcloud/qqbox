@@ -10,9 +10,9 @@
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <title
-     id="title">Laboon — whale mascot and wordmark</title>
+     id="title">qqbox — whale mascot and wordmark</title>
   <desc
-     id="desc">Manually authored editable SVG paths based on the approved Laboon logo; no tracing, raster images, or fonts. No forehead scar or pupil glint.</desc>
+     id="desc">Manually authored editable SVG paths based on the approved qqbox logo; no tracing, raster images, or fonts. No forehead scar or pupil glint.</desc>
   <defs
      id="defs4">
     <linearGradient
@@ -91,7 +91,7 @@
      r="24"
      fill="#002158"
      style="fill:#0455d6;fill-opacity:1" />
-  <!-- Seven hand-drawn white panels trace the characteristic curved Laboon smile. -->
+  <!-- Seven hand-drawn white panels trace the characteristic curved qqbox smile. -->
   <g
      id="teeth"
      fill="#FFFFFF">
@@ -123,22 +123,22 @@
      fill="url(#letter-blue)"
      fill-rule="evenodd">
     <path
-       id="laboon-l"
+       id="qqbox-l"
        d="       M 168,991 L 181,991 C 196,991 203,999 203,1012       L 203,1123 C 203,1136 207,1141 218,1142       C 226,1142 230,1149 230,1158 L 230,1176       C 230,1187 223,1192 207,1192       C 168,1195 148,1179 148,1143       L 148,1012 C 148,998 156,991 168,991 Z" />
     <path
-       id="laboon-a"
+       id="qqbox-a"
        d="       M 310,1037 C 331,1037 346,1044 357,1056       C 359,1044 364,1039 375,1039 L 392,1039       C 403,1039 409,1046 409,1058 L 409,1175       C 409,1187 404,1191 393,1191 L 374,1191       C 362,1191 358,1185 357,1174       C 345,1187 329,1193 310,1193       C 262,1193 231,1160 231,1116       C 231,1070 267,1037 310,1037 Z       M 314,1081 C 294,1081 279,1096 279,1114       C 279,1135 294,1147 314,1147       C 335,1147 349,1133 349,1114       C 349,1095 335,1081 314,1081 Z" />
     <path
-       id="laboon-b"
+       id="qqbox-b"
        d="       M 442,991 L 460,991 C 472,991 478,997 478,1010       L 478,1051 C 490,1041 503,1036 520,1036       C 563,1036 594,1068 594,1115       C 594,1162 563,1193 519,1193       C 499,1193 485,1186 476,1175       C 475,1186 471,1191 459,1191 L 441,1191       C 430,1191 425,1186 425,1174       L 425,1009 C 425,997 431,991 442,991 Z       M 511,1081 C 493,1081 478,1096 478,1115       C 478,1135 493,1148 511,1148       C 532,1148 544,1133 544,1115       C 544,1096 530,1081 511,1081 Z" />
     <path
-       id="laboon-o1"
+       id="qqbox-o1"
        d="       M 685,1036 C 734,1036 768,1068 768,1115       C 768,1161 733,1193 685,1193       C 637,1193 603,1162 603,1115       C 603,1069 638,1036 685,1036 Z       M 685,1081 C 665,1081 652,1096 652,1115       C 652,1136 666,1148 685,1148       C 705,1148 720,1135 720,1115       C 720,1096 706,1081 685,1081 Z" />
     <path
-       id="laboon-o2"
+       id="qqbox-o2"
        d="       M 857,1037 C 905,1037 939,1068 939,1115       C 939,1160 905,1193 857,1193       C 810,1193 776,1162 776,1115       C 776,1068 810,1037 857,1037 Z       M 857,1082 C 838,1082 826,1097 826,1115       C 826,1136 840,1148 858,1148       C 877,1148 890,1134 890,1115       C 890,1096 875,1082 857,1082 Z" />
     <path
-       id="laboon-n"
+       id="qqbox-n"
        d="       M 967,1039 L 983,1039 C 993,1039 1000,1044 1002,1054       C 1014,1041 1032,1037 1051,1037       C 1085,1037 1106,1061 1106,1097       L 1106,1174 C 1106,1186 1100,1191 1089,1191       L 1069,1191 C 1058,1191 1053,1186 1053,1175       L 1053,1108 C 1053,1092 1044,1082 1029,1082       C 1012,1082 1002,1094 1002,1112       L 1002,1174 C 1002,1186 996,1191 985,1191       L 967,1191 C 955,1191 950,1186 950,1174       L 950,1056 C 950,1045 955,1039 967,1039 Z" />
   </g>
 </svg>

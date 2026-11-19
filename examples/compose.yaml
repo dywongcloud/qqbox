@@ -1,0 +1,68 @@
+name: qqbox-witness
+services:
+  web:
+    image: alpine:3.20
+    command: ["sh", "-c", "echo web"]
+    ports:
+      - "127.0.0.1:8080:80/tcp"
+      - "3000-3002:3000-3002/udp"
+    environment:
+      WITNESS: ok
+      TIER: web
+    labels:
+      com.example.tier: web
+    volumes:
+      - "webdata:/data:ro"
+      - "/tmp/host:/mnt/host"
+    networks:
+      - front
+      - back
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/bin/true"]
+      interval: 5s
+      timeout: 1s
+      retries: 3
+      start_period: 2s
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 10s
+    cap_add: ["NET_ADMIN"]
+    user: "1000:1000"
+    working_dir: /workspace
+    hostname: web
+    dns:
+      - 127.0.0.53
+    extra_hosts:
+      - "metadata.local:10.0.0.9"
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=witness
+    labels:
+      - com.example.tier=db
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    networks:
+      - back
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      retries: 5
+    restart: always
+    read_only: true
+    tty: true
+    stdin_open: true
+networks:
+  front:
+    driver: bridge
+  back:
+    driver: bridge
+    internal: true
+volumes:
+  webdata:
+    driver: local
+  dbdata:
+    driver: local

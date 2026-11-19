@@ -1,6 +1,6 @@
 # Permissions and limits
 
-laboon is confined by default; every capability below is an explicit opt-in.
+qqbox is confined by default; every capability below is an explicit opt-in.
 
 ## Networking
 

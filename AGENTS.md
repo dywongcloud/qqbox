@@ -4,14 +4,16 @@ Guidance for coding agents (and humans) working in this repository.
 
 ## What this is
 
-laboon runs an unmodified Linux program — a static or dynamic ELF binary, or a
+qqbox runs an unmodified Linux program — a static or dynamic ELF binary, or a
 whole OCI container — inside a host process on Linux, macOS, or Windows, on
 amd64 or arm64. There is no virtual machine and no second kernel. The guest's
 own machine code runs natively on the host CPU; only its `syscall`/`svc`
 instructions are redirected into a Go supervisor that emulates the Linux ABI.
 
-The supervisor is Go (with `purego` for host calls). The in-guest stub and every
-native helper are Zig. The two talk over a shared-memory channel.
+The Rust supervisor is the current control plane (`crates/qqbox`); the original Go
+supervisor remains in the tree as the working native guest backend until the three
+per-OS backends are ported. See docs/PORT_STATUS.md. The in-guest stub and every
+native helper are Zig. The two talk over the shared-memory channel.
 
 ## Rule 1: only syscall instructions are rewritten
 
@@ -20,10 +22,12 @@ instrument, or interpret guest code. The rewriter locates the syscall sites in a
 loaded image and patches those instructions to trap into the supervisor; every
 other byte of the program executes untouched.
 
-- A syscall the rewriter missed must reach the host backstop (seccomp on Linux,
-  Seatbelt on macOS, the AppContainer on Windows), which kills the guest
-  (`ErrKilled`). That is the design: a miss is a loud failure, never a silent
-  emulation path around the rewriter.
+- A syscall the rewriter missed reaches the host backstop. On Linux the seccomp
+  text-range check TRAPs (`SECCOMP_TRAP_TAG`) and the SIGSYS handler routes the
+  call to the supervisor, so static rewriting is an optimization and the trap is
+  the correctness backstop; `ErrKilled` fires only for a genuinely rejected call.
+  macOS Seatbelt and the Windows instrumentation callback kill. Never add a
+  silent emulation path around the rewriter.
 - The rewriter finds syscall sites **without a disassembler** — hand-rolled
   per-architecture classifiers, with `arm64asm`/`x86asm` used only as test
   oracles. Do not pull in a full disassembler to "fix" a miss; fix the
@@ -62,23 +66,28 @@ become an I/O engine.
   admits (`arch.guest`, `stub/zig/seccomp.zig`) is the boundary: its channel,
   futexes, signals, clocks, a new thread, its exit and the stdio fast path.
   Mapping memory, holding descriptors and forking happen only on the process's
-  host-op thread (`sandbox/hop_linux.go`), which never runs guest code and keeps
+  host-op thread, which never runs guest code and keeps
   its loop's state in registers, because the guest can write everything else.
   Do not widen the guest filter or make the hop loop read writable memory for
   convenience; route the call through the hop thread instead.
 
-## Rule 4: native code is Zig, supervisor code is Go
+## Rule 4: native code is Zig, supervisor code is Rust
 
 - Every stub and native helper is Zig. No C. The freestanding stub links no
   libc.
-- The supervisor is Go. Host system calls it cannot make from Go go through
-  `purego`, not a cgo shim.
+- The Rust supervisor uses typed host bindings, not a cgo shim. The retained Go
+  supervisor's host-call layer is `x/sys/unix` on Linux, `goffi`/libffi on macOS,
+  `process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
+  The `purego` claim was stale; no Go source or Go module files remain in the tree.
+- `crates/qqbox/src/zig/abi.rs` freezes the 128-byte channel layout. Any change
+  to the Zig side must keep those offsets byte-identical.
 
 ## Rule 5: libraries take options, not environment
 
-- `laboon`, `sandbox`, `oci`, `vfs`, and `rewrite` read **no** environment
-  variables; behavior is set through `With…` options (`options.go`) or a
-  `Config`. Only `cmd/laboon`, examples, and test tooling read the environment.
+- `qqbox`, `sandbox`, `oci`, `vfs`, and `rewrite` read **no** environment
+  variables; behavior is set through Rust `Options`, a `Config`,
+  or their Rust equivalents `Options` / `Config` in `crates/qqbox`. Only
+  `cmd/qqbox`, examples, and test tooling read the environment.
 - The public default is permissive where a developer expects it (RWX guest
   memory allowed, no network) and tightened by an explicit option
   (`WithRejectRWX`, `WithNet` plus the egress allowlist options). Keep new
@@ -89,13 +98,12 @@ become an I/O engine.
 - Platforms are `linux`, `darwin`, `windows` × `amd64`, `arm64`. A change to a
   syscall handler, the rewriter, or the channel is cross-platform until proven
   otherwise — gate the item, then run the full corpus.
-- The repository is a Go workspace (`go.work`). The core library is the root
-  module; `cmd/laboon` is a module of its own so the library stays lean, and a
-  future daemon (Docker-API compatible plus ConnectRPC) is its own module too,
-  keeping heavy client deps out of the core. Build the CLI with
-  `go build ./cmd/laboon`.
-- `go test ./...` for the Go side; the sandbox suite (`go test ./sandbox/`) is
-  the main gate for guest-behavior changes. Zig stubs build through `build/`.
+- The Rust workspace is the only build entry point: `cargo build --workspace` builds
+  the library, the `qqbox` CLI and the `qqboxd` daemon. There is no Go workspace.
+  Native guest-execution backends are not yet ported; see docs/PORT_STATUS.md.
+- `cargo run -p qqbox-cli -- invariants` and the live CLI witnesses are the gate
+  for control-plane changes. Zig stubs rebuild through `make stubs`; the committed
+  `.bin` blobs are embedded with `include_bytes!` so a Rust build needs no Zig.
 - Never use a sleep, timeout, or periodic recheck as a correctness fix, and
   never inject a delay to reproduce a race — fix the synchronization.
 - Keep comments minimal; prefer code that reads without them. Do not tag a

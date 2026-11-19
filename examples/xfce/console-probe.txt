@@ -1,0 +1,2 @@
+HEALTH 200 {"ok": true, "console": "pipe"}
+RUN 200 {"cmd": "echo QQBOX_CONSOLE_OK; id; uname -a", "stdout": "QQBOX_CONSOLE_OK\nuid=0(root) gid=0(root)\nLinux qqbox 6.8.0 #1 SMP PREEMPT qqbox aarch64 Linux\n", "stderr": "", "exit": 0}

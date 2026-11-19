@@ -41,23 +41,23 @@ stays in the stub. See macos/README.md for the primitive measurements.
 
 ## vs Docker Desktop (macOS)
 
-On macOS (and Windows) Docker runs containers inside a Linux VM; laboon uses no
+On macOS (and Windows) Docker runs containers inside a Linux VM; qqbox uses no
 VM -- the guest runs on the host CPU and the supervisor serves its syscalls in
 the host process. Measured on an Apple M4 (macOS 26.5), warm (Docker Desktop's
 VM already running, images pre-pulled), median end-to-end wall-clock:
 
-| warm workload                          | Docker Desktop | laboon | speedup |
+| warm workload                          | Docker Desktop | qqbox | speedup |
 |----------------------------------------|----------------|--------|---------|
 | start a container (`alpine` `echo hi`) | 187 ms         | 12 ms  | 15x     |
 | start a Node process (`node -e 0`)     | 200 ms         | 129 ms | 1.5x    |
 | CPU loop (`node`, 1e8 adds)            | 559 ms         | 525 ms | ~1x     |
 
-Startup is the win: laboon has no VM to cross and no container to
+Startup is the win: qqbox has no VM to cross and no container to
 create/start/remove, so per-task isolation is near-instant -- what an agent
 spinning up many short tasks needs. CPU-bound work ties, because Docker
 Desktop's VM also runs ARM code near-native on Apple Silicon. The numbers are
 macOS; Docker Desktop on Windows is the same VM-based architecture (not yet
-measured here). Method: `docker run --rm <img> <cmd>` vs `laboon -image <img>
+measured here). Method: `docker run --rm <img> <cmd>` vs `qqbox -image <img>
 <cmd>`, 15 iterations each (6 for the CPU loop), median.
 
 ## Levers

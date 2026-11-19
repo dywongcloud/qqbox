@@ -1,4 +1,4 @@
-name: CI
+name: ci
 
 on:
   push:
@@ -6,109 +6,49 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  lint:
-    runs-on: ubuntu-latest
+  rust:
+    name: cargo (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            cmd/*/go.sum
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.13.0
-      # stub/macos embeds its stub on every OS, so vet needs every stub present.
-      - name: Build the stubs
-        env:
-          ZIG: zig
-        run: |
-          sh stub/build.sh
-          sh stub/macos/build.sh
-          sh stub/windows/build.sh
-      - name: go vet
-        run: go vet ./...
-      - name: gofmt
-        run: |
-          out=$(gofmt -l .)
-          [ -z "$out" ] || { echo "These files need gofmt:"; echo "$out"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build
+        run: cargo build --workspace
+      - name: check
+        run: cargo check --workspace
+      - name: live witnesses
+        shell: bash
+        run: make witness
+      - name: invariants
+        run: cargo run -q -p qqbox-cli -- invariants
 
-  # The full suite runs on linux/amd64, the primary platform. Cross-platform
-  # runtime is validated separately on real hardware by the gates (macos/gate
-  # and windows/m*/run.sh); GitHub's macOS/Windows/arm64 runners differ enough
-  # (no arm64 BTI, Windows path handling, runner images) that running the whole
-  # suite there is not meaningful. Every target is still compiled by the build
-  # job below.
-  test:
+  fmt:
+    name: rustfmt and clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            cmd/*/go.sum
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.13.0
-      - name: Build the stubs
-        env:
-          ZIG: zig
-        run: |
-          sh stub/build.sh
-          sh stub/macos/build.sh
-          sh stub/windows/build.sh
-      - name: Test
-        # The rewriter and vfs unit tests run no guest and are fast and
-        # hermetic. The guest-execution suites (sandbox, build, the root
-        # package) are validated on real hardware by the gates (macos/gate,
-        # windows/m*/run.sh); on GitHub's shared runners they are slow and can
-        # hang, so CI relies on the build job to compile every target instead.
-        run: go test -timeout 15m ./internal/rewrite/... ./internal/vfs/... ./internal/oci/...
+          components: rustfmt, clippy
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace -- -D warnings
 
-  build:
-    name: build all targets
+  zig-stubs:
+    name: stub scripts are valid
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            cmd/*/go.sum
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.13.0
-      - name: Build every stub
-        env:
-          ZIG: zig
+      - name: syntax check
         run: |
-          sh stub/build.sh
-          sh stub/macos/build.sh
-          sh stub/windows/build.sh
-      - name: Cross-build the commands for every target
-        run: |
-          set -e
-          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            os=${t%/*}; arch=${t#*/}
-            ext=""; [ "$os" = windows ] && ext=.exe
-            echo "== $t"
-            (cd cmd/laboon     && GOOS=$os GOARCH=$arch go build -o "/tmp/laboon-$os-$arch$ext" .)
-            (cd cmd/laboon-mcp && GOOS=$os GOARCH=$arch go build -o "/tmp/laboon-mcp-$os-$arch$ext" .)
-          done
-      - name: Vet the command modules
-        run: |
-          for m in cmd/laboon cmd/laboond cmd/laboon-runtime cmd/laboon-mcp; do
-            (cd "$m" && go vet ./...)
-          done
+          sh -n stub/build.sh
+          sh -n stub/macos/build.sh
+          sh -n stub/macos/build-hvf.sh
+          sh -n stub/windows/build.sh

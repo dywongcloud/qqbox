@@ -1,39 +1,38 @@
-name: Release
+name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to build (e.g. v0.1.0)"
-        required: true
-
-permissions:
-  contents: write
 
 jobs:
-  goreleaser:
-    runs-on: ubuntu-latest
+  binaries:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
+          targets: ${{ matrix.target }}
+      - name: build release binaries
+        run: cargo build --workspace --release --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/qqbox* dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/qqboxd* dist/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
         with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            cmd/*/go.sum
-      # The stubs are cross-built by Zig (GoReleaser's before hooks), so one
-      # Linux runner produces every target's binary; they are embedded at build.
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.13.0
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          version: "~> v2"
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ZIG: zig
+          name: qqbox-${{ matrix.target }}
+          path: dist/

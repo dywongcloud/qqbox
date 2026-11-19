@@ -1,0 +1,61 @@
+/usr/bin/startxfce4: X server already running on display :99
+MESA: error: ZINK: vkCreateInstance failed (VK_ERROR_INCOMPATIBLE_DRIVER)
+glx: failed to create drisw screen
+dbus-daemon[42]: [session uid=0 pid=42] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=0 pid=42 comm="dbus-daemon --nofork --print-address 4 --session")
+dbus-daemon[42]: [session uid=0 pid=42] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[42]: [session uid=0 pid=42] Activating service name='org.xfce.Xfconf' requested by ':1.2' (uid=0 pid=42 comm="dbus-daemon --nofork --print-address 4 --session")
+dbus-daemon[42]: [session uid=0 pid=42] Successfully activated service 'org.xfce.Xfconf'
+dbus-daemon[54]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=0 pid=54 comm="/usr/bin/dbus-daemon --config-file=/usr/share/defa")
+dbus-daemon[54]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+/usr/bin/iceauth:  creating new authority file /tmp/xdg/ICEauthority
+
+(xfce4-session:43): xfce4-session-WARNING **: 21:07:26.348: No GPG agent found
+
+(xfce4-session:43): xfce4-session-WARNING **: 21:07:26.349: No SSH authentication agent found
+dbus-daemon[42]: [session uid=0 pid=42] Activating service name='org.freedesktop.thumbnails.Thumbnailer1' requested by ':1.9' (uid=0 pid=42 comm="dbus-daemon --nofork --print-address 4 --session")
+Xlib:  extension "DPMS" missing on display ":99.0".
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:29.892: Monitor is not DPMS capable
+dbus-daemon[42]: [session uid=0 pid=42] Activating service name='org.freedesktop.Notifications' requested by ':1.11' (uid=0 pid=42 comm="dbus-daemon --nofork --print-address 4 --session")
+dbus-daemon[42]: [session uid=0 pid=42] Successfully activated service 'org.freedesktop.Notifications'
+Another notification daemon is running, exiting
+Another notification daemon is running, exiting
+
+(xfce4-power-manager:96): libupower-glib-WARNING **: 21:07:30.197: Couldn't connect to proxy: Error calling StartServiceByName for org.freedesktop.UPower: The permission of the setuid helper is not correct
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:30.214: 'CanStop' method failed : GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ConsoleKit was not provided by any .service files
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:30.215: 'CanRestart' method failed : GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ConsoleKit was not provided by any .service files
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:30.232: Failed to create proxy for 'org.freedesktop.PolicyKit1'
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:30.268: Failed to run script: Child process exited with code 1
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:30.300: Failed to run script: Child process exited with code 1
+
+(xfce4-power-manager:96): xfce4-power-manager-CRITICAL **: 21:07:30.300: xfpm_polkit_check_auth_intern: assertion 'polkit->priv->proxy != NULL' failed
+
+(xfce4-power-manager:96): xfce4-power-manager-CRITICAL **: 21:07:30.300: xfpm_polkit_check_auth_intern: assertion 'polkit->priv->proxy != NULL' failed
+
+** (xfpm-power-backlight-helper:147): WARNING **: 21:07:30.313: failed to find any devices: Error opening directory */sys/class/backlight*: No such file or directory
+
+(xfce4-power-manager:96): xfce4-power-manager-WARNING **: 21:07:30.326: Unable to get the interface, org.freedesktop.UPower.KbdBacklight
+dbus-daemon[42]: [session uid=0 pid=42] Successfully activated service 'org.freedesktop.thumbnails.Thumbnailer1'
+
+(xfdesktop:91): GLib-GObject-CRITICAL **: 21:07:30.787: g_object_unref: assertion 'G_IS_OBJECT (object)' failed
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory
+grep: /sys/power/state: No such file or directory

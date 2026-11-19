@@ -1,83 +1,48 @@
-# Release configuration. `.github/workflows/release.yml` runs it on a v* tag;
-# locally, `goreleaser release --snapshot --clean --skip=before` builds every
-# target into dist/ (the committed stubs are used; a real release rebuilds them).
 version: 2
 
-project_name: laboon
-
-before:
-  hooks:
-    # The platform stubs are cross-built by Zig; one Linux runner produces every
-    # target's stub, embedded into the binaries at `go build` time.
-    - sh stub/build.sh
-    - sh stub/macos/build.sh
-    - sh stub/windows/build.sh
+project_name: qqbox
 
 builds:
-  # The CLI, from its own module (cmd/laboon has its own go.mod with a local
-  # replace to the root). There is no cgo, so one Linux runner cross-builds
-  # every target.
-  - id: laboon
-    dir: cmd/laboon
-    main: .
-    binary: laboon
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    ldflags:
-      - -s -w -X main.version={{ .Version }}
-    mod_timestamp: "{{ .CommitTimestamp }}"
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
+  - id: qqbox
+    builder: rust
+    main: ./crates/qqbox-cli
+    binary: qqbox
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+      - aarch64-apple-darwin
+      - x86_64-apple-darwin
+      - x86_64-pc-windows-msvc
 
-  # The MCP server (cmd/laboon-mcp), likewise its own module.
-  - id: laboon-mcp
-    dir: cmd/laboon-mcp
-    main: .
-    binary: laboon-mcp
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    ldflags:
-      - -s -w -X main.version={{ .Version }}
-    mod_timestamp: "{{ .CommitTimestamp }}"
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
+  - id: qqboxd
+    builder: rust
+    main: ./crates/qqboxd
+    binary: qqboxd
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+      - aarch64-apple-darwin
+      - x86_64-apple-darwin
+      - x86_64-pc-windows-msvc
 
 archives:
-  - id: laboon
-    ids: [laboon]
-    name_template: "laboon_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: binaries
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    files: &docs
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
       - README.md
       - LICENSE
-      - COPYRIGHT
-  - id: laboon-mcp
-    ids: [laboon-mcp]
-    name_template: "laboon-mcp_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    files: *docs
+      - docs/OCI_MATRIX.md
+      - docs/PORT_STATUS.md
+      - docs/SINGLE_ADDRESS_SPACE.md
+      - examples/oci-config.json
+      - examples/compose.yaml
+      - examples/runtime-spec.json
 
 checksum:
-  name_template: checksums.txt
-  algorithm: sha256
+  name_template: "checksums.txt"
 
-snapshot:
-  version_template: "{{ incpatch .Version }}-next"
-
-release:
-  github:
-    owner: samyfodil
-    name: laboon
-  draft: false
-  prerelease: auto
-  name_template: "laboon {{ .Version }}"
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:"]

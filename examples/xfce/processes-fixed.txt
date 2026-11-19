@@ -1,0 +1,35 @@
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.0   6352  6352 ?        Ss   21:07   0:00 sh /usr/local/bin/start-xfce.sh
+root          15  1.9  0.5 211488 211488 ?       S    21:07   0:00 Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac
+root          23  0.2  0.0  18352 18352 ?        S    21:07   0:00 x11vnc -display :99 -nopw -forever -shared -rfbport 5905 -o /out/x11vnc.log
+message+      31  0.0  0.0   2592  2592 ?        Ss   21:07   0:00 dbus-daemon --system --fork
+root          34  0.1  0.0  24480 24480 ?        S    21:07   0:00 python3 /usr/local/bin/terminal-console.py
+root          40  0.0  0.0   2624  2624 ?        S    21:07   0:00 dbus-run-session -- startxfce4
+root          42  0.6  0.0   3408  3408 ?        S    21:07   0:00 dbus-daemon --nofork --print-address 4 --session
+root          43  0.9  0.5 210304 210304 ?       Sl   21:07   0:00 xfce4-session
+root          49  0.0  0.0  10592 10592 ?        Sl   21:07   0:00 /usr/libexec/at-spi-bus-launcher
+root          54  0.0  0.0   3184  3184 ?        S    21:07   0:00 /usr/bin/dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --nofork --print-address 11 --address=unix:path=/tmp/xdg/at-spi/bus_99
+root          59  1.1  0.0   8128  8128 ?        Sl   21:07   0:00 /usr/lib/xfce4/xfconf/xfconfd
+root          65  0.0  0.0  10704 10704 ?        Sl   21:07   0:00 /usr/libexec/at-spi2-registryd --use-gnome-session
+root          71  4.6  0.1  40240 40240 ?        Sl   21:07   0:01 xfwm4
+root          76  0.6  0.0  34640 34640 ?        Sl   21:07   0:00 xfsettingsd
+root          80  2.3  0.1  42688 42688 ?        Sl   21:07   0:00 xfce4-panel
+root          85  0.2  0.0  32720 32720 ?        Sl   21:07   0:00 Thunar --daemon
+root          91  1.1  0.1  46992 46992 ?        Sl   21:07   0:00 xfdesktop
+root          96  0.4  0.0  30320 30320 ?        Sl   21:07   0:00 xfce4-power-manager
+root         104  0.7  0.4 181920 181920 ?       SNl  21:07   0:00 /usr/lib/tumbler-1/tumblerd
+root         110  0.2  0.0  32352 32352 ?        Sl   21:07   0:00 /usr/lib/xfce4/notifyd/xfce4-notifyd
+root         111  0.3  0.0  31824 31824 ?        Sl   21:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libsystray.so 6 23068684 systray Status Tray Plugin Provides status notifier items (application indicators) and legacy systray items
+root         125  0.4  0.0  33120 33120 ?        Sl   21:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libactions.so 14 23068685 actions Action Buttons Log out, lock or other system actions
+root         203  7.2  0.7 265408 265408 ?       Sl   21:07   0:01 /usr/lib/chromium/chromium --ozone-platform-hint=auto --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-crash-reporter --disable-breakpad --mute-audio --disable-infobars --no-first-run --no-default-browser-check --window-size=1100,720 --window-position=110,90 --user-data-dir=/tmp/chrome-qqbox http://127.0.0.1:8765/
+root         209  0.0  0.0   4448  4448 ?        Sl   21:07   0:00 /usr/lib/chromium/chrome_crashpad_handler --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/root/.config/chromium/Crash Reports --annotation=channel=Alpine Linux --annotation=lsb-release=Alpine Linux v3.20 --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=131.0.6778.108 --initial-client-fd=4 --shared-client-connection
+root         211  0.0  0.0   4224  4224 ?        S    21:07   0:00 /usr/lib/chromium/chrome_crashpad_handler --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-handler --database=/root/.config/chromium/Crash Reports --annotation=channel=Alpine Linux --annotation=lsb-release=Alpine Linux v3.20 --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=131.0.6778.108 --initial-client-fd=5 --shared-client-connection
+root         213  0.8  0.3 232448 145792 ?       S    21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-zygote-sandbox --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         215  1.0  0.3 232448 141904 ?       S    21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         235  1.7  0.1 232448 58112 ?        Sl   21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-zygote-sandbox --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         237  2.0  0.4 232448 170176 ?       Sl   21:07   0:00 /proc/self/exe --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --disable-dev-shm-usage --mute-audio --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,8077546590084459463,6010137031282328424,262144 --variations-seed-version
+root         238  0.3  0.0 232448 21376 ?        Sl   21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         283  0.3  0.1 232448 43664 ?        S<l  21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         293  1.0  0.2 232448 79088 ?        Sl   21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         311  0.3  0.1 232448 65952 ?        S<l  21:07   0:00 /usr/lib/chromium/chromium --type=zygote --no-sandbox --string-annotations --crashpad-handler-pid=0 --enable-crash-reporter=,Alpine Linux --user-data-dir=/tmp/chrome-qqbox --change-stack-guard-on-fork=enable
+root         327  100  0.0   9312  4032 ?        R    21:08   0:00 ps aux

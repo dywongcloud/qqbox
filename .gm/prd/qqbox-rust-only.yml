@@ -1,0 +1,7 @@
+id: qqbox-rust-only
+subject: Replace the Go code with Rust and remove all Go code
+description: 'Requested explicitly. Conflicts with the boot requirement: the Rust control plane has no native guest-execution backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF, Windows LPAC). Surface the contradiction; do maximum feasible porting without deleting the only working runtime until a Rust backend is witnessed.'
+acceptance_criteria: Either all Go source is gone and a Rust runtime boots a guest, or the blocker is surfaced with live evidence and the row stays pending.
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

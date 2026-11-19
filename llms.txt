@@ -1,10 +1,14 @@
-# laboon
+# qqbox / qqbox
 
-> laboon runs unmodified Linux programs and OCI containers in a sandbox with no
+> qqbox runs unmodified Linux programs and OCI containers in a sandbox with no
 > virtual machine and no second kernel, on Linux, macOS, and Windows (amd64 and
 > arm64). The guest's machine code runs natively on the host CPU; only its
-> syscall instructions are rewritten to trap into a Go supervisor that emulates
-> the Linux ABI. The in-guest stub and native helpers are Zig.
+> syscall instructions are rewritten to trap into a supervisor that emulates the
+> Linux ABI. The in-guest stub and native helpers are Zig. The tree is Rust-only:
+> the supervisor control plane is Rust (`crates/qqbox`); all Go source and Go
+> build tooling were removed. Native guest-execution backends are not yet ported
+> to Rust, so a from-source build cannot yet boot a guest. See docs/PORT_STATUS.md.
+> Traditional Chinese docs: zh-hant/README.zh-Hant.md.
 
 Key facts for answering questions about this repository:
 
@@ -12,31 +16,48 @@ Key facts for answering questions about this repository:
   rewritten, located without a disassembler. Slowdown tracks syscall density,
   not a flat multiplier.
 - All guest filesystem access goes through a single `vfs` Namespace chokepoint;
-  the Go supervisor owns all filesystem and network I/O. The stub forwards.
-- A syscall the rewriter missed reaches the host backstop (seccomp on Linux,
-  Seatbelt on macOS, AppContainer on Windows) and kills the guest (`ErrKilled`).
+  the supervisor owns all filesystem and network I/O. The stub forwards.
+- A missed syscall on Linux reaches a seccomp text-range `RET_TRAP` and is routed
+  to the supervisor; macOS Seatbelt and the Windows instrumentation callback kill.
+  `ErrKilled` is not the Linux behavior — older docs claiming that were stale.
 - Networking is opt-in (`WithNet` / `-net`) with domain, CIDR, and port egress
-  allowlists. Library packages read no environment variables; behavior is set
-  through `With…` options.
+  allowlists. Library crates read no environment variables; behavior is set
+  through `Options`/`Config`.
+- The Rust build entry point is `Cargo.toml` (`cargo build --workspace`). The
+  `qqbox` CLI and `qqboxd` daemon are separate crates. The Zig channel ABI is
+  frozen in `crates/qqbox/src/zig/abi.rs` (128-byte `chanPage`).
+- Ports, port forwarding, volumes, labels, OCI runtime-spec `config.json` and
+  Docker Compose are implemented in Rust; see docs/OCI_MATRIX.md.
 - It runs container engines nested: podman and Docker launch their own
   containers inside the sandbox. It also runs Node.js/V8, headless Chromium,
-  PostgreSQL/MariaDB/Redis, and laboon inside laboon.
+  PostgreSQL/MariaDB/Redis, and qqbox inside qqbox.
 
 ## Docs
 
-- [README](README.md): what laboon is, quickstart (CLI and Go API), how it works, security model, platforms.
+- [README](README.md): what qqbox is, the Rust build, the CLI, the security model and the OCI surface.
 - [AGENTS.md](AGENTS.md): architecture invariants and guidance for working in the tree.
-- [PERF.md](PERF.md): measured overhead, the rule of thumb, and macOS channel numbers.
+- [OCI_MATRIX.md](docs/OCI_MATRIX.md): construct-by-construct OCI, Compose and Docker-API coverage.
+- [PORT_STATUS.md](docs/PORT_STATUS.md): the honest boundary of the Go-to-Rust port.
+- [SINGLE_ADDRESS_SPACE.md](docs/SINGLE_ADDRESS_SPACE.md): why instances keep one address space each.
+- [PERF.md](docs/PERF.md): measured overhead (historical, from a different host).
 - [COPYRIGHT](COPYRIGHT) and [LICENSE](LICENSE): Apache License 2.0, Copyright 2026 Bunshin Labs LLC.
 
 ## Code
 
-- [laboon.go](laboon.go): the public API — `Run` (host binary) and `RunImage` (OCI image), with `Start`/`StartImage`.
-- [options.go](options.go): the `With…` options that configure a run.
-- [example_test.go](example_test.go): a runnable usage example.
-- [cmd/laboon](cmd/laboon): the command-line interface.
-- [sandbox/](sandbox): the Linux syscall ABI emulation and the supervisor.
-- [stub/](stub): the freestanding Zig guest stub and native helpers.
-- [rewrite/](rewrite): the syscall-site rewriter (no disassembler).
-- [vfs/](vfs): the homogeneous filesystem Namespace all guest paths resolve through.
-- [oci/](oci): OCI image pull, store, and container build.
+- [Cargo.toml](Cargo.toml): the Rust workspace root.
+- [crates/qqbox](crates/qqbox): the library — options, config, oci, vfs, net, compose, rewrite, sandbox, zig, daemon, security.
+- [crates/qqbox-cli](crates/qqbox-cli): the `qqbox` CLI.
+- [crates/qqboxd](crates/qqboxd): the `qqboxd` Docker-compatible daemon.
+- [crates/qqbox/src/sandbox](crates/qqbox/src/sandbox): sandbox control plane.
+- [crates/qqbox/src/rewrite](crates/qqbox/src/rewrite): syscall-site classification and cache.
+- [crates/qqbox/src/vfs](crates/qqbox/src/vfs): the filesystem Namespace all guest paths resolve through.
+- [crates/qqbox/src/oci](crates/qqbox/src/oci): OCI image pull and store.
+- [stub/](stub): the freestanding Zig guest stub and native helpers (committed .bin blobs).
+
+## Traditional Chinese (繁體中文)
+
+- [zh-hant/README.zh-Hant.md](zh-hant/README.zh-Hant.md): 專案總覽、建置、安全模型。
+- [zh-hant/AGENTS.zh-Hant.md](zh-hant/AGENTS.zh-Hant.md): 貢獻者規則。
+- [zh-hant/llms.zh-Hant.txt](zh-hant/llms.zh-Hant.txt): 模型導向的快速參考。
+- [zh-hant/SECURITY.zh-Hant.md](zh-hant/SECURITY.zh-Hant.md): 威脅模型與回報流程。
+- [zh-hant/docs/](zh-hant/docs/): 移植邊界、OCI 對照表、單一位址空間決策。

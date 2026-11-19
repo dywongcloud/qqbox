@@ -332,7 +332,7 @@ pub fn main() void {
     if (argv.len >= 1 and std.mem.startsWith(u8, std.mem.span(argv[0]), "lc-fork@")) forkChildMain(argv);
     if (argv.len < 3) _exit(2);
     life.start(); // exit when the supervisor dies (lifeline fd 4); without this
-    // an HVF stub survives a dead/SIGKILLed laboon and wedges the backend by
+    // an HVF stub survives a dead/SIGKILLed qqbox and wedges the backend by
     // holding its Hypervisor.framework VM (new hv_vm_create then fails).
     const chan_path = argv[1];
     const guest_path = argv[2];

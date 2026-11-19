@@ -1,0 +1,7 @@
+id: qqbox-rebrand
+subject: Rebrand laboon to Tencent qqbox with Traditional Chinese docs
+description: Rename the project, binaries, module paths, strings and docs from laboon to qqbox; add zh-Hant documentation. Snapshot first.
+acceptance_criteria: No laboon identifiers remain in tracked source, build gates pass, and zh-Hant docs exist.
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

@@ -1,0 +1,7 @@
+id: qqbox-chromium
+subject: Chromium replaces NetSurf in the desktop
+description: User explicitly rejects NetSurf. Install a real arm64 glibc Chromium in the stock image, launch it with its sandbox and GPU if the host permits, and witness a real page.
+acceptance_criteria: chromium --version succeeds, Chromium renders a public page over VNC, and the sandbox/GPU status is honestly reported.
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

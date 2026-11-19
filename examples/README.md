@@ -1,95 +1,45 @@
 # Examples
 
-## `e2b/` — an E2B-style sandbox SDK on laboon
+This directory holds reproducible inputs and the two desktop images. The
+Go-era example programs were removed together with the Go source tree; the
+Rust workspace (`cargo build --workspace`) is the only build entry point.
 
-A small clone of [E2B](https://e2b.dev)'s sandbox API, built on `laboon` — **no
-VM, no daemon, no cloud**. Two sandboxes:
+## OCI / Compose / Docker-API inputs
 
-### Code sandbox — `e2b.Sandbox`
+| file | use |
+| --- | --- |
+| `oci-config.json` | image config parsed by `qqbox oci-inspect` |
+| `runtime-spec.json` | full OCI runtime-spec, advisory validation (`runtime-spec validate --advisory`) |
+| `runtime-spec-minimal.json` | minimal spec, strict validation |
+| `container-create.json` | `qqbox daemon-probe /containers/create --method POST --body ...` |
+| `compose.yaml` | `qqbox compose-plan` / `qqbox compose-validate` / `qqbox network-plan` |
 
-Like E2B's code-interpreter `Sandbox`: run code and shell commands and keep a
-filesystem across runs. Each call runs in its own fresh laboon sandbox (per-call
-isolation); a host directory mounted at `/workspace` gives the filesystem
-continuity E2B gets from a long-lived VM.
+Run them all with `make witness`.
 
-| E2B | here |
-|---|---|
-| `sbx.run_code(code)` | `sbx.RunCode(ctx, code)` |
-| `sbx.commands.run(cmd)` | `sbx.RunCommand(ctx, name, args...)` |
-| `sbx.files.write(path, data)` | `sbx.WriteFile(name, data)` |
-| `sbx.files.read(path)` | `sbx.ReadFile(name)` |
+## `xfce/` — Alpine XFCE desktop over VNC
 
-```sh
-go run ./examples/e2b/cmd/codeinterpreter
-```
+`Dockerfile`, `start-xfce.sh`, the RFB capture/typing clients and the live
+evidence from the first desktop build. The native `xfce4-terminal` works because
+`TIOCPKT` is forwarded to the host pty master with a pointer-form ioctl; the
+browser-based pipe console is retained only as an opt-in fallback.
 
-### Desktop sandbox — `e2b.Desktop`
+## `xubuntu/` — stock linuxserver/webtop ubuntu-xfce desktop
 
-Like [`e2b-desktop`](https://github.com/e2b-dev/desktop): a full **XFCE** desktop
-on a virtual framebuffer (`Xvfb`), with no VM. Screenshot it and drive it with
-mouse/keyboard actions (`xdotool`) — the computer-use primitives an agent needs.
+Pinned to the linux/arm64 manifest
+`sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`.
+`Dockerfile` + `start-xubuntu.sh` boot Xvfb → x11vnc (TCP 5905) → the stock
+XFCE session → a native terminal. See `README.md` there for the exact build and
+run commands, and `FIXES.json` for claim-by-claim evidence.
 
-| E2B Desktop | here |
-|---|---|
-| `desktop.screenshot()` | `d.Screenshot(ctx)` |
-| `desktop.left_click(x, y)` | `e2b.LeftClick(x, y)` |
-| `desktop.write(text)` | `e2b.TypeText(text)` |
-| `desktop.press(key)` | `e2b.PressKey(key)` |
+## `qqbox/` — the fully provisioned desktop
 
-```sh
-go run ./examples/e2b/cmd/desktop desktop.png
-```
+The reproducible successor image: real Debian Chromium 150 (not NetSurf),
+working `ping`, apt/apk registry installs, external DNS, a bottom dock,
+audio, `root@qbox`, and the toolchain (python3/pip, node/npm, git, gh, Claude
+Code). Build with `qqbox build -net -t qqbox-xubuntu:final -f Dockerfile .`
+after running `fetch-chromium.sh` to assemble the Chromium payload.
 
-The desktop image defaults to a prebuilt XFCE image (`accetto/ubuntu-vnc-xfce-g3`),
-so it boots without installing a desktop. It runs as root and installs a few small
-capture tools (`xvfb`, `imagemagick`, `xdotool`) if the image lacks them. Point
-`Desktop.Image` at any XFCE image.
+## Traditional Chinese
 
-## `terminal/` — a confined terminal over a host directory
-
-An interactive shell confined by laboon over a host directory mounted
-**read-only**: a program can read and run against it but cannot modify it, and
-nothing escapes the sandbox to the rest of the host.
-
-```sh
-go run ./examples/terminal ~/some/project             # alpine userland
-go run ./examples/terminal ~/some/project golang:1.25 # with a toolchain
-```
-
-The directory is at `/work` (read-only, the working directory). Two public-API
-pieces do the work:
-
-- `WithMountReadOnly(host, guest)` — a read-only bind: the guest reads the
-  directory, but create, modify, delete and rename all fail with `EROFS`.
-- `WithTerminal(t)` — laboon runs the program on a pseudo-terminal and bridges it
-  to `t`, any `io.ReadWriteCloser`, so an app drives a confined shell through its
-  own transport (a `net.Conn`, a websocket adapter) without touching a pty:
-
-  ```go
-  laboon.RunImage(ctx, "golang:1.25",
-      laboon.WithMountReadOnly(repo, "/work"),
-      laboon.WithDir("/work"),
-      laboon.WithArgs("/bin/sh"),
-      laboon.WithTerminal(conn), // conn is any io.ReadWriteCloser
-  )
-  ```
-
-  If `t` also implements `Resizer` (`Resizes() <-chan laboon.WinSize`), laboon
-  applies window sizes. Interactive job control (`^Z`/`fg`) is limited on this
-  path.
-
-## `device/` — a direct host↔guest channel
-
-Attach a character device backed by the host: the host and the guest exchange
-bytes over `/dev/<name>`, with no network.
-
-```sh
-go run ./examples/device
-```
-
-```go
-dev := &laboon.Device{Path: "/dev/lbserial", Kind: laboon.DeviceSerial}
-laboon.RunImage(ctx, "alpine:3.20", laboon.WithDevice(dev) /* , ... */)
-<-dev.Ready()                 // the host end is live
-fmt.Fprintln(dev.Host(), "…") // write to the guest; it reads /dev/lbserial
-```
+繁體中文文件在 [`zh-hant/`](../zh-hant/README.zh-Hant.md). Go-era Go code
+samples are gone; the Rust API is described in the main README.
