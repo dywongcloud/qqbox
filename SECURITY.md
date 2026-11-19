@@ -1,7 +1,7 @@
 # Security Policy
 
 qqbox runs untrusted Linux programs and OCI containers directly on the host CPU,
-with a Go supervisor emulating the Linux ABI. Because it is a sandbox, a guest
+with a Rust supervisor emulating the Linux ABI. Because it is a sandbox, a guest
 that escapes the supervisor's mediation — reaching host memory, files, or the
 network outside its configured policy, or corrupting the supervisor itself — is a
 security issue. See the [Security model](README.md#security-model) for what

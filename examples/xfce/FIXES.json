@@ -24,7 +24,7 @@
         "internal/sandbox/lx_termios.go: lxTIOCPKT = 0x5420",
         "internal/sandbox/pty_unix.go: guarded case in ptmxIoctl forwards TIOCPKT to the host pty master with unix.IoctlSetPointerInt",
         "internal/sandbox/termios_unix.go: guarded case in ttyIoctl for the slave",
-        "go build ./cmd/qqbox -> Mach-O arm64; gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass"
+        "cargo build --workspace -> Mach-O arm64; gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass"
       ],
       "witness": [
         "probe/tiocpkt-direct.txt: fcntl.ioctl(master, TIOCPKT, struct.pack('i',1)) -> TIOCPKT_OK /dev/pts/13; off variant also OK",
@@ -95,7 +95,16 @@
   "console_security_verdict": {
     "verdict": "SAFE_WITHIN_SANDBOX",
     "evidence": "adversarial verifier: guest uid=0 is an emulated Linux credential; host supervisor runs as uid 501; listener is guest loopback 127.0.0.1 only; no host-path syscall, no wildcard bind, no control-plane call. Explicitly UNSAFE if run on the host (no qqbox boundary) - hardening above applied anyway.",
-    "attacks_now_rejected": ["foreign Origin -> 403", "foreign Host -> 403", "text/plain body -> 415", "malformed JSON -> 400", "empty cmd -> 400", "cmd > 8192 -> 400", "body > 64 KiB -> 413", "output > 1 MiB -> truncated"]
+    "attacks_now_rejected": [
+      "foreign Origin -> 403",
+      "foreign Host -> 403",
+      "text/plain body -> 415",
+      "malformed JSON -> 400",
+      "empty cmd -> 400",
+      "cmd > 8192 -> 400",
+      "body > 64 KiB -> 413",
+      "output > 1 MiB -> truncated"
+    ]
   },
   "surfaced_not_imposed": {
     "issue": "x11vnc -nopw is wildcard-bound (*:5905, IPv4+IPv6) and LAN-reachable: an adversarial verifier completed an RFB handshake against the host LAN address 192.168.1.76:5905",

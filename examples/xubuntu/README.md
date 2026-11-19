@@ -1,8 +1,12 @@
 # Stock Xubuntu/XFCE desktop inside qqbox
 
 A live, witnessed `linuxserver/webtop` **ubuntu-xfce** desktop running under the
-Go native qqbox runtime on macOS/arm64, served over VNC on TCP 5905, with a
-real `xfce4-terminal` (VTE) and working DNS/TCP/HTTPS egress.
+native qqbox guest runtime on macOS/arm64, served over VNC on TCP 5905, with a
+real `xfce4-terminal` (VTE), a real Chromium browser, working `ping`, apt/apk
+registry installs, and external DNS/TCP/HTTPS egress.
+
+The reproducible successor is [`examples/qqbox/`](../qqbox/README.md); this
+directory documents the pinned base image and the fixes that got it running.
 
 ## What "Xubuntu" means here
 
@@ -34,144 +38,155 @@ This is the exact image the user linked.
 ## Build
 
 ```sh
-go build -o ./qqbox ./cmd/qqbox
-./qqbox build -net -t qqbox-xubuntu:stock \
+cargo build --workspace
+./target/debug/qqbox build -net -t qqbox-xubuntu:stock \
   -f examples/xubuntu/Dockerfile -o qqbox-xubuntu.tar examples/xubuntu
 ```
 
 `FROM` is the pinned arm64 digest. `-net` is required for the `RUN apt-get` step.
-Only `x11vnc`, `Xvfb`, `scrot`, `xdotool` and `netsurf-gtk` are added — the
-rootfs, XFCE session, Xubuntu theme, Firefox, Thunar and `xfce4-terminal` are
-the image's own. NetSurf is the default browser because Firefox's content
-sandbox cannot run under qqbox (see below).
+The Dockerfile neutralizes a crashing `ldconfig.real` dpkg trigger and repairs
+`libc-bin` status so later `apt-get install` keeps working. It adds `x11vnc`,
+`Xvfb`, `scrot`, `xdotool`, `iputils-ping` and Debian Chromium 150 (see
+`examples/qqbox/` for the fully provisioned variant). The rootfs, XFCE session,
+Xubuntu theme, Firefox, Thunar and `xfce4-terminal` remain the image's own.
 
 ## Run
 
 ```sh
 mkdir -p /tmp/qqbox-xubuntu-out
-./qqbox -image qqbox-xubuntu:stock -net \
+./target/debug/qqbox -image qqbox-xubuntu:stock -net \
   -e VNC_PORT=5905 -mount /tmp/qqbox-xubuntu-out:/out
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
 
 `-net` is **not optional**: it is the switch that enables the supervisor's DNS
 interception and host-socket egress. Without it a browser gets no DNS and no
-host reach; Chromium in the separate `examples/xfce` Alpine guest renders the
-generic offline page whose boilerplate says "Reconnecting to Wi-Fi". Chromium is
-not installed in this stock webtop image.
+host reach and renders its generic offline page ("Reconnecting to Wi-Fi" is
+Chromium boilerplate, not a wifi driver fault).
 
-## Three fixes
+## The fixes
 
 ### 1. A real native terminal
 
-The browser-based pipe console is gone from the default. `xfce4-terminal` now
-spawns a real PTY child and paints text. Root cause was Linux `TIOCPKT`
-(`0x5420`) missing from `internal/sandbox/lx_termios.go` and the ioctl switches;
-VTE got `ENOTTY` → "Failed to open PTY: Not a tty". Forwarding it to the host
-pty master fixes both the error and the black screen — but only with
-`unix.IoctlSetPointerInt`: `TIOCPKT` takes a **pointer** to an int (Darwin
-`0x80047470`, `_IOC_IN`), so passing the value gives `EFAULT` →
-"Failed to open PTY: Bad address". `xfce4-terminal` also ignores `terminalrc`;
-colors must be set in `xfce4-terminal.xml` under Xfconf.
-
-Witness (`examples/xfce/`): `xfce-terminal-typed.png` shows a command typed over
-VNC, echoed input, `VNC_NATIVE_TERMINAL_OK`, `uid=0(root)`, `uname -a` and the
-`/ #` prompt. The stock desktop's `xubuntu-xwd.png` shows `root@qqbox:/#`.
+`xfce4-terminal` spawns a real PTY child and paints text. Root cause was Linux
+`TIOCPKT` (`0x5420`) unhandled in the supervisor's ioctl switch; VTE got
+`ENOTTY` → "Failed to open PTY: Not a tty". Forwarding it to the host pty
+master works only with a **pointer-form** ioctl: `TIOCPKT` takes a pointer to
+an int (Darwin `0x80047470`, `_IOC_IN`), so passing the value gives `EFAULT`
+→ "Failed to open PTY: Bad address". `xfce4-terminal` also ignores
+`terminalrc`; colors must be in `xfce4-terminal.xml` under Xfconf.
 
 ### 2. Stock image unpack
 
 First pull failed with `usr/bin/thunar: openat usr/bin/thunar: too many levels
-of symbolic links`. The image contains `usr/bin/Thunar -> thunar` and the
-regular file `usr/bin/thunar`; macOS APFS is case-insensitive, so the alias
-becomes a self-link and `os.Root.OpenFile` followed it into `ELOOP`.
-`internal/oci/unpack_unix.go` now removes a symlink before writing a directory,
-regular file or hard link over it. The witnesses are live: the first pull of the
-stock image failed with that exact ELOOP, the rebuilt CLI unpacked all 63,187
-flattened tar entries successfully, and an adversarial verifier reproduced the
-original error by neutralizing `replaceLink` via a Go `-overlay` while the
-committed suite still passed. `go test ./internal/oci/...` remains a gate, not
-the proof of this fix.
+of symbolic links`. The image has `usr/bin/Thunar -> thunar` and the regular
+file `usr/bin/thunar`; macOS APFS is case-insensitive, so the alias became a
+self-link and `os.Root.OpenFile` followed it into `ELOOP`. The unpacker now
+removes a symlink before writing a directory, regular file or hard link over it.
 
-### 3. Network / "wifi"
+### 3. ICMP ping
 
-`-net` already provides working egress; the failure mode is launching without
-it. Live witnesses inside a `-net` guest:
+`ping google.com` works with real replies and 0% packet loss. A Linux ping
+socket (`SOCK_DGRAM/IPPROTO_ICMP`) delivers only the ICMP message; Darwin's
+unprivileged ICMP datagram socket prepends the IPv4 header, which iputils
+discards as a non-echo type. The supervisor sets `IP_STRIPHDR` on that host
+socket. Live A/B: 0% loss with the fix, 100% without. `SOCK_RAW` ICMP and
+`ping -6` remain unsupported.
+
+### 4. Network / "wifi"
+
+`-net` provides working egress. Live witnesses inside a `-net` guest:
 
 ```
-getent hosts example.com -> 2606:4700:10::ac42:93f3 example.com
-raw UDP DNS to 127.0.0.1:53 / 8.8.8.8:53 / 1.1.1.1:53 -> rcode=0, 2 answers
-TCP 1.1.1.1:443 OK, example.com:443 OK
+getent hosts google.com -> AAAA records, rc=0
+ping -c 3 -W 3 google.com -> 3 received, 0% packet loss
 curl https://example.com/ -> HTTP 200 104.20.23.154
-curl https://www.google.com/ -> HTTP 200 142.251.153.119
-apt-get update inside the stock Xubuntu guest -> Fetched 65.2 MB
-windowed Chromium in the separate examples/xfce Alpine guest -> "Example Domain - Chromium"
-NetSurf on the stock rootfs -> "Example Domain - NetSurf", real page (netsurf-http.png)
-VNC-typed `sh /out/w.sh` in the native terminal -> FINAL_5905_NATIVE_OK / Ubuntu 24.04 LTS / HTTP 200 / DONE (live-terminal-witness.png)
+apt-get update -> Fetched 65.2 MB; apt-get install tree -> rc=0
+apk update / apk add -> rc=0 (Alpine guest; see note below)
+Chromium 150.0.7871.100 renders https://example.com/ over VNC
 ```
 
-`internal/sandbox/egress.go:99-127` allows everything except loopback and
-unspecified addresses by default; every `:53` query is answered in the
-supervisor (`net_unix.go:872-879`, `msg_unix.go:658-713`), and `-net` makes
-`connect()` use a real host socket (`net_unix.go:317-321,889-895`). The Go
-runtime does **not** generate `/etc/resolv.conf` (musl and glibc fall back to
-`127.0.0.1:53`); `start-xubuntu.sh` writes an explicit `nameserver 8.8.8.8`
-for deterministic glibc clients. `-allow-domains` / `-allow-cidrs` /
-`-allow-ports` only *restrict*; adding them breaks egress.
+The supervisor answers every `:53` query and `-net` makes `connect()` use a
+real host socket. The runtime does not generate `/etc/resolv.conf` (musl and
+glibc fall back to `127.0.0.1:53`); `start-xubuntu.sh` writes an explicit
+`nameserver 8.8.8.8` for deterministic glibc clients. `-allow-domains` /
+`-allow-cidrs` / `-allow-ports` only *restrict*; adding them breaks egress.
+`getent hosts` returns AAAA records that are not reachable; `curl -4` works,
+`curl -6` returns `HTTP 000`. IPv6 egress is a known limitation.
 
-**802.11 wifi cannot be emulated.** qqbox pairs socket endpoints, not packets
-(`internal/sandbox/VNET.md:19-26`): no `AF_PACKET`/TUN, no raw sockets, no
-ICMP, no nl80211/wireless extensions. Netlink `RTM_GETLINK` mirrors the host's
-interfaces (`lx_netlink.go:208-232`). NetworkManager/wpa_supplicant/`iw` are
-absent from the image. `ping` failing is expected, not an outage. The honest
-equivalent of "network working" — DNS, TCP and HTTPS egress, and a browser that
-loads real pages — is what `-net` delivers.
+**802.11 wifi cannot be emulated.** qqbox pairs socket endpoints, not packets:
+no `AF_PACKET`/TUN, raw sockets, ICMP-in-guest-kernel, nl80211 or wireless
+extensions. NetworkManager/wpa_supplicant/`iw` are absent. Working DNS+TCP+
+HTTPS egress and a browser that loads real pages is the honest equivalent.
+
+**apk** is Alpine's package manager. `apt` works in this Ubuntu image; `apk`
+was witnessed in a separate Alpine guest (`apk update`, `apk add ripgrep jq`,
+rc=0). A static aarch64 `apk` binary can also be added to this image, but it
+manages an Alpine root, not the Ubuntu dpkg database.
+
+### 5. Chromium: sandbox and GPU (honest limits)
+
+A real Debian bookworm **Chromium 150.0.7871.100** linux/arm64 browser is
+installed, not NetSurf, not the Ubuntu snap stub, and not Chrome-for-Testing
+158 (which segfaults instantly under qqbox, rc=139 in every flag combination).
+It renders the live `https://example.com/` page over VNC. Launch flags:
+
+```
+--no-sandbox --single-process --no-zygote --js-flags=--jitless
+--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader
+--disable-dev-shm-usage --disable-crash-reporter --disable-breakpad
+```
+
+| limit | measured reason |
+| --- | --- |
+| `--no-sandbox` required | Chromium refuses to run as root with sandbox on (`zygote_host_impl_linux.cc:101`); qqbox's `execve` ignores setuid, so the SUID helper cannot gain privileges. Installing a seccomp-bpf filter kills the qqbox stub; the zygote PID-namespace `SCM_CREDENTIALS` handshake is unimplemented. There is no `--enable-features` switch that turns the sandbox on. |
+| No hardware GPU | `/dev/dri` does not exist; no render nodes and no host GPU passthrough. SwiftShader software GL works: a real `gl.clear()`/`readPixels()` round-trip returns `WebGL 1.0 (OpenGL ES 2.0 Chromium)`, `glError=0`. `--disable-gpu` yields `WEBGL_NULL`. |
+| Site isolation / JIT off | `--single-process --no-zygote --js-flags=--jitless` are needed because the multi-process zygote path hangs (rc=124) and V8 JIT needs RWX pages the supervisor does not grant. This trades Chromium's renderer isolation for a working window. |
+| Headless | `--headless=new --dump-dom` times out (rc=124); windowed rendering under Xvfb is the supported path. |
+
+The Chromium sandbox is a **security boundary**, not a performance feature:
+enabling it typically costs process/IPC overhead. The user's premise that
+sandbox-on improves performance/stability is not technically correct, but the
+sandbox-on configurations were attempted live anyway; see
+`examples/qqbox/` and `FIXES.json`.
 
 ## Why not the image's own `/init`, KasmVNC or Firefox
 
-`/init` is s6-overlay; qqbox runs one program and is not an init system. The
-stock KasmVNC `Xvnc` can be started in traditional RFB mode
-(`-rfbport N -noWebsocket -SecurityTypes None`) and completes the RFB 3.8
-handshake with `ServerInit 1280x800 bpp=32 depth=24`, but sends **no**
-framebuffer updates under qqbox (`ComparingUpdateTracker: 0 pixels in / 0
-pixels out`, `EncodeManager: 0 rects, 0 pixels`, across four encoding sets and
-`-CompareFB 0`). `x11vnc` + `Xvfb` are the pair already proven in this repo, so
-the Dockerfile adds those plus `scrot`, `xdotool` and `netsurf-gtk` (five apt
-packages). The stock XFCE session itself (`/usr/bin/xfce4-session`) is unchanged.
+`/init` is s6-overlay; qqbox runs one program and is not an init system. Stock
+KasmVNC `Xvnc` completes the RFB 3.8 handshake in traditional mode
+(`-rfbport N -noWebsocket -SecurityTypes None`) but sends **no** framebuffer
+updates (`ComparingUpdateTracker: 0 pixels in / 0 pixels out`). `x11vnc` +
+`Xvfb` is the proven pair.
 
 Firefox **is installed** (stock) but cannot render under qqbox: its content
-sandbox calls `chroot()`, which the vfs-Namespace-only filesystem refuses
-(`Sandbox: chroot: EPERM`), and its renderers exit on signal 11.
-`MOZ_DISABLE_CONTENT_SANDBOX=1`, `MOZ_FORCE_DISABLE_E10S=1`,
-`security.sandbox.content.level=0` and every other sandbox-disable variant
-were tried; all still show a blank page. NetSurf (`netsurf-gtk`), added from
-Ubuntu's own apt sources, renders both a local `file:` page and the live
-`https://example.com/` page — `netsurf-http.png` is that witness. Firefox is
-left installed but is not the default browser.
+sandbox calls `chroot()`, refused by the vfs-Namespace-only filesystem
+(`Sandbox: chroot: EPERM`), and its renderers exit on signal 11. Five
+sandbox-disable variants were tried; all still show a blank page.
 
 ## Security note
 
 `x11vnc -nopw` is wildcard-bound and LAN-reachable under `-net`. `-localhost`
-is **not** a valid fix (it silently breaks qqbox's port forwarding). To close
-it, use `x11vnc -rfbauth <vncpasswd>` and `vncviewer -passwd <file>`. The
-shipped default stays passwordless so the existing local connection keeps
-working; this is a deployment choice, not a qqbox security invariant.
+is **not** a valid fix (it silently breaks qqbox port forwarding). To close it,
+use `x11vnc -rfbauth <vncpasswd>` and `vncviewer -passwd <file>`. The shipped
+default stays passwordless so the existing local connection keeps working; this
+is a deployment choice, not a qqbox security invariant.
 
-## Known warnings (expected under qqbox)
+## Known warnings
 
-Firefox refuses to run as root when `$HOME` is owned by a non-root uid (the
-startup script `chown`s `/config`) and its content sandbox is unusable under
-qqbox, so NetSurf is the default browser. `xdg-user-dir` is missing from the Xubuntu
-template script, AT-SPI/UPower/PolicyKit services are absent, and `ping` cannot
-open raw sockets. None of these affect the desktop, terminal or egress.
+`xdg-user-dir` is missing from the Xubuntu template script, AT-SPI/UPower/
+PolicyKit services are absent, `SOCK_RAW` ICMP is unavailable, IPv6 egress is
+not reachable, and the default browser (`firefox.desktop`) is not the browser
+the startup script launches (Chromium). The terminal prompt's hostname is
+addressed by `examples/qqbox/`.
 
 ## Files
 
 | file | purpose |
 | --- | --- |
-| `Dockerfile` | pinned `FROM` the arm64 webtop digest; adds x11vnc/Xvfb/NetSurf |
-| `start-xubuntu.sh` | boots Xvfb → x11vnc → stock XFCE → native terminal → NetSurf |
+| `Dockerfile` | pinned `FROM` the arm64 webtop digest |
+| `start-xubuntu.sh` | boots Xvfb → x11vnc → stock XFCE → native terminal → Chromium |
 | `FIXES.json` | claim-by-claim derivation and verdicts |
-| `netsurf-http.png` | NetSurf rendering the real `https://example.com` page |
+| `netsurf-http.png` | earlier NetSurf witness (superseded by Chromium) |
 | `xubuntu-live-5905.png` | live 5905 cutover: Xubuntu wallpaper + browser + native terminal |
 | `live-terminal-witness.png` | VNC-typed `FINAL_5905_NATIVE_OK` / `Ubuntu 24.04 LTS` / `HTTP 200` / `DONE` |
 | `network-evidence.txt` | `getent` + `curl` HTTP 200 for example.com and google.com |

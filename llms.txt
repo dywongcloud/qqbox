@@ -4,9 +4,11 @@
 > virtual machine and no second kernel, on Linux, macOS, and Windows (amd64 and
 > arm64). The guest's machine code runs natively on the host CPU; only its
 > syscall instructions are rewritten to trap into a supervisor that emulates the
-> Linux ABI. The in-guest stub and native helpers are Zig. This fork is mid-port:
-> the supervisor control plane is Rust (`crates/qqbox`), while the Go tree remains
-> as the working native guest backend. See docs/PORT_STATUS.md.
+> Linux ABI. The in-guest stub and native helpers are Zig. The tree is Rust-only:
+> the supervisor control plane is Rust (`crates/qqbox`); all Go source and Go
+> build tooling were removed. Native guest-execution backends are not yet ported
+> to Rust, so a from-source build cannot yet boot a guest. See docs/PORT_STATUS.md.
+> Traditional Chinese docs: zh-hant/README.zh-Hant.md.
 
 Key facts for answering questions about this repository:
 
@@ -46,10 +48,16 @@ Key facts for answering questions about this repository:
 - [crates/qqbox](crates/qqbox): the library — options, config, oci, vfs, net, compose, rewrite, sandbox, zig, daemon, security.
 - [crates/qqbox-cli](crates/qqbox-cli): the `qqbox` CLI.
 - [crates/qqboxd](crates/qqboxd): the `qqboxd` Docker-compatible daemon.
-- [qqbox.go](qqbox.go) and [options.go](options.go): the legacy Go public API, retained as the native backend reference.
-- [cmd/qqbox](cmd/qqbox): the legacy Go CLI.
-- [internal/sandbox](internal/sandbox): the Linux syscall ABI emulation and Go supervisor.
-- [stub/](stub): the freestanding Zig guest stub and native helpers.
-- [internal/rewrite](internal/rewrite): the Go syscall-site rewriter (no disassembler).
-- [internal/vfs](internal/vfs): the homogeneous filesystem Namespace all guest paths resolve through.
-- [internal/oci](internal/oci): the Go OCI image pull and store.
+- [crates/qqbox/src/sandbox](crates/qqbox/src/sandbox): sandbox control plane.
+- [crates/qqbox/src/rewrite](crates/qqbox/src/rewrite): syscall-site classification and cache.
+- [crates/qqbox/src/vfs](crates/qqbox/src/vfs): the filesystem Namespace all guest paths resolve through.
+- [crates/qqbox/src/oci](crates/qqbox/src/oci): OCI image pull and store.
+- [stub/](stub): the freestanding Zig guest stub and native helpers (committed .bin blobs).
+
+## Traditional Chinese (繁體中文)
+
+- [zh-hant/README.zh-Hant.md](zh-hant/README.zh-Hant.md): 專案總覽、建置、安全模型。
+- [zh-hant/AGENTS.zh-Hant.md](zh-hant/AGENTS.zh-Hant.md): 貢獻者規則。
+- [zh-hant/llms.zh-Hant.txt](zh-hant/llms.zh-Hant.txt): 模型導向的快速參考。
+- [zh-hant/SECURITY.zh-Hant.md](zh-hant/SECURITY.zh-Hant.md): 威脅模型與回報流程。
+- [zh-hant/docs/](zh-hant/docs/): 移植邊界、OCI 對照表、單一位址空間決策。

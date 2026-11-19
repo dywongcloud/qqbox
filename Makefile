@@ -2,7 +2,7 @@
 #
 # Rust workspace: Cargo.toml is the build entry point. The committed freestanding
 # Zig stubs are embedded with include_bytes!, so a build needs no Zig toolchain.
-# The Go tree remains as the working native guest backend (docs/PORT_STATUS.md).
+# Go source and Go build tooling were removed; Rust is the only implementation.
 
 SHELL := /bin/sh
 CARGO ?= cargo

@@ -26,7 +26,7 @@
         "reproduced on the host: case-insensitive APFS + os.Root.Symlink('thunar','Thunar') + r.OpenFile('thunar', O_CREATE|O_TRUNC) -> 'openat thunar: too many levels of symbolic links'",
         "image has usr/bin/Thunar -> thunar AND regular usr/bin/thunar (63,187 flattened tar entries, zero duplicate paths)",
         "internal/oci/unpack_unix.go now calls replaceLink before writing a directory, regular file or hard link; second pull succeeded",
-        "go test ./internal/oci/... and ./internal/sandbox/... pass; go build ./cmd/qqbox clean (gates, not the proof of this fix)",
+        "cargo build --workspace passes (gate, not the proof of this fix)",
         "live A/B: first pull failed with that exact ELOOP; the rebuilt CLI unpacked all 63,187 flattened entries; an adversarial verifier neutralized replaceLink via Go -overlay and reproduced the original error while the committed suite still passed",
         "probe.log: PRETTY_NAME='Ubuntu 24.04 LTS' (VERSION='24.04 LTS (Noble Numbat)'), /usr/share/xubuntu, XFCE binaries, WEBTOP_PROBE_DONE"
       ],

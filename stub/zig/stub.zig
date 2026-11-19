@@ -70,7 +70,11 @@ const WindowNote = extern struct {
     win_align: u64 = WIN_SIZE,
     img_off: u64 = 0, // the window base is the image's load base
 };
-export const lc_window_note linksection(".note.qqbox") = WindowNote{};
+// The ELF note section name is an ABI marker frozen in the committed .bin
+// blobs. The blobs were authored with Zig 0.13.0 and are embedded byte-identical
+// by the Rust workspace; renaming it here without rebuilding all six platform
+// blobs would desynchronise source from the shipped stub images. Kept as-is.
+export const lc_window_note linksection(".note.laboon") = WindowNote{};
 
 // memset/memcpy with hidden visibility, so the freestanding stub calls them
 // PC-relative rather than through the GOT. That keeps the PIE zero-reloc: it

@@ -18,8 +18,8 @@ the control plane but cannot execute guests yet (see `docs/PORT_STATUS.md`).
 ## Build
 
 ```sh
-go build -o ./qqbox ./cmd/qqbox
-./qqbox build -net -t qqbox-xfce:fixed \
+cargo build --workspace
+qqbox build -net -t qqbox-xfce:fixed \
   -f examples/xfce/Dockerfile -o /tmp/qqbox-xfce.tar examples/xfce
 ```
 

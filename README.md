@@ -1,15 +1,17 @@
 # qqbox
 
-A fork of [qqbox](https://github.com/tencent/qqbox): run untrusted Linux
+**Tencent qqbox** runs untrusted Linux
 programs and OCI containers safely, on Linux, macOS and Windows, with **no VM and no
 second kernel**. Guest machine code runs natively on the host CPU; only its
 `syscall`/`svc` instructions are redirected into a supervisor that emulates the
 Linux ABI.
 
-This tree is mid-port to Rust. `Cargo.toml` is the build entry point; the Go sources
-remain as the working native guest runtime until the Rust backends catch up. The exact
-boundary is in [docs/PORT_STATUS.md](docs/PORT_STATUS.md) — read it before assuming a
-`qqbox run` executes a guest.
+This tree is Rust-only: `Cargo.toml` is the single build entry point, all Go source
+and Go build tooling are removed. The Rust workspace prepares the control plane and
+the Zig stubs are embedded with `include_bytes!`. The exact boundary is in
+[docs/PORT_STATUS.md](docs/PORT_STATUS.md) — the three native guest-execution
+backends are not yet ported to Rust, so a from-source build cannot yet boot a guest.
+Traditional Chinese documentation: [zh-hant/README.zh-Hant.md](zh-hant/README.zh-Hant.md).
 
 ## Build
 

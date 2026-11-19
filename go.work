@@ -1,9 +1,0 @@
-go 1.27.1
-
-use (
-	.
-	./cmd/qqbox
-	./cmd/qqboxd
-	./cmd/qqbox-runtime
-	./cmd/qqbox-mcp
-)

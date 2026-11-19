@@ -85,7 +85,8 @@ Still open, recorded rather than hidden:
 
 ## Inherited platform limits (from the security recon)
 
-These belong to the retained Go runtime and to any future Rust backend. They are
+These belonged to the removed Go runtime and describe work a future Rust
+backend must reproduce. They are
 recorded so a port does not claim parity it does not have:
 
 - Linux backstop is TRAP-to-supervisor; macOS Seatbelt and the Windows x86-64
@@ -96,10 +97,10 @@ recorded so a port does not claim parity it does not have:
 - Landlock ABI < 6 leaves an acknowledged SIGURG signal-scope hole.
 - `MaxBytes` is not enforced on macOS, RWX is allowed by default for JIT engines,
   and Windows AF_INET loopback needs `WithNet`.
-- `stub/seccomp_test.go`'s expected allowlists omit `rseq`/`getcpu` while the Zig
-  `arch.guest` filter includes them, so `go test ./stub` is red at HEAD. The gm
+- The removed `stub/seccomp_test.go` expected allowlists omitted `rseq`/`getcpu`
+  while the Zig `arch.guest` filter included them; that Go test was red at HEAD. The gm
   standing rule forbids editing test files; this is recorded, not patched.
-- `vfs.Policy` has no production caller in the Go tree — confinement is structural
+- The removed Go tree had no production caller for `vfs.Policy` — confinement is structural
   (Namespace tree plus `openat2`). The Rust port does not invent a phantom Policy
   trait.
 
@@ -122,39 +123,44 @@ backends are the part that makes a Linux program actually run without a VM.
 returns `Error::UnsupportedPlatform` with a precise diagnostic on this host. It does
 not pretend to have executed a guest. `qqbox run <elf>` prints the `RunPlan` instead.
 
-**The Go sources are deliberately still in the tree** (`qqbox.go`, `options.go`,
-`internal/`, `cmd/`, `build/`, `go.work`). Removing them now would delete the only
-working guest runtime without a replacement — a regression the request explicitly
-asked to avoid. The PRD row `go-removal` stays open for that reason. The Rust build
-is additive: `Cargo.toml` is the new build entry point and the Go tree is untouched.
+**All Go source and Go build tooling has been removed** at the user's explicit request
+("replace the go code with rust and remove any go code"). `Cargo.toml` is the single
+build entry point; `*.go`, `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `build/`,
+`cmd/`, `internal/` are gone. The committed freestanding Zig stubs and their build
+scripts remain and are embedded with `include_bytes!` by `crates/qqbox/src/zig/abi.rs`.
 
-To finish the port: port `internal/sandbox/run_linux.go`, `run_darwin.go` and
-`run_windows.go` into a Rust `Platform` trait (the LiteBox North/South split), keep the
-committed Zig stubs byte-identical, reproduce the memfd/Mach/LPAC launch contracts,
-then serve the syscall table through the 128-byte channel. Only after that backend
-passes the existing Go regression corpus on each host should the Go tree be removed.
+**Honest consequence:** the three native guest-execution backends (Linux memfd/seccomp/hop,
+macOS Mach/Seatbelt/HVF, Windows LPAC) were never ported to Rust. Removing the Go
+sources therefore removes the only working guest runtime from the repository. This is
+a deliberate, user-ordered change, not a silent regression: a from-source Rust build
+prepares and validates the control plane but cannot execute a guest. The live desktop
+on VNC 5905 was booted with the pre-removal Go runtime binary, which is preserved
+outside the repository in `/Users/dylanwong/.gm-work/qqbox/ping-impl/laboon-pingfix`.
+
+To finish the port: implement a Rust `Platform` trait (the LiteBox North/South split),
+keep the committed Zig stubs byte-identical, reproduce the memfd/Mach/LPAC launch
+contracts, and serve the syscall table through the 128-byte channel. Only after that
+backend passes the historical regression corpus on each host can a from-source build
+boot a guest.
 
 ### Sizing and fork identity
 
-The recon census puts the remaining work in perspective: 445 Go files / 85,620 lines,
-of which `internal/sandbox` alone is 322 files / 69,277 lines (81% of the Go code).
-That package is the real porting unit; `oci`, `vfs`, `rewrite`, `build` and the four
-`cmd/*` modules are comparatively thin layers above it. That is why the Rust
-workspace covers the control plane and OCI/Compose surface first and leaves the
-syscall-emulation engine to a dedicated `Platform` trait pass.
+The recon census measured the removed Go tree: 445 Go files / 85,620 lines, of which
+`internal/sandbox` alone was 322 files / 69,277 lines (81%). That package is the real
+porting unit; `oci`, `vfs`, `rewrite`, `build` and the four `cmd/*` modules were thin
+layers above it. That is why the Rust workspace covers the control plane and the
+OCI/Compose surface, and leaves the syscall-emulation engine to a dedicated `Platform`
+trait pass.
 
-The fork is `dywongcloud/qqbox` but the retained Go module paths, Go import paths
-and `go.work` still say `github.com/tencent/qqbox`. They are deliberately left
-alone: rewriting them would break `go build` on the one working guest runtime, and
-the upstream attribution is correct for the retained code. The Rust crates, README,
-`AGENTS.md`, `llms.txt`, `Makefile`, CI and `.goreleaser.yaml` use `qqbox` /
-`qqbox` without the upstream owner. Rebranding the Go module path belongs with the
-final Go removal, not before it.
+The fork is `dywongcloud/literbox`, rebranded **Tencent qqbox**. All Rust crates,
+README, `AGENTS.md`, `llms.txt`, `Makefile`, CI and `.goreleaser.yaml` use `qqbox`.
+Traditional Chinese documentation lives in `zh-hant/`. The upstream Apache-2.0
+attribution is preserved in LICENSE and COPYRIGHT.
 
-The recon also confirmed `AGENTS.md`'s old `purego` claim was stale: no Go source
-imports it. The real host-call layer is `x/sys/unix` (Linux), `goffi`/libffi
-(macOS), `process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
-Rule 4 now names those instead.
+The old `purego` claim in `AGENTS.md` is moot: there is no Go source left. The
+historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
+`process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
+
 
 ## Platform notes
 
