@@ -1,7 +1,0 @@
-id: qqbox-wallpapers
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Working desktop wallpaper and backgrounds
-description: The desktop wallpaper/backgrounds must actually render; the current boot paints a solid xsetroot blue.
-acceptance_criteria: 'A live VNC screenshot contains multiple Xubuntu wallpaper colors/pixels distinct from #204a87, with xfconf xfce4-desktop.xml backdrop settings and xfdesktop running.'
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

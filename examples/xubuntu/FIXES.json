@@ -2,7 +2,7 @@
   "artifact": "qqbox-xubuntu-stock-desktop",
   "user_intent": "setup a working stock xubuntu xfce instance replacing our current one; get network/wifi operational; xubuntu means linuxserver/webtop ubuntu-xfce, not plain ubuntu",
   "method": "live witnessed execution in qqbox guests plus two independent recon agents (registry identity, network data plane) and an adversarial verification pass",
-  "status": "FIXED_VERIFIED",
+  "status": "SUPERSEDED — this is the historical 24.04 noble fix ledger. The live, reproducible image is examples/qqbox/ (Ubuntu 26.04.1 LTS + Xubuntu 26 artwork).",
   "claims": [
     {
       "id": "X1",
@@ -115,5 +115,15 @@
     "xdg-user-dir missing from the Xubuntu template script; AT-SPI/UPower/PolicyKit services absent",
     "apt's libc-bin/mandb trigger cannot write /var/cache/man in qqbox's unprivileged unpack; the Dockerfile tolerates that trigger and asserts the binaries exist",
     "x11vnc -nopw is wildcard-bound and LAN-reachable; -localhost breaks qqbox port forwarding; use -rfbauth to close it"
-  ]
+  ],
+  "superseded_by": "examples/qqbox/README.md",
+  "corrections": [
+    "X4 \"ping failing is expected\" was FALSIFIED: with the IP_STRIPHDR fix on Darwin ICMP datagram sockets, ping -c 3 -W 3 google.com returns 3 received, 0% loss (live-complete/requirements.txt). A/B control: 100% loss without the fix. SOCK_RAW ICMP and ping -6 remain unsupported.",
+    "X4b \"Chromium is not installed in this image\" was FALSIFIED: Debian Chromium 150.0.7871.100 linux/arm64 is installed in the successor image and renders https://example.com/ over VNC. NetSurf is NOT the shipped browser; the user explicitly rejected it.",
+    "X4c \"NetSurf is added as the default browser\" is SUPERSEDED: the shipped browser is real Chromium, not NetSurf. The NetSurf screenshots are historical evidence only.",
+    "X2 adapter_2 lists netsurf-gtk among five apt packages; the successor image installs a full GNU toolchain, vim/vi, x11vnc/Xvfb/scrot/xdotool and Chromium 150 instead.",
+    "The GDBus.Error:org.freedesktop.DBus.Error.Spawn.PermissionsInvalid setuid-helper failure on apt installs is fixed by a root-user system bus config; see examples/qqbox/README.md.",
+    "Wallpapers now render from /usr/share/xfce4/backdrops/xubuntu-wallpaper.png via xfconfd + xfwm4 + xfdesktop --disable-wm-check (9,049 distinct colors witnessed)."
+  ],
+  "toolchain_note": "Go source was removed at the user request. Claims citing internal/sandbox/*.go paths describe the pre-removal runtime binary preserved off-repo; they are historical, not claims about the Rust-only tree."
 }

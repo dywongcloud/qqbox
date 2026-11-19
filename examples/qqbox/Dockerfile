@@ -51,11 +51,18 @@ RUN cat > /etc/dbus-1/qqbox-system.conf <<'CONF'
 </busconfig>
 CONF
 
+# 20packagekit's gdbus hook and the PackageKit system-service file both ask
+# the bus to activate a User=root service, which needs the unusable setuid
+# helper. Removing them makes apt installs reliable even if another client
+# reaches the system bus.
+RUN rm -f /etc/apt/apt.conf.d/20packagekit \
+      /usr/share/dbus-1/system-services/org.freedesktop.PackageKit.service
+
 RUN export DEBIAN_FRONTEND=noninteractive; \
     apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 && \
     apt-get install -y --no-install-recommends \
       x11vnc xvfb scrot xdotool iputils-ping curl ca-certificates \
-      xfce4-panel xfdesktop4 xfwm4 thunar xfce4-terminal \
+      xfce4-panel xfdesktop4 xfwm4 thunar xfce4-terminal xwallpaper \
       pulseaudio pulseaudio-utils \
       python3 python3-pip python3-venv git gh dbus-x11 \
       vim vim-tiny nano less man-db coreutils findutils grep gawk sed \
@@ -70,14 +77,20 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     dpkg --audit && \
     rm -rf /var/lib/apt/lists/*
 
-# npm on 26.04 conflicts with the nodesource nodejs candidate; Node 22/24 also
-# abort on qqbox's futex emulation. Install the known-good Node 18 from the
-# Ubuntu 24.04 archive plus npm, then Claude Code 1.0.128 (pure JS).
-RUN export DEBIAN_FRONTEND=noninteractive; \
-    apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/dev/null 2>&1 || true; \
-    apt-get install -y --no-install-recommends npm >/tmp/npm-install.log 2>&1 || true; \
-    dpkg --configure -a >/tmp/dpkg-configure.log 2>&1 || true; \
-    rm -rf /var/lib/apt/lists/*
+# Node 22 (the only apt candidate on 26.04) aborts under qqbox with
+# "The futex facility returned an unexpected error code" (rc=134), and
+# official nodejs.org tarballs do the same. The Ubuntu 24.04 noble Node 18
+# works, so its binary, six SONAME libs, five externalized builtins, npm 9.2.0
+# and Claude Code 1.0.128 (pure JS) are shipped as a self-contained payload.
+COPY node18 /opt/qqbox-node
+COPY npm /opt/qqbox-npm
+RUN chmod 755 /opt/qqbox-node/usr/bin/node && \
+    printf '#!/bin/sh\nexport LD_LIBRARY_PATH=/opt/qqbox-node/usr/lib/aarch64-linux-gnu\nexec /opt/qqbox-node/usr/bin/node "$@"\n' > /usr/local/bin/node && chmod 755 /usr/local/bin/node && \
+    printf '#!/bin/sh\nexec /usr/local/bin/node /opt/qqbox-npm/bin/npm-cli.js "$@"\n' > /usr/local/bin/npm && chmod 755 /usr/local/bin/npm && \
+    printf '#!/bin/sh\nexec /usr/local/bin/node /opt/qqbox-npm/bin/npx-cli.js "$@"\n' > /usr/local/bin/npx && chmod 755 /usr/local/bin/npx && \
+    ln -sfn /opt/qqbox-node/usr/share/nodejs /usr/share/nodejs && \
+    node -e 'console.log("node_ok",process.version)' > /etc/qqbox-node.txt && \
+    npm --version >> /etc/qqbox-node.txt
 
 COPY chromium /opt/chromium
 RUN chmod +x /opt/chromium/chromium /opt/chromium/chromium-wrapper.sh && \
@@ -93,7 +106,7 @@ COPY browser-skill /root/.claude/skills/browser-skill
 COPY skills/tencent-browser/SKILL.md /root/.claude/skills/tencent-browser/SKILL.md
 COPY claude/claude-code.tgz /tmp/claude-code.tgz
 RUN mkdir -p /opt/claude-code && tar -xzf /tmp/claude-code.tgz -C /opt/claude-code && rm -f /tmp/claude-code.tgz && \
-    printf '#!/bin/sh\nexec /usr/bin/node /opt/claude-code/package/cli.js "$@"\n' > /usr/local/bin/claude && chmod 755 /usr/local/bin/claude && \
+    printf '#!/bin/sh\nexec /usr/local/bin/node /opt/claude-code/package/cli.js "$@"\n' > /usr/local/bin/claude && chmod 755 /usr/local/bin/claude && \
     { claude --version; node --version; npm --version; python3 --version; \
       pip3 --version; vim --version | head -1; vi --version | head -1; \
       git --version; gh --version | head -1; } > /etc/qqbox-toolchain.txt 2>&1 || true

@@ -1,7 +1,0 @@
-id: qqbox-xubuntu26
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Xubuntu 26 desktop
-description: The running guest must be Xubuntu 26 (26.04 LTS) rather than the current Ubuntu 24.04 noble + Xubuntu settings, with the stock Xubuntu desktop experience.
-acceptance_criteria: A live guest reports Xubuntu 26.04 in /etc/os-release (or the least-risky honest alternative is documented with exact evidence), and the stock XFCE/Xubuntu desktop boots over VNC.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

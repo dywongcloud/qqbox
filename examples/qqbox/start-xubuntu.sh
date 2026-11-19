@@ -13,6 +13,14 @@ chmod 700 "$XDG_RUNTIME_DIR"; chown -R 0:0 /config 2>/dev/null || true
 rm -f /out/ready.txt /out/result.txt /out/stages.log /run/dbus/pid /run/dbus/system_bus_socket
 stage() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >>/out/stages.log; }
 
+# 20packagekit's gdbus hook and PackageKit's system-service file ask the bus
+# to activate a User=root service, which needs the setuid helper qqbox cannot
+# privilege-escalate. Remove both triggers; the root-user bus below handles
+# everything else. (Also removed in the image Dockerfile.)
+rm -f /etc/apt/apt.conf.d/20packagekit \
+      /usr/share/dbus-1/system-services/org.freedesktop.PackageKit.service
+echo "packagekit_trigger_removal_rc=$?" > /out/packagekit-removal.txt
+
 # ---- hostname: qbox (sethostname works inside qqbox) ----
 hostname qbox 2>/dev/null || true
 printf 'qbox\n' > /etc/hostname
@@ -39,9 +47,12 @@ stage "hostname_qbox=$(hostname)"
 # bus as root so apt's D-Bus activations (PackageKit, systemd1, ...) work.
 dbus-daemon --config-file=/etc/dbus-1/qqbox-system.conf --fork > /out/dbus.log 2>&1
 echo "system_bus_rc=$?" > /out/dbus-rc.txt
+gdbus call --system --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+  --method org.freedesktop.DBus.ListNames > /out/dbus-ping.txt 2>&1
+echo "dbus_list_rc=$?" >> /out/dbus-ping.txt
 gdbus call --system --dest org.freedesktop.PackageKit --object-path / \
-  --method org.freedesktop.DBus.Peer.Ping > /out/dbus-ping.txt 2>&1
-echo "dbus_ping_rc=$?" >> /out/dbus-ping.txt
+  --method org.freedesktop.DBus.Peer.Ping > /out/dbus-packagekit.txt 2>&1
+echo "packagekit_ping_rc=$? (ServiceUnknown is expected; PermissionsInvalid is not)" >> /out/dbus-packagekit.txt
 stage "system_bus_started $(cat /out/dbus-rc.txt)"
 
 # ---- xfconf: wallpaper + solid-color native terminal with a qbox prompt ----
@@ -65,8 +76,13 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml" <<'
 </channel>
 XML
 # The stock Xubuntu 26 wallpapers live in /usr/share/xfce4/backdrops/.
-# xfdesktop refuses to paint without a WM registered, so start xfwm4 and pass
-# --disable-wm-check. xfconfd needs a session bus; xfce4-session supplies one.
+# Ubuntu 26.04's gdk-pixbuf/glycin loaders require bwrap, which fails under
+# qqbox ('bwrap: Failed to make / slave: Bad address'), so xfdesktop cannot
+# decode a PNG: it paints a solid white/black root. xwallpaper uses libpng
+# directly and bypasses glycin entirely. Disable xfdesktop's own backdrop
+# painting and paint the root pixmap with xwallpaper after the WM is up.
+# XFCE 4.20 uses monitorscreen/workspaceN/last-image; Xubuntu 26's default
+# xfce4-desktop.xml has no backdrop keys at all.
 if [ -f /usr/share/xfce4/backdrops/xubuntu-wallpaper.png ]; then
   WALL=/usr/share/xfce4/backdrops/xubuntu-wallpaper.png
 elif [ -f /usr/share/xfce4/backdrops/xubuntu-resolute-plucky-remix.png ]; then
@@ -80,11 +96,13 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml" <<XM
 <channel name="xfce4-desktop" version="1.0">
   <property name="backdrop" type="empty">
     <property name="screen0" type="empty">
-      <property name="monitors" type="array"><value type="string" value="monitor0"/></property>
-      <property name="monitor0" type="empty">
-        <property name="image-path" type="string" value="$WALL"/>
-        <property name="image-style" type="int" value="5"/>
-        <property name="image-show" type="bool" value="true"/>
+      <property name="monitorscreen" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="last-image" type="string" value="$WALL"/>
+          <property name="image-style" type="int" value="5"/>
+          <property name="color-style" type="int" value="0"/>
+          <property name="image-show" type="bool" value="false"/>
+        </property>
       </property>
     </property>
   </property>
@@ -194,12 +212,14 @@ dbus-run-session -- /usr/bin/xfce4-session > /out/xfce.log 2>&1 &
 sleep 18
 xfwm4 --compositor=off > /out/wm.log 2>&1 &
 sleep 4
-/usr/bin/xfdesktop --disable-wm-check > /out/xfdesktop.log 2>&1 &
-sleep 8
 xfce4-panel > /out/panel.log 2>&1 &
 sleep 5
+/usr/bin/xfdesktop --disable-wm-check > /out/xfdesktop.log 2>&1 &
+sleep 6
+xwallpaper --zoom "$WALL" > /out/xwallpaper.log 2>&1; echo "xwallpaper_rc=$?" > /out/xwallpaper-rc.txt
+sleep 3
 scrot -o /out/01-wallpaper.png 2>/dev/null || true
-stage "wallpaper_and_bottom_panel_started"
+stage "wallpaper_and_bottom_panel_started $(cat /out/xwallpaper-rc.txt)"
 
 xfce4-terminal --disable-server --title QQBOX-TERMINAL \
   --dynamic-title-mode=none --geometry 84x26+120+110 \
@@ -248,18 +268,20 @@ stage "chromium_started"
   ping -c 3 -W 3 google.com 2>&1 | tail -3
   echo "ping_rc=$?"
   echo '=== D-Bus setuid-helper fix ==='
-  cat /out/dbus-rc.txt; cat /out/dbus-ping.txt
+  cat /out/dbus-rc.txt; cat /out/dbus-ping.txt; cat /out/dbus-packagekit.txt
   echo '--- repeat apt installs (the user failing case) ---'
   apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/out/apt-final-update.log 2>&1; echo "apt_update_rc=$?"
-  for p in fastfetch tree npm; do
+  for p in fastfetch tree htop; do
     apt-get install -y --no-install-recommends "$p" >"/out/apt-final-$p.log" 2>&1
     echo "$p rc=$? dpkg=$(dpkg-query -W -f='${Status}' "$p" 2>/dev/null)"
   done
+  echo "npm_payload=$(npm --version 2>&1) (apt npm is unavailable on 26.04; Node 18 payload is used)"
   grep -rin 'PermissionsInvalid\|setuid helper' /out/apt-final-*.log /out/dbus*.log || echo NO_DBUS_ERROR
   echo '=== wallpaper ==='
   cat /out/wallpaper.txt
-  xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/image-path 2>&1
-  echo "xfdesktop_procs=$(pgrep -c xfdesktop)"
+  xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitorscreen/workspace0/last-image 2>&1
+  cat /out/xwallpaper-rc.txt; cat /out/xwallpaper-final-rc.txt
+  echo "xfdesktop_procs=$(pgrep -c xfdesktop || true)"
   echo '=== extension / skill ==='
   ls -la /opt/qqbox-extension/ /opt/tencent-browserskill/ | head -20
   ls -la /root/.claude/skills/
@@ -267,6 +289,11 @@ stage "chromium_started"
 
 ps aux > /out/processes.txt 2>&1 || true
 xwininfo -root -tree > /out/windows.txt 2>&1 || true
+# Repaint after every window is mapped: Xvfb does not always flush the root
+# pixmap on the first paint, so capture a deterministic final frame.
+xwallpaper --zoom "$WALL" >/out/xwallpaper-final.log 2>&1; echo "xwallpaper_final_rc=$?" > /out/xwallpaper-final-rc.txt
+sleep 3
+scrot -o /out/01-wallpaper-final.png 2>/dev/null || true
 scrot -o /out/qqbox-desktop.png 2>/out/scrot.log || true
 echo QQBOX_BOOT_READY > /out/result.txt
 echo ready > /out/ready.txt

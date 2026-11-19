@@ -1,7 +1,0 @@
-id: qqbox-gnu-userland
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: vi/vim and common GNU user utilities installed by default
-description: Install vim, the vi alias, and all common GNU userland tools missing from the image (coreutils/findutils/diffutils/patch/make/gcc/net-tools/procps/etc).
-acceptance_criteria: vim -Es and vi -es both edit a file with rc=0 and verified contents; a representative set of newly installed GNU tools run with rc=0; all are present in the built image.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

@@ -20,7 +20,7 @@ default. This is the exact Ubuntu 26 base carrying Xubuntu 26 artwork.
 | requirement | status |
 | --- | --- |
 | Xubuntu 26 | Ubuntu 26.04.1 LTS + Xubuntu 26.04.1 settings/artwork/wallpapers, witnessed in `/etc/os-release`. |
-| wallpaper / backgrounds | Real Xubuntu backdrop renders: `xfce4-desktop.xml` `image-path` → `/usr/share/xfce4/backdrops/xubuntu-wallpaper.png` (→ `xubuntu-resolute-plucky-remix.png`), `xfconfd` + `xfwm4` + `xfdesktop --disable-wm-check`. Live screenshot: 9,049 distinct colors and desktop icons, not the old solid `#204a87`. |
+| wallpaper / backgrounds | Real Xubuntu 26 backdrop renders via `xwallpaper --zoom /usr/share/xfce4/backdrops/xubuntu-wallpaper.png`. 26.04's glycin/gdk-pixbuf loaders need `bwrap`, which fails under qqbox, so xfdesktop alone paints a solid root; `xwallpaper` uses libpng directly. Live 26.04 screenshot: 17,855 distinct colors. xfconf still records `monitorscreen/workspace0/last-image` with `image-show=false` so xfdesktop doesn't repaint over it. |
 | bottom dock/taskbar | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759` on an 800px screen, applications menu, three launchers, tasklist. |
 | vi / vim | `vim 9.1`, `vim-tiny` (the `vi` binary). Both witnessed editing a file with rc=0 and verified contents. |
 | GNU userland | ~70 common packages: coreutils, findutils, grep, gawk, sed, diffutils, patch, make/gcc/g++/binutils/build-essential, autoconf/automake/libtool/pkg-config/cmake/ninja/gdb, tar/gzip/bzip2/xz/zip/unzip/cpio, procps/psmisc/util-linux, net-tools/iproute2/dnsutils/traceroute, wget/curl/rsync/openssh-client, less/man-db/nano/tree/file/which, jq/htop/bc/time/strace/lsof/tmux/screen, gnupg, locales/gettext, socat/netcat/telnet/xxd, pciutils/usbutils/parted/e2fsprogs, perl, fastfetch. |
@@ -87,11 +87,48 @@ fails. The helper's mode is fine (`4754 root:messagebus`); chmod'ing it to 4755
 or 4750 does not help (both still rc=1). It is a supervisor property, not a
 guest file-mode bug.
 
-Fix: start the system bus as **root** with `/etc/dbus-1/qqbox-system.conf`
-(`<user>root</user>`, explicit `<listen>`, standard system service dirs). With
-root as the bus owner, activations do not need the setuid helper. Witnessed:
-`dbus_ping_rc=0`, `NO_DBUS_ERROR`, and `apt-get install` rc=0. A real fix would
-be supervisor-side: honour `S_ISUID` on emulated `execve`.
+Fix, verified in the live 26.04 boot: start the system bus as **root** with
+`/etc/dbus-1/qqbox-system.conf` (`<user>root</user>`, explicit `<listen>`,
+standard system service dirs), **and** remove the two triggers that ask the bus
+to activate a `User=root` service:
+
+```sh
+rm -f /etc/apt/apt.conf.d/20packagekit \
+      /usr/share/dbus-1/system-services/org.freedesktop.PackageKit.service
+```
+
+Witnessed: `dbus_ping_rc=0`, `NO_DBUS_ERROR` across all apt logs,
+`apt-get update` rc=0, and repeat `apt-get install fastfetch` / `tree` rc=0
+with `dpkg-query` reporting `install ok installed`. A real fix would be
+supervisor-side: honour `S_ISUID` on emulated `execve`.
+
+**Adversarial corrections.** An adversarial verifier independently refuted the
+claim that this line is what made `apt-get install` fail on the old 24.04
+image: there the rc=100 came from 17 unpacked-but-unconfigured `npm`-stack
+packages (`node-neo-async`'s `angelfall.js` vs `AngelFall.js` collision on the
+case-insensitive host filesystem). Removing the two D-Bus triggers alone
+silences the stderr line but leaves those installs at rc=100; conversely, with
+the triggers intact and a repaired dpkg state, installs return rc=0 **while
+still printing the identical error line**. On this 26.04 image both are fixed:
+no `apt npm` is installed (npm ships as a registry tarball), the usrmerge
+`ldconfig` divert keeps dpkg consistent, and the root-user bus plus trigger
+removal stops the message. Witnessed in `live-5926/requirements.txt`:
+`apt-get update` rc=0, repeat `fastfetch` and `tree` installs rc=0 with
+`install ok installed`, `NO_DBUS_ERROR`, and no unconfigured packages.
+
+The error is emitted by a `gdbus` call inside
+`/etc/apt/apt.conf.d/20packagekit` (an `APT::Update::Post-Invoke-Success`
+hook), not by apt/dpkg itself. dbus 1.14's launch helper checks
+`getuid()==messagebus && geteuid()==0`; qqbox's `execve` ignores setuid, so
+the helper exits 7 (`BUS_SPAWN_EXIT_CODE_PERMISSIONS_INVALID`) and the daemon
+maps that to the human string. There is no stat()-based mode check in this
+D-Bus version: `chmod 4754` on the helper does not help, and the OCI unpacker's
+S_ISUID stripping is real but not the cause. A root-user bus alone replaces the
+error with a 4-second `Timeout was reached` in some 24.04 probes, so removing
+the triggers is required as well. Seven other `User=root` service files
+(`PolicyKit1`, `hostname1`, `locale1`, `login1`, `network1`, `systemd1`,
+`timedate1`, `com.ubuntu.SoftwareProperties`) would fail the same way if a
+client activates them; the shipped config keeps the bus as root to avoid that.
 
 **Two related 26.04 dpkg fixes.** (1) The static-pie `/usr/sbin/ldconfig`
 segfaults under qqbox's rewriter, so `libc-bin`'s postinst exits 139 and leaves
@@ -134,16 +171,36 @@ windowed rendering under Xvfb is the supported path.
 ## Wallpapers (how it works)
 
 The stock Xubuntu 26 image ships backdrops in `/usr/share/xfce4/backdrops/`
-(`xubuntu-resolute-plucky-remix.png`, `xubuntu-questing.png`, …) and points
-`xfce4-desktop.xml` at `xubuntu-wallpaper.png`. The previous boot painted a
-solid `xsetroot -solid '#204a87'` because `xfdesktop` was never started with a
-working `xfconfd`/WM. The fix: write `$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml`
-with `image-path`, `image-style=5`, `image-show=true`; set
-`XDG_CONFIG_DIRS=/etc/xdg/xdg-xubuntu:/etc/xdg`; start `xfce4-session` under
-`dbus-run-session` (session bus for `xfconfd`), then `xfwm4 --compositor=off`
-and `xfdesktop --disable-wm-check`. Without `--disable-wm-check`, xfdesktop
-exits with `No window manager registered on screen 0`. Live witness: 1280x800
-PNG with 9,049 distinct colors and a Home desktop icon.
+(`xubuntu-resolute-plucky-remix.png`, `xubuntu-questing.png`, …) with
+`xubuntu-wallpaper.png` as the current-release symlink. Two 26.04-specific
+blockers were witnessed live:
+
+1. **Xubuntu 26.04's own `/etc/xdg/xdg-xubuntu/.../xfce4-desktop.xml` has zero
+   backdrop keys**, and XFCE 4.20 uses
+   `/backdrop/screen0/monitorscreen/workspaceN/last-image`, not the 24.04
+   `monitor0/image-path` keys.
+2. **Ubuntu 26.04's gdk-pixbuf loaders are glycin-based and require bubblewrap**:
+   `bwrap --ro-bind / / --dev /dev sh -c …` fails verbatim with
+   `bwrap: Failed to make / slave: Bad address` under qqbox. xfdesktop therefore
+   cannot decode the PNG and paints a solid root (witnessed as one distinct
+   color on `live-5926/01-wallpaper.png`). `feh` sets `_XROOTPMAP_ID` but
+   xfdesktop repaints over it.
+
+The fix that works: set `XDG_CONFIG_DIRS=/etc/xdg/xdg-xubuntu:/etc/xdg`, write
+`$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml` with
+`monitorscreen/workspace0/last-image`, `image-style=5`, `color-style=0` and
+`image-show=false`; start `xfce4-session` under `dbus-run-session` (session bus
+for `xfconfd`), `xfwm4 --compositor=off`, `xfce4-panel`, then
+`xfdesktop --disable-wm-check` (without that flag xfdesktop exits with `No
+window manager registered on screen 0`). Finally **paint the root pixmap with
+`xwallpaper --zoom "$WALL"`**, which uses libpng directly and bypasses glycin.
+
+Live 26.04 witness: `xwallpaper_rc=0`, 1280x800 PNG with **17,855 distinct
+colors** showing the real Xubuntu sunset-lake artwork
+(`wall-26b/out/01-after.png`). Control `00-before.png` has 1 distinct color.
+The 24.04 noble image rendered its wallpaper through xfdesktop alone (9,049
+colors); that path does not transfer to 26.04 — an adversarial verifier caught
+this and it is recorded here rather than hidden.
 
 ## Audio (honest boundary)
 

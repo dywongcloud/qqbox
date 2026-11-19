@@ -1,0 +1,100 @@
+# `examples/qqbox`：完整配置 Xubuntu 26 桌面（繁體中文）
+
+本目錄是 [`../xubuntu/README.zh-Hant.md`](../xubuntu/README.zh-Hant.md) 的後繼版本，
+以 **Ubuntu 26.04.1 LTS「Resolute Raccoon」** 為基底，搭配 Xubuntu 26.04.1 的
+設定、主題與桌布，在 qqbox 原生來賓執行環境中透過 VNC TCP 5905 提供桌面。
+英文版完整說明見 [`README.md`](README.md)。
+
+基底固定為 `linuxserver/webtop:ubuntu-xfce-ce206d66-ls292` 的 `linux/arm64`
+資訊清單 `sha256:4721b798561ebabc9bfee60d3220f8c5d57b17fb78ab83168c94628e07e55e99`。
+實測 `/etc/os-release`：`PRETTY_NAME="Ubuntu 26.04.1 LTS"`、
+`VERSION_CODENAME=resolute`，`xubuntu-wallpapers` 為 26.04.1。
+
+**如實邊界**：這是 Ubuntu 26.04 加上 XFCE 與 Xubuntu 26 的桌布、主題和設定，
+不是 Xubuntu 發行版本身（`/etc/os-release` 仍為 `ID=ubuntu`）。Xubuntu 官方
+沒有 `linux/arm64` OCI 映像檔，26.04 的 ISO 也只提供 amd64 與實驗性 riscv64；
+`linuxserver/webtop` 沒有 `xubuntu` 標籤。26.04 LTS（2026-04-23）與
+26.10（2026-10）同時存在，使用者所說的「Xubuntu 26」並未指定點版本，
+此處採用 LTS。
+
+| 需求 | 狀態 |
+| --- | --- |
+| 桌布／背景 | `xwallpaper --zoom /usr/share/xfce4/backdrops/xubuntu-wallpaper.png` 畫出真正的 Xubuntu 26 桌布，實測 17,855 種顏色。 |
+| 底部工作列 | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759`。 |
+| vi／vim | `vim 9.1` 與 `vim-tiny`（`vi`），兩者編輯檔案皆 rc=0。 |
+| GNU 工具鏈 | 約 70 個套件，見英文版 README。 |
+| 套件安裝 | `apt-get install` 可重複執行且 rc=0；`GDBus ... Spawn.PermissionsInvalid` 已修復。 |
+| Chromium | Debian Chromium 150.0.7871.100 `linux/arm64`，四個 bookworm SONAME 隨附。 |
+| Node／npm／Claude Code | Ubuntu 26.04 的 Node 22 在 qqbox 下因 futex 而 rc=134；改用 noble Node 18.19.1、npm 9.2.0、Claude Code 1.0.128（純 JS），皆已實測。 |
+
+## 桌布為何需要 `xwallpaper`
+
+Ubuntu 26.04 的 gdk-pixbuf 影像載入器改用 glycin，必須透過 `bwrap` 沙箱；
+在 qqbox 下 `bwrap` 明確失敗：`bwrap: Failed to make / slave: Bad address`。
+因此 `xfdesktop` 無法解碼 PNG，只會畫出單色底色（實測僅 1 種顏色）。
+Xubuntu 26.04 自帶的 `xfce4-desktop.xml` 完全沒有 backdrop 設定，而
+XFCE 4.20 使用 `monitorscreen/workspaceN/last-image`，不是 24.04 的
+`monitor0/image-path`。`xwallpaper` 直接使用 libpng，繞過 glycin，因此可行：
+寫入 xfconf 並設 `image-show=false`，啟動 `xfce4-session`（提供 `xfconfd`
+所需的 session bus）、`xfwm4 --compositor=off`、`xfce4-panel`、
+`xfdesktop --disable-wm-check`，最後以 `xwallpaper --zoom` 畫上根視窗。
+對照組 `00-before.png` 只有 1 種顏色，修復後 `01-after.png` 有 17,855 種。
+24.04 只靠 `xfdesktop` 即可（9,049 種顏色）；該做法無法套用到 26.04，
+這是對抗式驗證找出並如實記錄的結果。
+
+## D-Bus setuid helper 錯誤
+
+錯誤訊息原文：
+
+```
+Error: GDBus.Error:org.freedesktop.DBus.Error.Spawn.PermissionsInvalid:
+The permission of the setuid helper is not correct
+```
+
+成因是 qqbox 的 `execve` 忽略 `S_ISUID`，導致 `dbus-daemon-launch-helper`
+無法取得 root；dbus 1.14 的 `check_permissions()` 要求
+`getuid()==messagebus && geteuid()==0`，helper 因此回傳 7，由 daemon 轉成
+上述字串。此版本沒有 stat() 模式檢查，`chmod 4754` 無效，OCI 解包丟失
+setuid 位元也不是成因。修復方式：以 root 身分啟動系統匯流排
+（`/etc/dbus-1/qqbox-system.conf`），並移除兩個會啟動 `User=root` 服務的觸發點：
+
+```sh
+rm -f /etc/apt/apt.conf.d/20packagekit \
+      /usr/share/dbus-1/system-services/org.freedesktop.PackageKit.service
+```
+
+**對抗式修正**：在舊的 24.04 映像檔上，真正讓 `apt-get install` 回傳 rc=100
+的是 17 個「已解包但未設定」的 npm 相關套件（`node-neo-async` 的
+`angelfall.js`／`AngelFall.js` 在宿主大小寫不分檔案系統上衝突），不是這行
+錯誤；單純移除觸發點只會讓錯誤訊息消失，安裝仍失敗。此 26.04 映像檔
+兩者皆已修復：不透過 apt 安裝 npm（改用 registry tarball），usrmerge 的
+`ldconfig` divert 讓 dpkg 保持一致，root 匯流排與觸發點移除則讓訊息消失。
+實測：`apt-get update` rc=0、重複安裝 `fastfetch` 與 `tree` rc=0、
+`NO_DBUS_ERROR`。
+
+## 其他兩個 26.04 專屬修正
+
+- **usrmerge 的 `ldconfig`**：26.04 的 `/usr/sbin/ldconfig` 是靜態 PIE，
+  在 qqbox 重寫器下會 segfault，使 `libc-bin` 的 postinst 以 139 結束。
+  因為 `libc-bin` 擁有 `/usr/sbin/ldconfig`，直接覆寫會在解包時被還原，
+  必須用 `dpkg-divert --local --rename --divert /usr/sbin/ldconfig.qqbox-real
+  /usr/sbin/ldconfig` 再加 no-op 腳本。
+- **Node**：26.04 apt 只有 Node 22，官方 nodejs.org tarball 也同樣因
+  「The futex facility returned an unexpected error code」而 rc=134。
+  因此改附 noble 的 Node 18 二進位檔、六個 SONAME、五個外部化 builtin，
+  以及 npm registry 的 npm 9.2.0。
+
+## 建置與執行
+
+```sh
+sh fetch-chromium.sh
+sh fetch-extras.sh
+qqbox build -net -t qqbox-xubuntu:26 -f Dockerfile -o qqbox-xubuntu26.tar .
+qqbox -image qqbox-xubuntu:26 -net -e VNC_PORT=5905 -mount /tmp/qqbox-out:/out
+vncviewer 127.0.0.1:5905
+```
+
+Chromium 的真實沙箱在 qqbox 下不可啟用（27 種組態實測 rc=1／134），
+並非效能開關而是安全邊界；`/dev/dri` 不存在，SwiftShader 軟體 WebGL 1.0 可用。
+PulseAudio null sink 可用，但沒有 `/dev/snd`，聲音不會傳到宿主喇叭。
+詳見 [`README.md`](README.md) 與 [`../../docs/PORT_STATUS.zh-Hant.md`](../../docs/PORT_STATUS.zh-Hant.md)。
