@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"path"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // pnodeFS exposes a synthetic pnode tree (/proc, /sys, /dev) as a vfs.FileSystem

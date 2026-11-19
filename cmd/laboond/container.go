@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
-// container is one Docker container, run as a laboon sandbox.
+// container is one Docker container, run as a qqbox sandbox.
 type container struct {
 	id      string
 	name    string
@@ -30,7 +30,7 @@ type container struct {
 	started  bool
 	exited   bool
 	exitCode int
-	proc     *laboon.Process
+	proc     *qqbox.Process
 
 	attachMu sync.Mutex // serializes frames onto attachConn
 	attachW  net.Conn   // the hijacked attach connection, nil until attach
@@ -68,30 +68,30 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// run starts the container as a laboon image run, streaming stdout/stderr to the
+// run starts the container as a qqbox image run, streaming stdout/stderr to the
 // attached connection (if any), and records the exit code.
 func (c *container) run(allowNet bool) {
 	defer close(c.done)
-	opts := []laboon.Option{laboon.WithStdout(c.frame(1)), laboon.WithStderr(c.frame(2))}
+	opts := []qqbox.Option{qqbox.WithStdout(c.frame(1)), qqbox.WithStderr(c.frame(2))}
 	if len(c.cmd) > 0 {
-		opts = append(opts, laboon.WithArgs(c.cmd...))
+		opts = append(opts, qqbox.WithArgs(c.cmd...))
 	}
 	if len(c.entry) > 0 {
-		opts = append(opts, laboon.WithEntrypoint(c.entry...))
+		opts = append(opts, qqbox.WithEntrypoint(c.entry...))
 	}
 	if len(c.env) > 0 {
-		opts = append(opts, laboon.WithEnv(c.env...))
+		opts = append(opts, qqbox.WithEnv(c.env...))
 	}
 	if c.workdir != "" {
-		opts = append(opts, laboon.WithDir(c.workdir))
+		opts = append(opts, qqbox.WithDir(c.workdir))
 	}
 	if c.user != "" {
-		opts = append(opts, laboon.WithUser(c.user))
+		opts = append(opts, qqbox.WithUser(c.user))
 	}
 	if allowNet {
-		opts = append(opts, laboon.WithNet())
+		opts = append(opts, qqbox.WithNet())
 	}
-	code, err := laboon.RunImage(context.Background(), c.image, opts...)
+	code, err := qqbox.RunImage(context.Background(), c.image, opts...)
 	c.mu.Lock()
 	c.exited = true
 	if err != nil && code == 0 {

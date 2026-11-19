@@ -14,7 +14,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	"github.com/samyfodil/laboon/internal/oci"
+	"github.com/tencent/qqbox/internal/oci"
 )
 
 // TestBuild builds a small Dockerfile from a cached base image and checks the
@@ -30,7 +30,7 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	df := `FROM alpine:3.20
-ENV BUILT_BY=laboon
+ENV BUILT_BY=qqbox
 RUN echo made > /made.txt && chmod 0400 /made.txt && rm -f /etc/motd
 COPY greeting.txt /app/greeting.txt
 WORKDIR /app
@@ -38,7 +38,7 @@ CMD ["/bin/sh","-c","cat /made.txt"]
 `
 	out := filepath.Join(dir, "image.tar")
 	h, err := Build(ctx, strings.NewReader(df), Options{
-		Context: dir, Tag: "laboon-test:1", Output: out,
+		Context: dir, Tag: "qqbox-test:1", Output: out,
 		Stdout: os.Stderr, Stderr: os.Stderr,
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ CMD ["/bin/sh","-c","cat /made.txt"]
 		t.Fatal("empty digest")
 	}
 
-	ref, _ := name.NewTag("laboon-test:1")
+	ref, _ := name.NewTag("qqbox-test:1")
 	img, err := tarball.ImageFromPath(out, &ref)
 	if err != nil {
 		t.Fatalf("read built image: %v", err)
@@ -57,7 +57,7 @@ CMD ["/bin/sh","-c","cat /made.txt"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !has(cf.Config.Env, "BUILT_BY=laboon") {
+	if !has(cf.Config.Env, "BUILT_BY=qqbox") {
 		t.Errorf("Env missing BUILT_BY: %v", cf.Config.Env)
 	}
 	if cf.Config.WorkingDir != "/app" {
@@ -68,7 +68,7 @@ CMD ["/bin/sh","-c","cat /made.txt"]
 		t.Fatalf("got %d layers, want >= 3 (base + RUN + COPY)", len(layers))
 	}
 	// The RUN chmod 0400 is captured authoritatively, a mode the host file (on
-	// an unprivileged laboon) cannot hold, with root ownership and no leaked
+	// an unprivileged qqbox) cannot hold, with root ownership and no leaked
 	// host user.
 	if mode, uid, gid, ok := entryMeta(t, layers, "made.txt"); !ok || mode&0o7777 != 0o400 || uid != 0 || gid != 0 {
 		t.Fatalf("made.txt in image: mode=%o uid=%d gid=%d ok=%v, want 0400 root", mode, uid, gid, ok)

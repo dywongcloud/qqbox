@@ -1,6 +1,6 @@
-# Single address space for laboon instances
+# Single address space for qqbox instances
 
-Decision: **do not merge laboon instances into one address space.** Keep one stub
+Decision: **do not merge qqbox instances into one address space.** Keep one stub
 process per instance and add a shared supervisor mode instead. A global single
 address space is not achievable without regressions on any supported host. The
 request asked for single-addressed-spaced instances "if possible without regressions";
@@ -12,7 +12,7 @@ model is built on.
 Within one run on Linux, the guest and the Zig stub already share one address space
 (`AGENTS.md:60-63`). The guest can write every byte of the stub; that is why the host-op
 thread keeps its loop state in registers and the per-thread guest seccomp filter
-(`stub/zig/seccomp.zig`) is the boundary. Nested laboon composes by loading a PIE stub
+(`stub/zig/seccomp.zig`) is the boundary. Nested qqbox composes by loading a PIE stub
 into a free high window of the *same* address space (`stub/build.sh`, `load_linux.go`).
 So an instance is already single-address-spaced internally. What is not shared is the
 address space *across* instances.
@@ -69,7 +69,7 @@ path; mapping memory, holding descriptors and forking happen only on the host-op
 
 The Go backend keeps `stubLo`/`slotsAddr`/`stubHi` in package globals set once by
 `adoptWindow`. The Rust control plane instead derives a `StubWindow` per instance
-(`crates/laboon/src/zig/abi.rs`), so a shared supervisor can plan distinct windows
+(`crates/qqbox/src/zig/abi.rs`), so a shared supervisor can plan distinct windows
 without touching the two-page-table design the backstops depend on. This is the
 cheap win: it removes a global collision without attempting a global SAS.
 
@@ -79,7 +79,7 @@ cheap win: it removes a global collision without attempting a global SAS.
   one daemon, one OCI/compose plan) while each instance keeps its own stub process and
   its own address space. This is the DX/UX win that motivates the request, without the
   isolation loss.
-- The Zig stub ABI stays byte-identical. `crates/laboon/src/zig/abi.rs` asserts the
+- The Zig stub ABI stays byte-identical. `crates/qqbox/src/zig/abi.rs` asserts the
   128-byte `chanPage` layout and all thirteen field offsets so a Rust supervisor can
   drive the committed stubs without changing Zig.
 - A future single-address-space mode is gated behind a named isolation primitive and an

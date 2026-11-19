@@ -19,7 +19,7 @@ func TestMountFileBind(t *testing.T) {
 		t.Skipf("static gcc unavailable: %v\n%s", err, b)
 	}
 	host := t.TempDir()
-	if err := os.WriteFile(filepath.Join(host, "hello"), []byte("laboon-bind"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(host, "hello"), []byte("qqbox-bind"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -28,14 +28,14 @@ func TestMountFileBind(t *testing.T) {
 	code, err := Run(ctx, exe, Config{
 		Args:   []string{exe},
 		Root:   "/",
-		Mounts: []Mount{{Host: host, Guest: "/laboonbind"}},
+		Mounts: []Mount{{Host: host, Guest: "/qqboxbind"}},
 		Stdout: &out, Stderr: &out,
 	})
 	if err != nil || code != 0 || !strings.Contains(out.String(), "BIND-FILE-OK") {
 		t.Fatalf("code=%d err=%v out=%q", code, err, out.String())
 	}
 	// The guest's write through the bind landed on the host subtree.
-	if b, err := os.ReadFile(filepath.Join(host, "out")); err != nil || string(b) != "laboon-bind" {
+	if b, err := os.ReadFile(filepath.Join(host, "out")); err != nil || string(b) != "qqbox-bind" {
 		t.Fatalf("host-side write-back = %q err=%v", b, err)
 	}
 }

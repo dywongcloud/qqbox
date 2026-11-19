@@ -26,7 +26,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"github.com/samyfodil/laboon/internal/winfs"
+	"github.com/tencent/qqbox/internal/winfs"
 )
 
 // Image is an unpacked image.
@@ -107,8 +107,8 @@ func Pull(ctx context.Context, ref string, opt Options) (*Image, error) {
 	return store(dir, refFile, ref, img, opt.MaxSize)
 }
 
-// Store places a locally built image in the cache under ref, so laboon runs it
-// (laboon -image ref) without a registry — the build -> run path, keyed by the
+// Store places a locally built image in the cache under ref, so qqbox runs it
+// (qqbox -image ref) without a registry — the build -> run path, keyed by the
 // image's own architecture so a host-arch -image lookup finds it.
 func Store(img v1.Image, ref string, opt Options) (*Image, error) {
 	dir, err := cacheDir(opt.CacheDir)
@@ -248,7 +248,7 @@ func cacheDir(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "laboon", "images"), nil
+	return filepath.Join(d, "qqbox", "images"), nil
 }
 
 // clean turns a tar path into a relative path inside the rootfs.

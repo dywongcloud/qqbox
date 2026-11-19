@@ -1,4 +1,4 @@
-// pidns.c — exercises laboon's PID-namespace emulation: a clone(CLONE_NEWPID)
+// pidns.c — exercises qqbox's PID-namespace emulation: a clone(CLONE_NEWPID)
 // child is pid 1 in its new namespace, its parent is invisible (getppid 0), a
 // grandchild is pid 2, and the parent reaps the child by the pid clone handed
 // back (which is not 1, since the parent is in the outer namespace).

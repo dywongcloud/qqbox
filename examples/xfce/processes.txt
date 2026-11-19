@@ -19,7 +19,7 @@ root          90  1.6  0.1  62960 62960 ?        SNl  07:07   0:00 /usr/lib/tumb
 root         107  0.8  0.0  15520 15520 ?        Sl   07:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libsystray.so 6 12582924 systray Status Tray Plugin Provides status notifier items (application indicators) and legacy systray items
 root         110  1.0  0.0  23280 23280 ?        Sl   07:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libxfce4powermanager.so 9 12582925 power-manager-plugin Power Manager Plugin Display the battery levels of your devices and control the brightness of your display
 root         114  0.9  0.0  19136 19136 ?        Sl   07:07   0:00 /usr/lib/xfce4/panel/wrapper-2.0 /usr/lib/xfce4/panel/plugins/libactions.so 14 12582926 actions Action Buttons Log out, lock or other system actions
-root         160  5.2  0.0  34432 34432 ?        Sl   07:07   0:00 xfce4-terminal --title=LABOON-XFCE-WITNESS --geometry=80x24+140+140 -e sh -c "echo LABOON_XFCE_DESKTOP_RUNNING; uname -a; sleep 300"
+root         160  5.2  0.0  34432 34432 ?        Sl   07:07   0:00 xfce4-terminal --title=QQBOX-XFCE-WITNESS --geometry=80x24+140+140 -e sh -c "echo QQBOX_XFCE_DESKTOP_RUNNING; uname -a; sleep 300"
 root         167  0.0  0.0   1712  1712 ?        S    07:07   0:00 dbus-launch --autolaunch=1cad1ceb9f18a9152f39a8056afd4c3e --binary-syntax --close-stderr
 root         168  0.5  0.0   1808  1808 ?        Ss   07:07   0:00 /usr/bin/dbus-daemon --syslog-only --fork --print-pid 5 --print-address 7 --session
 root         172  1.2  0.0   4448  4448 ?        Sl   07:07   0:00 /usr/lib/xfce4/xfconf/xfconfd

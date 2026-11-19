@@ -215,7 +215,7 @@ var bpfAllowed = map[uint16]bool{
 // bpfValidate reports whether prog is a well-formed seccomp classic-BPF filter:
 // every instruction is one the kernel permits, and its loads, scratch slots and
 // jump targets are in range. The kernel rejects anything else at install with
-// EINVAL (seccomp_check_filter + bpf_check_classic), so laboon must too --
+// EINVAL (seccomp_check_filter + bpf_check_classic), so qqbox must too --
 // otherwise an unmodelled instruction would silently leave the guest's own
 // sandbox off. Division by zero is a runtime value, not a validation error.
 func bpfValidate(prog []byte) bool {

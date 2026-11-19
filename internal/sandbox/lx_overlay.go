@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // Overlay bookkeeping beyond the upper/lower split: the whiteout set (fs.whiteout)

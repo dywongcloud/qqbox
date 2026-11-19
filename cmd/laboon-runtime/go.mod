@@ -1,8 +1,8 @@
-module github.com/samyfodil/laboon/cmd/laboon-runtime
+module github.com/tencent/qqbox/cmd/qqbox-runtime
 
 go 1.27.1
 
-require github.com/samyfodil/laboon v0.0.0
+require github.com/tencent/qqbox v0.0.0
 
 require (
 	github.com/docker/cli v29.7.2+incompatible // indirect
@@ -18,4 +18,4 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 )
 
-replace github.com/samyfodil/laboon => ../..
+replace github.com/tencent/qqbox => ../..

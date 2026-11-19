@@ -1,12 +1,12 @@
 version: 2
 
-project_name: literbox
+project_name: qqbox
 
 builds:
-  - id: laboon
+  - id: qqbox
     builder: rust
-    main: ./crates/laboon-cli
-    binary: laboon
+    main: ./crates/qqbox-cli
+    binary: qqbox
     targets:
       - x86_64-unknown-linux-gnu
       - aarch64-unknown-linux-gnu
@@ -14,10 +14,10 @@ builds:
       - x86_64-apple-darwin
       - x86_64-pc-windows-msvc
 
-  - id: laboond
+  - id: qqboxd
     builder: rust
-    main: ./crates/laboond
-    binary: laboond
+    main: ./crates/qqboxd
+    binary: qqboxd
     targets:
       - x86_64-unknown-linux-gnu
       - aarch64-unknown-linux-gnu

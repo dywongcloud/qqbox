@@ -15,7 +15,7 @@
 // through it rejoins the SAME namespace it pinned — proven here by a listener
 // that lives in that namespace becoming reachable over loopback only after the
 // join. NST is a writable target (not /run/netns, so the test needs no root fs).
-#define NST "/tmp/laboon-nsbind"
+#define NST "/tmp/qqbox-nsbind"
 #define PORT 9100
 static void a4(struct sockaddr_in *s) {
 	memset(s, 0, sizeof *s); s->sin_family = AF_INET; s->sin_port = htons(PORT);

@@ -9,7 +9,7 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // darwinPage is the stub's page size (16 KiB), used to match its minbase

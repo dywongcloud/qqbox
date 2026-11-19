@@ -12,7 +12,7 @@ from PIL import Image
 
 HOST = os.environ.get("RFB_HOST", "127.0.0.1")
 PORT = int(os.environ.get("RFB_PORT", "5905"))
-OUT = os.environ.get("RFB_OUT", "/Users/dylanwong/.gm-work/literbox/xfce/out/vnc-typed.png")
+OUT = os.environ.get("RFB_OUT", "/Users/dylanwong/.gm-work/qqbox/xfce/out/vnc-typed.png")
 TEXT = os.environ.get("RFB_TEXT", "echo VNC_TYPED_OK; uname -a")
 CLICK = (int(os.environ.get("RFB_X", "400")), int(os.environ.get("RFB_Y", "778")))
 

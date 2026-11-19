@@ -107,7 +107,7 @@ pub fn setSlot(addr: u64) void {
     // trampoline reads its service-stack top (%gs:scratch_top) and saves the
     // guest sp (%gs:sp) with no syscall and no guest-stack write. The stub
     // itself is never rewritten, so this arch_prctl runs directly even when the
-    // stub is a nested laboon's guest; each stub process owns its own %gs. The
+    // stub is a nested qqbox's guest; each stub process owns its own %gs. The
     // guest's own %gs is virtualized in Thread.guest_gs.
     const t = sig.recOf(@ptrFromInt(addr));
     t.scratch_top = stub.scratchTop(@ptrFromInt(addr));

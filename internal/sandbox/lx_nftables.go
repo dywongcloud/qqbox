@@ -2,11 +2,11 @@
 
 package sandbox
 
-// NETLINK_NETFILTER (the nftables subsystem): the control plane of laboon's
+// NETLINK_NETFILTER (the nftables subsystem): the control plane of qqbox's
 // firewall, the netfilter twin of the routing-netlink model in lx_netmodel.go.
 // The unmodified `nft` binary (run by a container runtime, by docker's
 // iptables-nft, or by hand) opens an AF_NETLINK/NETLINK_NETFILTER socket and
-// drives nftables through it; laboon models the ruleset the guest builds -- its
+// drives nftables through it; qqbox models the ruleset the guest builds -- its
 // tables, chains, rules and sets, per network namespace -- so `nft -f` and
 // `nft list` work. Rule expressions are kept opaque here; evaluating them on a
 // connection's 5-tuple (filter verdicts and NAT) is the next step.

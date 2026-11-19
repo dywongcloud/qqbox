@@ -8,8 +8,8 @@ import _ "embed"
 //go:embed stub-amd64.bin
 var Binary []byte
 
-// BinaryPIE is the nested stub, an ET_DYN carrying the window note; a laboon
-// running inside laboon launches it and its outer places it at a free high
+// BinaryPIE is the nested stub, an ET_DYN carrying the window note; a qqbox
+// running inside qqbox launches it and its outer places it at a free high
 // window. See build.sh and stub/zig/stub.zig.
 //
 //go:embed stub-amd64-pie.bin

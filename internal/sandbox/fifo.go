@@ -11,7 +11,7 @@ import (
 // waits for a writer, a write-only open waits for a reader. Doing that wait as
 // a blocking host open() would park it on the serve goroutine where nothing can
 // reach it — a guest signal cannot interrupt it and teardown cannot cancel it,
-// so the run wedges (CoreCLR's debug pipe does exactly this). laboon instead
+// so the run wedges (CoreCLR's debug pipe does exactly this). qqbox instead
 // runs the rendezvous here, against a per-run table keyed by the FIFO's path,
 // waiting with condWaitIntr so a signal or teardown ends it. Each end then opens
 // the real backend node non-blocking — which succeeds at once, the peer being

@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Host pipe ends on Windows: the caller's stdio, or the pipes laboon copies a
+// Host pipe ends on Windows: the caller's stdio, or the pipes qqbox copies a
 // non-file stdio through. The guest sees each as a pipe whose transport is its
 // pipeEnd, and its description's file is a placeholder, so nothing but the
 // pipeEnd ever does I/O on the host handle. The handle is synchronous and
@@ -566,7 +566,7 @@ func (g *dguest) pipeWriteWait(p *pipeEnd, c []byte, wake windows.Handle) (int, 
 func (p *pipeEnd) open(int64)  { p.hold() }
 func (p *pipeEnd) close(int64) { p.release() }
 
-// resize keeps the host pipe's capacity, which laboon cannot change.
+// resize keeps the host pipe's capacity, which qqbox cannot change.
 func (p *pipeEnd) resize(int32) lxErrno { return 0 }
 
 // poll is the end's readiness, arming the watcher when there is no data yet.

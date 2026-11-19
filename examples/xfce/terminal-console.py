@@ -1,8 +1,8 @@
-"""A PTY-free command console for the laboon XFCE desktop.
+"""A PTY-free command console for the qqbox XFCE desktop.
 
-laboon wires guest stdio through pipes, and VTE/xfce4-terminal cannot paint a
-PTY under laboon's synthetic X. This console runs commands with plain pipes
-(laboon's native stdio) and serves a small HTML UI that Chromium displays as a
+qqbox wires guest stdio through pipes, and VTE/xfce4-terminal cannot paint a
+PTY under qqbox's synthetic X. This console runs commands with plain pipes
+(qqbox's native stdio) and serves a small HTML UI that Chromium displays as a
 window on the desktop.
 
 Security posture (hardened after adversarial review):
@@ -12,7 +12,7 @@ Security posture (hardened after adversarial review):
   * require application/json, cap the request body, and return 400 (not 500)
     on malformed input.
   * cap stdout/stderr in the response and bound execution with a timeout.
-  * never write outside the guest; commands stay inside the laboon sandbox.
+  * never write outside the guest; commands stay inside the qqbox sandbox.
 
 Endpoints:
   GET  /            -> HTML console
@@ -35,7 +35,7 @@ ORIGINS = {
 HOSTS = {"127.0.0.1:%d" % PORT, "localhost:%d" % PORT, "127.0.0.1", "localhost"}
 
 HTML = r"""<!doctype html>
-<html><head><meta charset="utf-8"><title>laboon terminal</title>
+<html><head><meta charset="utf-8"><title>qqbox terminal</title>
 <style>
  :root { color-scheme: dark; }
  body { margin:0; background:#10131a; color:#e8edf5; font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
@@ -46,7 +46,7 @@ HTML = r"""<!doctype html>
  button { background:#2f6fb5; color:#fff; border:0; border-radius:4px; padding:0 18px; font:inherit; cursor:pointer; }
  .ok { color:#8fd3a2; } .err { color:#ff9a9a; } .cmd { color:#7fb2ff; }
 </style></head><body>
-<header>laboon terminal &mdash; PTY-free pipe console (guest /bin/sh)</header>
+<header>qqbox terminal &mdash; PTY-free pipe console (guest /bin/sh)</header>
 <div id="out"></div>
 <form id="f"><input id="i" autocomplete="off" autofocus
  placeholder="type a command, e.g.  uname -a    (this console needs no PTY)">
@@ -56,7 +56,7 @@ const out = document.getElementById('out'), i = document.getElementById('i');
 function esc(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function add(html, cls){const d=document.createElement('div'); if(cls)d.className=cls;
  d.innerHTML=html; out.appendChild(d); out.scrollTop=out.scrollHeight;}
-add('laboon pipe console ready. Commands run inside the sandbox as root.','ok');
+add('qqbox pipe console ready. Commands run inside the sandbox as root.','ok');
 document.getElementById('f').addEventListener('submit', async e=>{
  e.preventDefault(); const c=i.value.trim(); if(!c)return; i.value='';
  add('<span class="cmd">$ '+esc(c)+'</span>');
@@ -72,7 +72,7 @@ document.getElementById('f').addEventListener('submit', async e=>{
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "laboon-console/1.0"
+    server_version = "qqbox-console/1.0"
 
     def log_message(self, fmt, *args):
         pass
@@ -158,5 +158,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"laboon console listening on 127.0.0.1:{PORT}", flush=True)
+    print(f"qqbox console listening on 127.0.0.1:{PORT}", flush=True)
     server.serve_forever()

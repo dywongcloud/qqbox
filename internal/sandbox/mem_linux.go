@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // Guest memory on Linux is the stub process's own, and the supervisor shapes
@@ -25,7 +25,7 @@ type memProc struct {
 	pid  atomic.Int64 // a live thread of the stub process (its leader's, until an exec from another thread)
 	refs int
 
-	mirrorsP atomic.Pointer[mirrors] // memfd-backed guest ranges mapped in the supervisor (LABOON_SHMEM); nil when none
+	mirrorsP atomic.Pointer[mirrors] // memfd-backed guest ranges mapped in the supervisor (QQBOX_SHMEM); nil when none
 
 	// The stub process's host-op thread (hop_linux.go): hopPend is its entry,
 	// hopP the same once the stub runs the thread, which routes host calls.

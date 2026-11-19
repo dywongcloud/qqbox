@@ -9,7 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // Guest file permission checks against the process's fs credentials. Image

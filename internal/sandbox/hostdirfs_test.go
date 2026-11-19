@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // TestHostDirFSMountedOnRoot proves the sandbox's platform host access, expressed

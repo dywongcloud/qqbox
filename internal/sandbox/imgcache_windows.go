@@ -12,8 +12,8 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
-	winstub "github.com/samyfodil/laboon/stub/windows"
+	"github.com/tencent/qqbox/internal/rewrite"
+	winstub "github.com/tencent/qqbox/stub/windows"
 	"golang.org/x/sys/windows"
 )
 
@@ -50,7 +50,7 @@ var imgDir = sync.OnceValue(func() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(d, "laboon", "img")
+	return filepath.Join(d, "qqbox", "img")
 })
 
 // selfID identifies this supervisor's executable and its stub.

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // What both Linux backends (the guest one and the shared layer's) use.
@@ -120,7 +120,7 @@ type stubEntries struct {
 
 // stubEntry returns the stub's entry-point offsets. It also settles which stub
 // binary and address window this process uses, so the entries match the binary
-// a nested laboon will actually load. Offsets, not absolute values: the ET_EXEC
+// a nested qqbox will actually load. Offsets, not absolute values: the ET_EXEC
 // is linked at a fixed base but the PIE is image-base 0 and placed at a window
 // chosen at load, so each entry is resolved to base+offset once the stub
 // reports its window (boot).

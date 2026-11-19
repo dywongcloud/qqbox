@@ -1,4 +1,4 @@
-// seccomp.c — checks that laboon enforces an installed seccomp-bpf filter in
+// seccomp.c — checks that qqbox enforces an installed seccomp-bpf filter in
 // the guest: a filter that fails getuid with EPERM but allows everything else
 // must make getuid() return EPERM while getpid() still works.
 #define _GNU_SOURCE

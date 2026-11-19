@@ -57,7 +57,7 @@ pub var fsgsbase = false;
 // lc_window_note is the loader contract that places a nested stub: an ELF note
 // in a PT_NOTE segment declaring that this image wants a private high-address
 // window of win_size (aligned to align_) rather than the ordinary exe bias. A
-// laboon loading this image as a guest honors it (sandbox/load_linux.go); the
+// qqbox loading this image as a guest honors it (sandbox/load_linux.go); the
 // kernel ignores it, so the top-level stub is an ET_EXEC linked high instead.
 // It names no stub bytes, path, or version -- any image carrying the note gets
 // a window, so nesting composes to any depth.
@@ -70,7 +70,7 @@ const WindowNote = extern struct {
     win_align: u64 = WIN_SIZE,
     img_off: u64 = 0, // the window base is the image's load base
 };
-export const lc_window_note linksection(".note.laboon") = WindowNote{};
+export const lc_window_note linksection(".note.qqbox") = WindowNote{};
 
 // memset/memcpy with hidden visibility, so the freestanding stub calls them
 // PC-relative rather than through the GOT. That keeps the PIE zero-reloc: it
@@ -110,7 +110,7 @@ pub const EXEC_SIZE: u64 = 64 << 10;
 // One per-slot service stack, indexed like the slots. A syscall trampoline
 // switches to it (via %gs:scratch_top) before servicing, so no servicing runs
 // on the guest's own stack -- a guest with small, adjacently packed thread
-// stacks (a nested laboon's Go goroutine stacks) would otherwise be corrupted
+// stacks (a nested qqbox's Go goroutine stacks) would otherwise be corrupted
 // by a servicing frame underflowing into a neighbor. It lives in the stub
 // window, never a guest mapping.
 pub inline fn scratchAddr() u64 {
@@ -314,7 +314,7 @@ fn answered(ch: *Chan) bool {
 // supervisor that has to answer them; parking when answers are slow frees those
 // cores. park_cost (cputicks) starts at the supervisor's calibration, handed
 // over at REP_START, and then follows the wakes this process sees (parkSeen);
-// while it is 0 (not supplied, or LABOON_SPIN pinned a fixed count) the stub
+// while it is 0 (not supplied, or QQBOX_SPIN pinned a fixed count) the stub
 // uses the fixed SPIN below.
 pub var park_cost: u64 = 0;
 
@@ -439,7 +439,7 @@ pub fn exchange(ch: *Chan) void {
         }
     }
 
-    // Fixed fallback (no park cost yet, or LABOON_SPIN pinned a fixed count).
+    // Fixed fallback (no park cost yet, or QQBOX_SPIN pinned a fixed count).
     var i: u32 = 0;
     while (i < SPIN) : (i += 1) {
         if (answered(ch)) return;

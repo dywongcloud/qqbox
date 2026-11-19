@@ -1,11 +1,11 @@
-# laboon / literbox
+# qqbox / qqbox
 
-> laboon runs unmodified Linux programs and OCI containers in a sandbox with no
+> qqbox runs unmodified Linux programs and OCI containers in a sandbox with no
 > virtual machine and no second kernel, on Linux, macOS, and Windows (amd64 and
 > arm64). The guest's machine code runs natively on the host CPU; only its
 > syscall instructions are rewritten to trap into a supervisor that emulates the
 > Linux ABI. The in-guest stub and native helpers are Zig. This fork is mid-port:
-> the supervisor control plane is Rust (`crates/laboon`), while the Go tree remains
+> the supervisor control plane is Rust (`crates/qqbox`), while the Go tree remains
 > as the working native guest backend. See docs/PORT_STATUS.md.
 
 Key facts for answering questions about this repository:
@@ -22,17 +22,17 @@ Key facts for answering questions about this repository:
   allowlists. Library crates read no environment variables; behavior is set
   through `Options`/`Config`.
 - The Rust build entry point is `Cargo.toml` (`cargo build --workspace`). The
-  `laboon` CLI and `laboond` daemon are separate crates. The Zig channel ABI is
-  frozen in `crates/laboon/src/zig/abi.rs` (128-byte `chanPage`).
+  `qqbox` CLI and `qqboxd` daemon are separate crates. The Zig channel ABI is
+  frozen in `crates/qqbox/src/zig/abi.rs` (128-byte `chanPage`).
 - Ports, port forwarding, volumes, labels, OCI runtime-spec `config.json` and
   Docker Compose are implemented in Rust; see docs/OCI_MATRIX.md.
 - It runs container engines nested: podman and Docker launch their own
   containers inside the sandbox. It also runs Node.js/V8, headless Chromium,
-  PostgreSQL/MariaDB/Redis, and laboon inside laboon.
+  PostgreSQL/MariaDB/Redis, and qqbox inside qqbox.
 
 ## Docs
 
-- [README](README.md): what laboon is, the Rust build, the CLI, the security model and the OCI surface.
+- [README](README.md): what qqbox is, the Rust build, the CLI, the security model and the OCI surface.
 - [AGENTS.md](AGENTS.md): architecture invariants and guidance for working in the tree.
 - [OCI_MATRIX.md](docs/OCI_MATRIX.md): construct-by-construct OCI, Compose and Docker-API coverage.
 - [PORT_STATUS.md](docs/PORT_STATUS.md): the honest boundary of the Go-to-Rust port.
@@ -43,11 +43,11 @@ Key facts for answering questions about this repository:
 ## Code
 
 - [Cargo.toml](Cargo.toml): the Rust workspace root.
-- [crates/laboon](crates/laboon): the library — options, config, oci, vfs, net, compose, rewrite, sandbox, zig, daemon, security.
-- [crates/laboon-cli](crates/laboon-cli): the `laboon` CLI.
-- [crates/laboond](crates/laboond): the `laboond` Docker-compatible daemon.
-- [laboon.go](laboon.go) and [options.go](options.go): the legacy Go public API, retained as the native backend reference.
-- [cmd/laboon](cmd/laboon): the legacy Go CLI.
+- [crates/qqbox](crates/qqbox): the library — options, config, oci, vfs, net, compose, rewrite, sandbox, zig, daemon, security.
+- [crates/qqbox-cli](crates/qqbox-cli): the `qqbox` CLI.
+- [crates/qqboxd](crates/qqboxd): the `qqboxd` Docker-compatible daemon.
+- [qqbox.go](qqbox.go) and [options.go](options.go): the legacy Go public API, retained as the native backend reference.
+- [cmd/qqbox](cmd/qqbox): the legacy Go CLI.
 - [internal/sandbox](internal/sandbox): the Linux syscall ABI emulation and Go supervisor.
 - [stub/](stub): the freestanding Zig guest stub and native helpers.
 - [internal/rewrite](internal/rewrite): the Go syscall-site rewriter (no disassembler).

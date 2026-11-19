@@ -9,11 +9,11 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 // cmdExec runs a new process in an existing container (docker exec). The command
-// runs in the container's root filesystem; it is a fresh laboon sandbox over the
+// runs in the container's root filesystem; it is a fresh qqbox sandbox over the
 // same rootfs rather than a process injected into the running one's namespaces.
 func cmdExec(root string, args []string) int {
 	fs := flag.NewFlagSet("exec", flag.ExitOnError)
@@ -78,7 +78,7 @@ func runExec(rootfs, processFile string, stdin *os.File, stdout, stderr *os.File
 		die(err)
 	}
 	prog, opts := procOptions(p, rootfs, stdin, stdout, stderr)
-	code, err := laboon.Run(context.Background(), prog, opts...)
+	code, err := qqbox.Run(context.Background(), prog, opts...)
 	if err != nil {
 		die(err)
 	}

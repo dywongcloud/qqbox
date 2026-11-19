@@ -27,8 +27,8 @@ const (
 // an OCI whiteout marker (".wh.<name>") and an opaque directory a
 // ".wh..wh..opq" marker, so the directory is a complete image layer on its own.
 // The only state not on disk is the override map: the guest-visible owner,
-// mode and special-node kind that the host file cannot hold because laboon runs
-// unprivileged (the guest is root, host files belong to the laboon user). It is
+// mode and special-node kind that the host file cannot hold because qqbox runs
+// unprivileged (the guest is root, host files belong to the qqbox user). It is
 // small — one entry per path the guest changed that way — and can be saved to a
 // sidecar. A Layer is safe for concurrent use.
 type Layer struct {
@@ -322,7 +322,7 @@ func (l *Layer) SetMode(p string, mode uint32) error {
 }
 
 // recordMode sets the host file's permission and, only when the host cannot
-// hold the exact guest bits (a setuid bit, a mode below the laboon-user floor),
+// hold the exact guest bits (a setuid bit, a mode below the qqbox-user floor),
 // records them in the override map; otherwise it clears any stale override. The
 // caller holds l.mu.
 func (l *Layer) recordMode(p string, mode uint32, dir bool) {
@@ -561,7 +561,7 @@ func isDirHost(hp string) bool {
 }
 
 // hostMode is the mode a host file gets for guest permission bits: directories
-// stay traversable and files writable by the laboon user, so a non-root guest's
+// stay traversable and files writable by the qqbox user, so a non-root guest's
 // files remain accessible; the exact guest bits live in the override map when
 // they differ.
 func hostMode(mode uint32, dir bool) os.FileMode {

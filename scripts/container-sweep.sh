@@ -1,20 +1,20 @@
 #!/bin/sh
-# container-sweep.sh: run the language runtimes and databases laboon is expected
+# container-sweep.sh: run the language runtimes and databases qqbox is expected
 # to handle, each as an OCI image, and report which start and execute. A proof
 # command per image (print a version or run a one-liner) is enough to show the
 # runtime loads and runs under the sandbox; it is not a full test suite.
 #
-#   scripts/container-sweep.sh [laboon-binary]   (default: ./laboon, else `go run ./cmd/laboon`)
+#   scripts/container-sweep.sh [qqbox-binary]   (default: ./qqbox, else `go run ./cmd/qqbox`)
 #
-# LABOON       the laboon binary to use
+# QQBOX       the qqbox binary to use
 # PLATFORM     linux/amd64 or linux/arm64 (default: the host architecture)
 # SWEEP_NET    pass -net to every run (databases need it less, runtimes not at all)
 # Exit status is the number of non-deferred images that failed.
 set -u
 
-LABOON=${LABOON:-${1:-./laboon}}
-if [ ! -x "$LABOON" ]; then
-	LABOON="go run ./cmd/laboon"
+QQBOX=${QQBOX:-${1:-./qqbox}}
+if [ ! -x "$QQBOX" ]; then
+	QQBOX="go run ./cmd/qqbox"
 fi
 PLAT=""
 [ -n "${PLATFORM:-}" ] && PLAT="-platform $PLATFORM"
@@ -32,7 +32,7 @@ pass=0
 fail=0
 fails=""
 
-# run NAME MARKER IMAGE CMD...: run IMAGE's CMD under laboon, expect MARKER in
+# run NAME MARKER IMAGE CMD...: run IMAGE's CMD under qqbox, expect MARKER in
 # the output. A leading "?" on NAME marks a known-deferred image: a miss is
 # reported but does not fail the sweep. A failure's whole output is kept in
 # sweep-fail-NAME.txt.
@@ -41,7 +41,7 @@ run() {
 	shift 3
 	defer=no
 	case $name in \?*) defer=yes; name=${name#\?} ;; esac
-	out=$($TO $LABOON $PLAT $NET -image "$image" "$@" 2>&1)
+	out=$($TO $QQBOX $PLAT $NET -image "$image" "$@" 2>&1)
 	rc=$?
 	if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "$marker"; then
 		echo "PASS  $name ($image)"
@@ -56,7 +56,7 @@ run() {
 	fi
 }
 
-echo "== container sweep: $LABOON ${PLATFORM:+platform=$PLATFORM} $(date)"
+echo "== container sweep: $QQBOX ${PLATFORM:+platform=$PLATFORM} $(date)"
 
 # Interpreted / compiled language runtimes. A version command starts the full
 # runtime (interpreter, JVM, ...) and exits; quote-free so it passes cleanly
@@ -78,7 +78,7 @@ run redis    Redis    redis:7-alpine           redis-server --version
 run postgres postgres postgres:16-alpine       postgres --version
 run mariadb  mariadb  mariadb:11               mariadbd --version
 
-# .NET hangs under laboon in futex/poll threading (runtime bring-up deferred).
+# .NET hangs under qqbox in futex/poll threading (runtime bring-up deferred).
 run ?dotnet  dotnet   mcr.microsoft.com/dotnet/runtime:8.0  dotnet --info
 
 echo "== sweep done: $pass passed, $fail failed${fails:+ ($fails)}"

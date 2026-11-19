@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 const (
@@ -29,7 +29,7 @@ func archAuxv() []uint64 { return hostAuxv() }
 
 // Guest syscall sites branch to islands that enter the stub, which services
 // them on the slot's own stack (OwnStack, stub lc_syscall_entry): nothing of
-// the service runs on the guest's stack, which in a nested laboon's Go
+// the service runs on the guest's stack, which in a nested qqbox's Go
 // goroutines is small and packed against its neighbor's. A site without an
 // island in reach takes the udf/SIGILL path, serviced on the signal altstack;
 // fastTramp false sends every site there, for a test to exercise it.

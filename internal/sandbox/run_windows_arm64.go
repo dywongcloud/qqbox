@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // arm64 guests on Windows: svc sites become islands or udf, and every

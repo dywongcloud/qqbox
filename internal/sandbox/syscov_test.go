@@ -11,7 +11,7 @@ import (
 )
 
 // TestSyscallCoverage runs the syscall coverage probe (testdata/syscov.c) under
-// laboon and fails if any audited syscall returns ENOSYS (errno 38). The probe
+// qqbox and fails if any audited syscall returns ENOSYS (errno 38). The probe
 // reports the errno of each call; a served call (EINVAL/EFAULT/EPERM/ESRCH) is
 // fine, only "not implemented" is a gap. This guards parity: a syscall served
 // on one host OS must not silently become ENOSYS on another. The macOS and

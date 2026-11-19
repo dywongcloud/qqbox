@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // TestLayerTarRoundTrip builds a vfs layer, serializes it to an OCI tar and

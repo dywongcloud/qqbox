@@ -1,4 +1,4 @@
-"""Minimal RFB 3.8 client: attach to the x11vnc Unix socket that XFCE-in-laboon
+"""Minimal RFB 3.8 client: attach to the x11vnc Unix socket that XFCE-in-qqbox
 exposes through the host bind mount, and save the live framebuffer as a PNG.
 
 No VNC library is used; this is the wire protocol, so the artifact is direct
@@ -13,7 +13,7 @@ import time
 
 from PIL import Image
 
-OUT = "/Users/dylanwong/.gm-work/literbox/xfce/out"
+OUT = "/Users/dylanwong/.gm-work/qqbox/xfce/out"
 SOCK = os.path.join(OUT, "vnc.sock")
 READY = os.path.join(OUT, "vnc-ready.txt")
 PNG = os.path.join(OUT, "xfce-vnc.png")

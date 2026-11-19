@@ -1,17 +1,17 @@
-// Command laboon-mcp exposes the laboon sandbox to AI agents over the Model
+// Command qqbox-mcp exposes the qqbox sandbox to AI agents over the Model
 // Context Protocol. It offers one tool, "run", that executes a command inside
-// an OCI image under laboon and returns its exit status and output, so an agent
+// an OCI image under qqbox and returns its exit status and output, so an agent
 // can run untrusted code without a VM or a second kernel.
 //
 // By default it speaks MCP over stdio, which is how Claude Desktop, Claude Code
 // and most MCP clients launch a server:
 //
-//	laboon-mcp
+//	qqbox-mcp
 //
 // With -http it instead serves the streamable-HTTP transport, so one long-lived
 // process can back many clients ("server mode"):
 //
-//	laboon-mcp -http :8080        # endpoint http://host:8080/
+//	qqbox-mcp -http :8080        # endpoint http://host:8080/
 //
 // Guest networking is off unless both -allow-net is given here and the caller
 // asks for it, so a command cannot reach the network by default.
@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 var version = "dev"
@@ -44,11 +44,11 @@ func main() {
 	defaultTimeout := flag.Int("default-timeout", 120, "per-run timeout in seconds when a caller does not set one (0 = none)")
 	flag.Parse()
 
-	srv := mcp.NewServer(&mcp.Implementation{Name: "laboon", Version: version}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "qqbox", Version: version}, nil)
 	cfg := &toolConfig{allowNet: *allowNet, platform: *platform, maxOutput: *maxOutput, defaultTimeout: *defaultTimeout}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "run",
-		Description: "Run a command inside an OCI container image under the laboon sandbox and " +
+		Description: "Run a command inside an OCI container image under the qqbox sandbox and " +
 			"return its exit code, stdout and stderr. Use it to execute untrusted or arbitrary " +
 			"code safely: the program runs isolated from the host, with no network unless asked. " +
 			"Example: image \"python:3.12-alpine\", command [\"python3\",\"-c\",\"print(2+2)\"].",
@@ -64,7 +64,7 @@ func main() {
 			<-ctx.Done()
 			hs.Close()
 		}()
-		log.Printf("laboon-mcp serving MCP over HTTP at %s", *httpAddr)
+		log.Printf("qqbox-mcp serving MCP over HTTP at %s", *httpAddr)
 		if err := hs.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
@@ -110,26 +110,26 @@ func (c *toolConfig) run(ctx context.Context, _ *mcp.CallToolRequest, in runInpu
 	var stdout, stderr capped
 	stdout.limit, stderr.limit = c.maxOutput, c.maxOutput
 
-	opts := []laboon.Option{laboon.WithStdout(&stdout), laboon.WithStderr(&stderr)}
+	opts := []qqbox.Option{qqbox.WithStdout(&stdout), qqbox.WithStderr(&stderr)}
 	if len(in.Command) > 0 {
-		opts = append(opts, laboon.WithArgs(in.Command...))
+		opts = append(opts, qqbox.WithArgs(in.Command...))
 	}
 	if in.Stdin != "" {
-		opts = append(opts, laboon.WithStdin(strings.NewReader(in.Stdin)))
+		opts = append(opts, qqbox.WithStdin(strings.NewReader(in.Stdin)))
 	}
 	for _, e := range in.Env {
-		opts = append(opts, laboon.WithEnv(e))
+		opts = append(opts, qqbox.WithEnv(e))
 	}
 	if in.Network && c.allowNet {
-		opts = append(opts, laboon.WithNet())
+		opts = append(opts, qqbox.WithNet())
 	}
 	if in.User != "" {
-		opts = append(opts, laboon.WithUser(in.User))
+		opts = append(opts, qqbox.WithUser(in.User))
 	}
 	if p := in.Platform; p != "" {
-		opts = append(opts, laboon.WithPlatform(p))
+		opts = append(opts, qqbox.WithPlatform(p))
 	} else if c.platform != "" {
-		opts = append(opts, laboon.WithPlatform(c.platform))
+		opts = append(opts, qqbox.WithPlatform(c.platform))
 	}
 
 	timeout := c.defaultTimeout
@@ -143,7 +143,7 @@ func (c *toolConfig) run(ctx context.Context, _ *mcp.CallToolRequest, in runInpu
 		defer cancel()
 	}
 
-	code, err := laboon.RunImage(runCtx, in.Image, opts...)
+	code, err := qqbox.RunImage(runCtx, in.Image, opts...)
 	timedOut := runCtx.Err() == context.DeadlineExceeded
 	if err != nil && !timedOut {
 		// A pull or setup failure, not a non-zero exit from the program.

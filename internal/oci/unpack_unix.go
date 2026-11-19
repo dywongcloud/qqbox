@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // Unpack extracts a flattened image tar (whiteouts already applied) into
@@ -29,7 +29,7 @@ func Unpack(r io.Reader, dir string, maxSize int64) error {
 	var links []link
 	dirModes := map[string]fs.FileMode{}
 	// A non-root owner and the setuid/setgid/sticky bits cannot be set on the host
-	// (laboon runs unprivileged, and the modes are masked off below), so record
+	// (qqbox runs unprivileged, and the modes are masked off below), so record
 	// them in the sidecar the run hydrates into the guest's inode table.
 	overrides := map[string]*vfs.Override{}
 	var total int64

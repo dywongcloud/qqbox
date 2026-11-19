@@ -2,7 +2,7 @@
 
 package sandbox
 
-import "github.com/samyfodil/laboon/internal/rewrite"
+import "github.com/tencent/qqbox/internal/rewrite"
 
 // anonSites serves lcAnonSites (anoncode.go) for the page at page. A page
 // the stub holds aside (from: a shadow of shared code it fills before putting

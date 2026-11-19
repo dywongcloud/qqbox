@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: make witness
       - name: invariants
-        run: cargo run -q -p laboon-cli -- invariants
+        run: cargo run -q -p qqbox-cli -- invariants
 
   fmt:
     name: rustfmt and clippy

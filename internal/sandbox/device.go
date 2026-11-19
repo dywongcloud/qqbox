@@ -76,7 +76,7 @@ func (d *Device) revoke() {
 	d.mu.Unlock()
 }
 
-// lbDevMajor is the character-device major laboon gives an attached Device; the
+// lbDevMajor is the character-device major qqbox gives an attached Device; the
 // minor indexes Config.Devices. hostDevByRdev does not claim this major, so
 // openVirtualDev routes it to the device registry instead of a host device.
 const lbDevMajor = 0xada

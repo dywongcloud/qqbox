@@ -12,7 +12,7 @@ import (
 )
 
 // TestStraceX64 runs an x86-64 ptrace tracer (testdata/stracex64.c) under
-// laboon: it traces a child to a write(42) syscall and reads its registers with
+// qqbox: it traces a child to a write(42) syscall and reads its registers with
 // PTRACE_GETREGSET(NT_PRSTATUS). It covers the syscall-entry stop, register
 // publishing and PTRACE_CONT on amd64 (linux and, through its VM, windows).
 func TestStraceX64(t *testing.T) {

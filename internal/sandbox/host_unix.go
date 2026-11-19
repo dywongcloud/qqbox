@@ -48,7 +48,7 @@ func hostFd(f *os.File) int {
 // readNonblock reads once without parking: EAGAIN goes back to the guest, as
 // for a Linux O_NONBLOCK descriptor. A guest pipe's host fd is itself
 // nonblocking, so the read returns EAGAIN on its own; but a FIFO reopened
-// through /proc/self/fd, a terminal, or another descriptor laboon holds in
+// through /proc/self/fd, a terminal, or another descriptor qqbox holds in
 // blocking mode would park the read in the kernel until a writer appears. A
 // zero-timeout readiness poll guards that case, so O_NONBLOCK means "never
 // wait" whatever the host fd's mode -- the same emulation stdioRead uses.

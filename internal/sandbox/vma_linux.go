@@ -351,8 +351,8 @@ func (g *dguest) mapAt(addr, n, flags uint64, anon bool, do func(at, fixed uint6
 }
 
 // vmaValidate checks after a memory call that every range the set holds is
-// mapped in the stub (LABOON_VMA_VALIDATE).
-var vmaValidate = os.Getenv("LABOON_VMA_VALIDATE") != ""
+// mapped in the stub (QQBOX_VMA_VALIDATE).
+var vmaValidate = os.Getenv("QQBOX_VMA_VALIDATE") != ""
 
 func (g *dguest) checkVmas(what string) {
 	if !vmaValidate {
@@ -378,7 +378,7 @@ func (g *dguest) checkVmas(what string) {
 		for at := v.lo; at < v.hi; {
 			i := sort.Search(len(host), func(i int) bool { return host[i].hi > at })
 			if i == len(host) || host[i].lo > at {
-				panic(fmt.Sprintf("laboon: after %s the guest mapping %#x-%#x is not mapped at %#x (pid %d, host %v)", what, v.lo, v.hi, at, g.mp.pid.Load(), host))
+				panic(fmt.Sprintf("qqbox: after %s the guest mapping %#x-%#x is not mapped at %#x (pid %d, host %v)", what, v.lo, v.hi, at, g.mp.pid.Load(), host))
 			}
 			at = host[i].hi
 		}

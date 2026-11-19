@@ -1,4 +1,4 @@
-// Package laboon runs Linux programs in a sandbox, embedded in a Go program:
+// Package qqbox runs Linux programs in a sandbox, embedded in a Go program:
 // a binary from a host path or root directory with Run, or a container from an
 // OCI image with RunImage.
 //
@@ -13,7 +13,7 @@
 // and writable+executable memory allowed (WithRejectRWX refuses it).
 //
 // The sandbox and oci packages are the lower layer this one is built on.
-package laboon
+package qqbox
 
 import (
 	"context"
@@ -22,8 +22,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/sandbox"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/sandbox"
 )
 
 // ErrKilled reports that the backstop killed the guest for a syscall the

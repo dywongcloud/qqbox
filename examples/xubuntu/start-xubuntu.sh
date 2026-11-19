@@ -1,6 +1,6 @@
 #!/bin/bash
-# Boots the stock linuxserver/webtop ubuntu-xfce (Xubuntu) desktop in laboon.
-# Only the X server/VNC adapter is laboon-specific; the XFCE session, theme,
+# Boots the stock linuxserver/webtop ubuntu-xfce (Xubuntu) desktop in qqbox.
+# Only the X server/VNC adapter is qqbox-specific; the XFCE session, theme,
 # Firefox, Thunar and xfce4-terminal are the image's own.
 set -x
 export HOME=/config DISPLAY=:99 XDG_RUNTIME_DIR=/tmp/xdg SHELL=/bin/bash
@@ -34,7 +34,7 @@ cat > /config/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml <<'XML
   <property name="misc-bell" type="bool" value="false"/>
 </channel>
 XML
-# laboon's supervisor intercepts every :53 query; an explicit nameserver keeps
+# qqbox's supervisor intercepts every :53 query; an explicit nameserver keeps
 # glibc clients (Firefox, curl, apt) deterministic on the stock rootfs.
 printf 'nameserver 8.8.8.8\n' > /etc/resolv.conf
 stage "config_written"
@@ -64,15 +64,15 @@ dbus-run-session -- /usr/bin/xfce4-session > /out/xfce.log 2>&1 &
 sleep 18
 
 stage "starting native xfce4-terminal"
-xfce4-terminal --disable-server --title LABOON-XUBUNTU-TERMINAL \
+xfce4-terminal --disable-server --title QQBOX-XUBUNTU-TERMINAL \
   --geometry 84x26+120+110 > /out/terminal.log 2>&1 &
 sleep 8
 stage "terminal_started"
 
 # A real browser on a public page: visible proof of guest egress. The stock
-# Firefox cannot be used: its content sandbox calls chroot(), which laboon's
+# Firefox cannot be used: its content sandbox calls chroot(), which qqbox's
 # vfs-only namespace refuses (EPERM), and its renderers crash (signal 11).
-# NetSurf is a small GTK browser that renders HTTPS under laboon; witness
+# NetSurf is a small GTK browser that renders HTTPS under qqbox; witness
 # `netsurf-http.png` shows the real Example Domain page.
 stage "starting netsurf browser"
 (netsurf-gtk https://example.com/ > /out/netsurf.log 2>&1 &) || true
@@ -83,7 +83,7 @@ BWID=$(xdotool search --onlyvisible --name 'NetSurf' 2>/dev/null | tail -1)
 [ -n "$BWID" ] && xdotool windowactivate --sync "$BWID" 2>/dev/null || true
 sleep 2
 scrot -o /out/xubuntu-browser.png 2>/out/scrot-browser.log || true
-TWID=$(xdotool search --onlyvisible --name 'LABOON-XUBUNTU-TERMINAL' 2>/dev/null | tail -1)
+TWID=$(xdotool search --onlyvisible --name 'QQBOX-XUBUNTU-TERMINAL' 2>/dev/null | tail -1)
 [ -n "$TWID" ] && xdotool windowactivate --sync "$TWID" 2>/dev/null || true
 stage "windows ordered browser=$BWID terminal=$TWID"
 

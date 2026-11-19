@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/oci"
+	"github.com/tencent/qqbox/internal/oci"
 )
 
 // TestBuildHardlinkAcrossSteps proves a hardlink made in one RUN step survives
@@ -23,7 +23,7 @@ func TestBuildHardlinkAcrossSteps(t *testing.T) {
 RUN echo shared > /a && ln /a /b
 RUN test "$(stat -c %h /a)" = 2 && test "$(stat -c %h /b)" = 2
 `
-	if _, err := Build(ctx, strings.NewReader(df), Options{Tag: "laboon-hl:1"}); err != nil {
+	if _, err := Build(ctx, strings.NewReader(df), Options{Tag: "qqbox-hl:1"}); err != nil {
 		t.Fatalf("build (step 2 checks the hardlink survived the fold into root): %v", err)
 	}
 }
@@ -41,7 +41,7 @@ func TestBuildOwnerAcrossSteps(t *testing.T) {
 RUN echo x > /owned && chown 1000:1000 /owned
 RUN test "$(stat -c %u:%g /owned)" = 1000:1000
 `
-	if _, err := Build(ctx, strings.NewReader(df), Options{Tag: "laboon-own:1"}); err != nil {
+	if _, err := Build(ctx, strings.NewReader(df), Options{Tag: "qqbox-own:1"}); err != nil {
 		t.Fatalf("build (step 2 checks the owner survived the fold into root): %v", err)
 	}
 }

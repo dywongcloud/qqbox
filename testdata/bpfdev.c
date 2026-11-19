@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <sys/syscall.h>
 
-// The cgroup v2 device controller relies on eBPF. laboon fakes it: attach is a
+// The cgroup v2 device controller relies on eBPF. qqbox fakes it: attach is a
 // no-op success, an unsupported command is ENOSYS.
 int main(void) {
 	char attr[128];

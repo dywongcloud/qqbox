@@ -12,7 +12,7 @@ import (
 func TestSynthFS(t *testing.T) {
 	root := &SynthNode{Kind: Dir, Children: func() []*SynthNode {
 		return []*SynthNode{
-			{Name: "version", Kind: Reg, Mode: 0o444, Content: func() []byte { return []byte("laboon") }},
+			{Name: "version", Kind: Reg, Mode: 0o444, Content: func() []byte { return []byte("qqbox") }},
 			{Name: "self", Kind: Symlink, Target: "1"},
 			{Name: "1", Kind: Dir, Children: func() []*SynthNode {
 				return []*SynthNode{{Name: "status", Kind: Reg, Content: func() []byte { return []byte("State: R") }}}
@@ -35,7 +35,7 @@ func TestSynthFS(t *testing.T) {
 		return string(b)
 	}
 
-	if read("/version") != "laboon" {
+	if read("/version") != "qqbox" {
 		t.Error("read /version")
 	}
 	// self is a symlink to "1"; followed, it lands on /1, and /self/status reads.

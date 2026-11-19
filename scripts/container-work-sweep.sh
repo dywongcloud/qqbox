@@ -4,15 +4,15 @@
 # every database starts a server and serves a real query over a unix socket.
 # A marker in the output proves the work actually happened.
 #
-#   scripts/container-work-sweep.sh [laboon-binary]   (default: ./laboon)
+#   scripts/container-work-sweep.sh [qqbox-binary]   (default: ./qqbox)
 #
-# LABOON     the laboon binary to use
+# QQBOX     the qqbox binary to use
 # PLATFORM   linux/amd64 or linux/arm64 (default: the host architecture)
 # Exit status is the number of non-deferred images that failed.
 set -u
 
-LABOON=${LABOON:-${1:-./laboon}}
-if [ ! -x "$LABOON" ]; then LABOON="go run ./cmd/laboon"; fi
+QQBOX=${QQBOX:-${1:-./qqbox}}
+if [ ! -x "$QQBOX" ]; then QQBOX="go run ./cmd/qqbox"; fi
 PLAT=""
 [ -n "${PLATFORM:-}" ] && PLAT="-platform $PLATFORM"
 
@@ -25,7 +25,7 @@ pass=0
 fail=0
 fails=""
 
-# _run LBFLAGS NAME MARKER IMAGE CMD...: run IMAGE's CMD (with extra laboon
+# _run LBFLAGS NAME MARKER IMAGE CMD...: run IMAGE's CMD (with extra qqbox
 # flags LBFLAGS, e.g. a -u user) and expect MARKER in the output. A leading "?"
 # on NAME marks a known-deferred image. A failure's whole output is kept in
 # work-fail-NAME.txt.
@@ -34,7 +34,7 @@ _run() {
 	shift 4
 	defer=no
 	case $name in \?*) defer=yes; name=${name#\?} ;; esac
-	out=$($TO $LABOON $PLAT $lbflags -image "$image" "$@" 2>&1)
+	out=$($TO $QQBOX $PLAT $lbflags -image "$image" "$@" 2>&1)
 	rc=$?
 	if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "$marker"; then
 		echo "PASS  $name ($image)"
@@ -50,7 +50,7 @@ _run() {
 }
 run() { _run "" "$@"; }
 
-echo "== container WORK sweep: $LABOON ${PLATFORM:+platform=$PLATFORM} $(date)"
+echo "== container WORK sweep: $QQBOX ${PLATFORM:+platform=$PLATFORM} $(date)"
 
 # --- language runtimes: compile (where compiled) and RUN a real program ------
 run python pysum   python:3.12-alpine  python3 -c "print('pysum', sum(range(101)))"

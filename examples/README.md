@@ -1,14 +1,14 @@
 # Examples
 
-## `e2b/` — an E2B-style sandbox SDK on laboon
+## `e2b/` — an E2B-style sandbox SDK on qqbox
 
-A small clone of [E2B](https://e2b.dev)'s sandbox API, built on `laboon` — **no
+A small clone of [E2B](https://e2b.dev)'s sandbox API, built on `qqbox` — **no
 VM, no daemon, no cloud**. Two sandboxes:
 
 ### Code sandbox — `e2b.Sandbox`
 
 Like E2B's code-interpreter `Sandbox`: run code and shell commands and keep a
-filesystem across runs. Each call runs in its own fresh laboon sandbox (per-call
+filesystem across runs. Each call runs in its own fresh qqbox sandbox (per-call
 isolation); a host directory mounted at `/workspace` gives the filesystem
 continuity E2B gets from a long-lived VM.
 
@@ -47,7 +47,7 @@ capture tools (`xvfb`, `imagemagick`, `xdotool`) if the image lacks them. Point
 
 ## `terminal/` — a confined terminal over a host directory
 
-An interactive shell confined by laboon over a host directory mounted
+An interactive shell confined by qqbox over a host directory mounted
 **read-only**: a program can read and run against it but cannot modify it, and
 nothing escapes the sandbox to the rest of the host.
 
@@ -61,20 +61,20 @@ pieces do the work:
 
 - `WithMountReadOnly(host, guest)` — a read-only bind: the guest reads the
   directory, but create, modify, delete and rename all fail with `EROFS`.
-- `WithTerminal(t)` — laboon runs the program on a pseudo-terminal and bridges it
+- `WithTerminal(t)` — qqbox runs the program on a pseudo-terminal and bridges it
   to `t`, any `io.ReadWriteCloser`, so an app drives a confined shell through its
   own transport (a `net.Conn`, a websocket adapter) without touching a pty:
 
   ```go
-  laboon.RunImage(ctx, "golang:1.25",
-      laboon.WithMountReadOnly(repo, "/work"),
-      laboon.WithDir("/work"),
-      laboon.WithArgs("/bin/sh"),
-      laboon.WithTerminal(conn), // conn is any io.ReadWriteCloser
+  qqbox.RunImage(ctx, "golang:1.25",
+      qqbox.WithMountReadOnly(repo, "/work"),
+      qqbox.WithDir("/work"),
+      qqbox.WithArgs("/bin/sh"),
+      qqbox.WithTerminal(conn), // conn is any io.ReadWriteCloser
   )
   ```
 
-  If `t` also implements `Resizer` (`Resizes() <-chan laboon.WinSize`), laboon
+  If `t` also implements `Resizer` (`Resizes() <-chan qqbox.WinSize`), qqbox
   applies window sizes. Interactive job control (`^Z`/`fg`) is limited on this
   path.
 
@@ -88,8 +88,8 @@ go run ./examples/device
 ```
 
 ```go
-dev := &laboon.Device{Path: "/dev/lbserial", Kind: laboon.DeviceSerial}
-laboon.RunImage(ctx, "alpine:3.20", laboon.WithDevice(dev) /* , ... */)
+dev := &qqbox.Device{Path: "/dev/lbserial", Kind: qqbox.DeviceSerial}
+qqbox.RunImage(ctx, "alpine:3.20", qqbox.WithDevice(dev) /* , ... */)
 <-dev.Ready()                 // the host end is live
 fmt.Fprintln(dev.Host(), "…") // write to the guest; it reads /dev/lbserial
 ```

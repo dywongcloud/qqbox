@@ -98,7 +98,7 @@ func (w *Rewriter) Trampolines() []byte { return w.tramp }
 // guest-sp slot within it (the trampoline stores the guest rsp there), and
 // scratch the offset of the service-stack-top slot (the trampoline loads rsp
 // from it). This keeps a guest whose thread stacks are small and adjacently
-// packed -- a nested laboon's Go goroutine stacks -- from being corrupted by a
+// packed -- a nested qqbox's Go goroutine stacks -- from being corrupted by a
 // servicing frame underflowing into a neighbor.
 // GsAnchor also records the busy and kicked flag offsets (so the island can
 // hold off redirection across the service) and stores latekick, the stub's
@@ -391,7 +391,7 @@ func jmpOver(code []byte, ins int, src, dst uint64) {
 // and replaces the instruction with a jmp to it. r11 is clobbered, which is
 // fine: a real syscall clobbers r11 too, so the guest never relies on it. The
 // Linux stub reads the resume address straight from r11 (saved in the Frame),
-// leaving %gs entirely to the guest so a guest may itself be a laboon stub. A
+// leaving %gs entirely to the guest so a guest may itself be a qqbox stub. A
 // SegmentSlot host (Windows) resumes the guest itself, so its trampoline
 // pushes nothing below the guest's stack pointer, where Linux writes nothing
 // (a Go goroutine at its deepest nosplit call has no room there). It passes

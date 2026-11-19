@@ -1,4 +1,4 @@
-package laboon
+package qqbox
 
 import (
 	"bufio"
@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/sandbox"
+	"github.com/tencent/qqbox/internal/sandbox"
 )
 
 // resolveUser turns an image's USER ("", a name, uid, uid:gid or name:group)

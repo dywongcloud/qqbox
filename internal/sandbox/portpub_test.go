@@ -5,7 +5,7 @@ package sandbox
 import "testing"
 
 // Real NFTA_RULE_EXPRESSIONS bytes captured (via a debug hook) from the nft and
-// iptables-nft binaries building a `-p 8080 -> 10.88.0.5:80` DNAT under laboon.
+// iptables-nft binaries building a `-p 8080 -> 10.88.0.5:80` DNAT under qqbox.
 // Both frontends encode the destination-port match the same way (a transport
 // payload load + cmp) and differ only in the target (a native nat statement vs
 // an xtables DNAT target carrying an nf_nat_range2). ruleDNAT must extract the

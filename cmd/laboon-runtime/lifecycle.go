@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 // cmdPause and cmdResume freeze and thaw the container by SIGSTOP/SIGCONT on the
@@ -51,7 +51,7 @@ func cmdResume(root string, args []string) int {
 	return 0
 }
 
-// state is what laboon-runtime persists per container so the create/start/kill/
+// state is what qqbox-runtime persists per container so the create/start/kill/
 // delete calls (made as separate processes) share one view.
 type state struct {
 	OCIVersion string `json:"ociVersion"`
@@ -152,7 +152,7 @@ func cmdCreate(root string, args []string) int {
 }
 
 // cmdMonitor is the detached container monitor: it waits on the start fifo, runs
-// the workload through laboon, forwards signals to the guest, and records the
+// the workload through qqbox, forwards signals to the guest, and records the
 // exit. It is re-exec'd by create and is not a user-facing command.
 func cmdMonitor(args []string) int {
 	if len(args) < 2 {
@@ -177,7 +177,7 @@ func cmdMonitor(args []string) int {
 	f.Close()
 
 	prog, opts := specOptions(spec, rootfs, os.Stdin, os.Stdout, os.Stderr)
-	proc, err := laboon.Start(context.Background(), prog, opts...)
+	proc, err := qqbox.Start(context.Background(), prog, opts...)
 	if err != nil {
 		s.Status = "stopped"
 		s.ExitCode = 1
@@ -306,7 +306,7 @@ func cmdFeatures() int {
 		"ociVersionMax": "1.2.0",
 		"hooks":         []string{},
 		"mountOptions":  []string{"rbind", "bind", "ro", "rw"},
-		"annotations":   map[string]string{"org.laboon.runtime": "laboon"},
+		"annotations":   map[string]string{"org.qqbox.runtime": "qqbox"},
 	})
 	return 0
 }

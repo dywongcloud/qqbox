@@ -1,5 +1,5 @@
 [package]
-name = "laboon"
+name = "qqbox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

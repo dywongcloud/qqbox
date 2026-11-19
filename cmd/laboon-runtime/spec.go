@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// Spec is the subset of the OCI runtime configuration (config.json) laboon maps
+// Spec is the subset of the OCI runtime configuration (config.json) qqbox maps
 // to a run: the process, the root filesystem, and bind mounts.
 type Spec struct {
 	OCIVersion string   `json:"ociVersion"`

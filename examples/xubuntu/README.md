@@ -1,7 +1,7 @@
-# Stock Xubuntu/XFCE desktop inside laboon
+# Stock Xubuntu/XFCE desktop inside qqbox
 
 A live, witnessed `linuxserver/webtop` **ubuntu-xfce** desktop running under the
-Go native laboon runtime on macOS/arm64, served over VNC on TCP 5905, with a
+Go native qqbox runtime on macOS/arm64, served over VNC on TCP 5905, with a
 real `xfce4-terminal` (VTE) and working DNS/TCP/HTTPS egress.
 
 ## What "Xubuntu" means here
@@ -34,23 +34,23 @@ This is the exact image the user linked.
 ## Build
 
 ```sh
-go build -o ./laboon ./cmd/laboon
-./laboon build -net -t laboon-xubuntu:stock \
-  -f examples/xubuntu/Dockerfile -o laboon-xubuntu.tar examples/xubuntu
+go build -o ./qqbox ./cmd/qqbox
+./qqbox build -net -t qqbox-xubuntu:stock \
+  -f examples/xubuntu/Dockerfile -o qqbox-xubuntu.tar examples/xubuntu
 ```
 
 `FROM` is the pinned arm64 digest. `-net` is required for the `RUN apt-get` step.
 Only `x11vnc`, `Xvfb`, `scrot`, `xdotool` and `netsurf-gtk` are added — the
 rootfs, XFCE session, Xubuntu theme, Firefox, Thunar and `xfce4-terminal` are
 the image's own. NetSurf is the default browser because Firefox's content
-sandbox cannot run under laboon (see below).
+sandbox cannot run under qqbox (see below).
 
 ## Run
 
 ```sh
-mkdir -p /tmp/laboon-xubuntu-out
-./laboon -image laboon-xubuntu:stock -net \
-  -e VNC_PORT=5905 -mount /tmp/laboon-xubuntu-out:/out
+mkdir -p /tmp/qqbox-xubuntu-out
+./qqbox -image qqbox-xubuntu:stock -net \
+  -e VNC_PORT=5905 -mount /tmp/qqbox-xubuntu-out:/out
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
 
@@ -76,7 +76,7 @@ colors must be set in `xfce4-terminal.xml` under Xfconf.
 
 Witness (`examples/xfce/`): `xfce-terminal-typed.png` shows a command typed over
 VNC, echoed input, `VNC_NATIVE_TERMINAL_OK`, `uid=0(root)`, `uname -a` and the
-`/ #` prompt. The stock desktop's `xubuntu-xwd.png` shows `root@laboon:/#`.
+`/ #` prompt. The stock desktop's `xubuntu-xwd.png` shows `root@qqbox:/#`.
 
 ### 2. Stock image unpack
 
@@ -118,7 +118,7 @@ runtime does **not** generate `/etc/resolv.conf` (musl and glibc fall back to
 for deterministic glibc clients. `-allow-domains` / `-allow-cidrs` /
 `-allow-ports` only *restrict*; adding them breaks egress.
 
-**802.11 wifi cannot be emulated.** laboon pairs socket endpoints, not packets
+**802.11 wifi cannot be emulated.** qqbox pairs socket endpoints, not packets
 (`internal/sandbox/VNET.md:19-26`): no `AF_PACKET`/TUN, no raw sockets, no
 ICMP, no nl80211/wireless extensions. Netlink `RTM_GETLINK` mirrors the host's
 interfaces (`lx_netlink.go:208-232`). NetworkManager/wpa_supplicant/`iw` are
@@ -128,17 +128,17 @@ loads real pages — is what `-net` delivers.
 
 ## Why not the image's own `/init`, KasmVNC or Firefox
 
-`/init` is s6-overlay; laboon runs one program and is not an init system. The
+`/init` is s6-overlay; qqbox runs one program and is not an init system. The
 stock KasmVNC `Xvnc` can be started in traditional RFB mode
 (`-rfbport N -noWebsocket -SecurityTypes None`) and completes the RFB 3.8
 handshake with `ServerInit 1280x800 bpp=32 depth=24`, but sends **no**
-framebuffer updates under laboon (`ComparingUpdateTracker: 0 pixels in / 0
+framebuffer updates under qqbox (`ComparingUpdateTracker: 0 pixels in / 0
 pixels out`, `EncodeManager: 0 rects, 0 pixels`, across four encoding sets and
 `-CompareFB 0`). `x11vnc` + `Xvfb` are the pair already proven in this repo, so
 the Dockerfile adds those plus `scrot`, `xdotool` and `netsurf-gtk` (five apt
 packages). The stock XFCE session itself (`/usr/bin/xfce4-session`) is unchanged.
 
-Firefox **is installed** (stock) but cannot render under laboon: its content
+Firefox **is installed** (stock) but cannot render under qqbox: its content
 sandbox calls `chroot()`, which the vfs-Namespace-only filesystem refuses
 (`Sandbox: chroot: EPERM`), and its renderers exit on signal 11.
 `MOZ_DISABLE_CONTENT_SANDBOX=1`, `MOZ_FORCE_DISABLE_E10S=1`,
@@ -151,16 +151,16 @@ left installed but is not the default browser.
 ## Security note
 
 `x11vnc -nopw` is wildcard-bound and LAN-reachable under `-net`. `-localhost`
-is **not** a valid fix (it silently breaks laboon's port forwarding). To close
+is **not** a valid fix (it silently breaks qqbox's port forwarding). To close
 it, use `x11vnc -rfbauth <vncpasswd>` and `vncviewer -passwd <file>`. The
 shipped default stays passwordless so the existing local connection keeps
-working; this is a deployment choice, not a laboon security invariant.
+working; this is a deployment choice, not a qqbox security invariant.
 
-## Known warnings (expected under laboon)
+## Known warnings (expected under qqbox)
 
 Firefox refuses to run as root when `$HOME` is owned by a non-root uid (the
 startup script `chown`s `/config`) and its content sandbox is unusable under
-laboon, so NetSurf is the default browser. `xdg-user-dir` is missing from the Xubuntu
+qqbox, so NetSurf is the default browser. `xdg-user-dir` is missing from the Xubuntu
 template script, AT-SPI/UPower/PolicyKit services are absent, and `ping` cannot
 open raw sockets. None of these affect the desktop, terminal or egress.
 

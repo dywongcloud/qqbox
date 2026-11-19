@@ -649,7 +649,7 @@ fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
     let supervisor_outcome = Arc::clone(&outcome);
     let supervisor_pid = Arc::clone(&pid);
     let supervisor = match thread::Builder::new()
-        .name("laboon-supervisor".to_owned())
+        .name("qqbox-supervisor".to_owned())
         .spawn(move || {
             supervisor_pid.store(std::process::id(), Ordering::SeqCst);
             let result = crate::sandbox::run::run(&supervisor_ctx, &prog, &cfg);
@@ -674,7 +674,7 @@ fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
     let watch_parent = parent.clone();
     let watch_child = context.clone();
     let watcher = match thread::Builder::new()
-        .name("laboon-cancel".to_owned())
+        .name("qqbox-cancel".to_owned())
         .spawn(move || {
             watch_parent.wait_cancelled();
             watch_child.cancel();

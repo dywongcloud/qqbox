@@ -43,7 +43,7 @@ func TestRunHello(t *testing.T) {
 	if code != 7 {
 		t.Fatalf("exit = %d, want 7", code)
 	}
-	if !strings.Contains(stdout.String(), "hello from hello on Linux laboon, argv[1]=world") {
+	if !strings.Contains(stdout.String(), "hello from hello on Linux qqbox, argv[1]=world") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
@@ -70,7 +70,7 @@ func TestNoRewriteRunsViaTrap(t *testing.T) {
 	if code != 7 {
 		t.Fatalf("exit = %d, want 7", code)
 	}
-	if !strings.Contains(stdout.String(), "hello from hello on Linux laboon, argv[1]=world") {
+	if !strings.Contains(stdout.String(), "hello from hello on Linux qqbox, argv[1]=world") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
@@ -97,7 +97,7 @@ func TestRunDynamic(t *testing.T) {
 }
 
 func TestRootIsReadOnly(t *testing.T) {
-	const p = "/tmp/laboon-should-not-exist"
+	const p = "/tmp/qqbox-should-not-exist"
 	os.Remove(p)
 	var stderr bytes.Buffer
 	if _, err := Run(context.Background(), "/usr/bin/touch", Config{

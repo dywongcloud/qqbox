@@ -16,10 +16,10 @@ int main(void) {
 	pid_t f = fork();
 	if (f == 0) {
 		if (unshare(CLONE_NEWUTS) != 0) _exit(2);
-		if (sethostname("laboon-uts-child", 16) != 0) _exit(3);
+		if (sethostname("qqbox-uts-child", 16) != 0) _exit(3);
 		char h[256] = {0};
 		gethostname(h, sizeof h);
-		_exit(strcmp(h, "laboon-uts-child") == 0 ? 0 : 4);
+		_exit(strcmp(h, "qqbox-uts-child") == 0 ? 0 : 4);
 	}
 	int st = 0;
 	waitpid(f, &st, 0);

@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/samyfodil/laboon/internal/oci"
+	"github.com/tencent/qqbox/internal/oci"
 )
 
 // TestWindowsBusybox runs a static musl busybox from LC_WIN_ROOTFS, a rootfs
@@ -255,15 +255,15 @@ func TestWindowsFileApplets(t *testing.T) {
 		{args: []string{"stat", "-c", "%a %F", "/w/a/h2"}, stdout: "640 regular file\n"},
 		{args: []string{"stat", "-c", "%F", "/w/a/l"}, stdout: "symbolic link\n"},
 		{args: []string{"find", "/w"}, stdout: "/w\n/w/a\n/w/a/b\n/w/a/h2\n/w/a/l\n", sort: true},
-		{args: []string{"sed", "-i", "s/laboon/LC/", "/w/a/h2"}},
-		{args: []string{"cat", "/w/a/h2"}, stdout: strings.Replace(string(host), "laboon", "LC", 1)},
+		{args: []string{"sed", "-i", "s/qqbox/LC/", "/w/a/h2"}},
+		{args: []string{"cat", "/w/a/h2"}, stdout: strings.Replace(string(host), "qqbox", "LC", 1)},
 		{args: []string{"stat", "-c", "%a", "/w/a/h2"}, stdout: "640\n"},
 		{args: []string{"tar", "-cf", "/w/t.tar", "-C", "/w", "a"}},
 		{args: []string{"tar", "-tf", "/w/t.tar"}, stdout: "a/\na/b/\na/h2\na/l\n", sort: true},
 		{args: []string{"mkdir", "/w/x"}},
 		{args: []string{"tar", "-xf", "/w/t.tar", "-C", "/w/x"}},
 		{args: []string{"readlink", "/w/x/a/l"}, stdout: "h2\n"},
-		{args: []string{"cat", "/w/x/a/l"}, stdout: strings.Replace(string(host), "laboon", "LC", 1)},
+		{args: []string{"cat", "/w/x/a/l"}, stdout: strings.Replace(string(host), "qqbox", "LC", 1)},
 		{args: []string{"rm", "-r", "/w/a"}},
 		{args: []string{"ls", "/w"}, stdout: "t.tar\nx\n"},
 		{args: []string{"touch", "/w/x/a:b*c?", "/w/x/CON", "/w/x/dot.", "/w/x/Foo", "/w/x/foo"}},

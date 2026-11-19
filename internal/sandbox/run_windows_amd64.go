@@ -7,7 +7,7 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // x86-64 guests on Windows: syscall sites become trampolines or ud2, %fs

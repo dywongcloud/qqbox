@@ -8,10 +8,10 @@ import "io"
 type WinSize struct{ Rows, Cols uint16 }
 
 // Terminal is the host side of a confined terminal, passed with WithTerminal.
-// laboon runs the program on a pseudo-terminal and bridges it to the Terminal:
+// qqbox runs the program on a pseudo-terminal and bridges it to the Terminal:
 // it reads the program's input (keystrokes) from Read, writes the program's
 // output to Write, and Closes it when the program exits; if Read returns an
-// error (the far side went away) laboon ends the run. Any io.ReadWriteCloser
+// error (the far side went away) qqbox ends the run. Any io.ReadWriteCloser
 // works — a net.Conn, a websocket adapter, a pair of pipes — so an app wires a
 // confined shell to its own transport without touching a pty itself. A Terminal
 // that also implements Resizer is told the window size.
@@ -20,7 +20,7 @@ type Terminal interface {
 }
 
 // Resizer is an optional Terminal whose Resizes channel reports window-size
-// changes; laboon applies each to the program's pty.
+// changes; qqbox applies each to the program's pty.
 type Resizer interface {
 	Resizes() <-chan WinSize
 }

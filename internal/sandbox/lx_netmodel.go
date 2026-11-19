@@ -8,11 +8,11 @@ import (
 )
 
 // Per-network-namespace interface/address/route model: the control plane of
-// laboon's network layer. A non-host netns (one a guest entered with unshare or
+// qqbox's network layer. A non-host netns (one a guest entered with unshare or
 // clone CLONE_NEWNET) owns its own network configuration -- the guest brings
 // interfaces up, assigns addresses and adds routes with routing netlink, and
 // getifaddrs / `ip addr` / `ip route` / RTM_GET* must then report exactly what
-// it set. laboon models that state here rather than acknowledging the mutations
+// it set. qqbox models that state here rather than acknowledging the mutations
 // and reporting the host; the old ack-and-fake left a container unable to see
 // the very interface and address it had just configured.
 //
@@ -389,7 +389,7 @@ func (n *dnet) createVeth(m *netModel, body, peerBody []byte, target int32) {
 }
 
 // resolveNetnsFd maps a guest fd referring to a network-namespace file to its
-// laboon namespace id, via the bind mount that pins it (how a runtime hands a
+// qqbox namespace id, via the bind mount that pins it (how a runtime hands a
 // container's netns to netavark). It returns fallback when the fd is not a known
 // pinned namespace.
 func (g *dguest) resolveNetnsFd(fd int, fallback int32) int32 {

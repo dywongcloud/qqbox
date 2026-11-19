@@ -1,7 +1,7 @@
 // A run without networking has loopback only, as Linux does with no network:
 // TCP and UDP on 127.0.0.1 and ::1 work, with Linux's names, ports and errors,
 // and an outside address (192.0.2.1, a documentation address no network
-// routes) is unreachable over TCP and UDP. With no network at all (laboon
+// routes) is unreachable over TCP and UDP. With no network at all (qqbox
 // -no-net) there is no INET socket.
 // Usage: loopnet.elf loopback | local [port] | none
 // (local is loopback without the outside address, for a host with a network

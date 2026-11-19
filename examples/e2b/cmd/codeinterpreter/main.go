@@ -1,4 +1,4 @@
-// Demonstrates the E2B-style code sandbox on laboon: run Python, run a shell
+// Demonstrates the E2B-style code sandbox on qqbox: run Python, run a shell
 // command, and persist a file across runs — in disposable sandboxes, no VM.
 //
 //	go run ./examples/e2b/cmd/codeinterpreter
@@ -10,7 +10,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/samyfodil/laboon/examples/e2b"
+	"github.com/tencent/qqbox/examples/e2b"
 )
 
 func main() {

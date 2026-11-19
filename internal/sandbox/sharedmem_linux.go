@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Shared guest RAM (experimental, behind LABOON_SHMEM). On Linux the guest is a
+// Shared guest RAM (experimental, behind QQBOX_SHMEM). On Linux the guest is a
 // separate process and its memory is read and written with process_vm_readv/writev
 // -- a syscall per access. When enabled, a guest anonymous mapping is instead
 // backed by a memfd that both the stub (at the guest address) and the supervisor
@@ -19,7 +19,7 @@ import (
 // This is gated and validated because it changes the memory model: MAP_SHARED
 // breaks fork's copy-on-write (a child would share the parent's pages), so a
 // forked child's mirrored regions must be re-privatised -- handled separately.
-// LABOON_SHMEM_VALIDATE cross-checks every direct access against process_vm so a
+// QQBOX_SHMEM_VALIDATE cross-checks every direct access against process_vm so a
 // mirror bug is caught loudly rather than corrupting data.
 
 // shmemMin is the smallest anonymous mapping worth a memfd + mirror; below it
@@ -37,12 +37,12 @@ func shmemEnabled() bool {
 		return v == 2
 	}
 	on := int32(1)
-	if os.Getenv("LABOON_SHMEM") != "" {
+	if os.Getenv("QQBOX_SHMEM") != "" {
 		on = 2
 	}
 	shmemOnce.Store(on)
 	val := int32(1)
-	if os.Getenv("LABOON_SHMEM_VALIDATE") != "" {
+	if os.Getenv("QQBOX_SHMEM_VALIDATE") != "" {
 		val = 2
 	}
 	shmemValidate.Store(val)
@@ -252,7 +252,7 @@ var mismatchLogged atomic.Bool
 
 func shmemMismatch(op string, addr uint64, n int) {
 	if mismatchLogged.CompareAndSwap(false, true) {
-		os.Stderr.WriteString("laboon: SHMEM mirror mismatch on " + op + " -- falling back; please report\n")
+		os.Stderr.WriteString("qqbox: SHMEM mirror mismatch on " + op + " -- falling back; please report\n")
 	}
 	_ = addr
 	_ = n

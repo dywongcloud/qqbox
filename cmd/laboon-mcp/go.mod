@@ -1,10 +1,10 @@
-module github.com/samyfodil/laboon/cmd/laboon-mcp
+module github.com/tencent/qqbox/cmd/qqbox-mcp
 
 go 1.27.1
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/samyfodil/laboon v0.0.0
+	github.com/tencent/qqbox v0.0.0
 )
 
 require (
@@ -27,4 +27,4 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 )
 
-replace github.com/samyfodil/laboon => ../..
+replace github.com/tencent/qqbox => ../..

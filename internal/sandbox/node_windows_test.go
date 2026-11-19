@@ -48,7 +48,7 @@ func TestWindowsNode(t *testing.T) {
 		{"version", nil, node, []string{"node", "--version"}, []string{"v22."}},
 		{"eval", nil, node, []string{"node", "-e", "console.log(1+1)"}, []string{"2\n"}},
 		{"smoke", egress, node, smoke, []string{"PASS jit.loop", "PASS worker_threads", "PASS child.spawn.node", "PASS http.loopback", "ALL PASS"}},
-		{"readline", nil, "/opt/ptyrun", []string{"ptyrun", "laboon", "node", "/opt/readline.js"}, []string{"tty true true", "name? ", "hello laboon"}},
+		{"readline", nil, "/opt/ptyrun", []string{"ptyrun", "qqbox", "node", "/opt/readline.js"}, []string{"tty true true", "name? ", "hello qqbox"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

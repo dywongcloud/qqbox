@@ -12,11 +12,11 @@ import (
 	"os"
 	"sync"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 func main() {
-	dev := &laboon.Device{Path: "/dev/lbserial", Kind: laboon.DeviceSerial}
+	dev := &qqbox.Device{Path: "/dev/lbserial", Kind: qqbox.DeviceSerial}
 
 	var got string
 	var wg sync.WaitGroup
@@ -29,10 +29,10 @@ func main() {
 		got, _ = bufio.NewReader(h).ReadString('\n')
 	}()
 
-	code, err := laboon.RunImage(context.Background(), "alpine:3.20",
-		laboon.WithDevice(dev),
-		laboon.WithArgs("sh", "-c", `read x < /dev/lbserial; printf 'guest-got:%s\n' "$x" > /dev/lbserial`),
-		laboon.WithStderr(os.Stderr),
+	code, err := qqbox.RunImage(context.Background(), "alpine:3.20",
+		qqbox.WithDevice(dev),
+		qqbox.WithArgs("sh", "-c", `read x < /dev/lbserial; printf 'guest-got:%s\n' "$x" > /dev/lbserial`),
+		qqbox.WithStderr(os.Stderr),
 	)
 	wg.Wait()
 	if err != nil {

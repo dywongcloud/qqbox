@@ -5,12 +5,12 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/samyfodil/laboon/stub"
+	"github.com/tencent/qqbox/stub"
 )
 
 // The stub lives in a high window ([stubLo, stubHi), see chan.go). The
-// top-level laboon's stub is an ET_EXEC at the primary window (stubLo's
-// default), placed there by the kernel exec. A laboon that is itself a guest
+// top-level qqbox's stub is an ET_EXEC at the primary window (stubLo's
+// default), placed there by the kernel exec. A qqbox that is itself a guest
 // cannot use that window -- its outer's stub already holds it in this very
 // address space -- so it launches the PIE stub, which its outer's loader
 // places at a free high window (honoring the stub's window note); the actual
@@ -21,7 +21,7 @@ var (
 	stubBinary []byte
 	// outermost is set once chooseStub runs: true when this process launches
 	// the primary ET_EXEC stub, which owns the real %gs (so its trampolines can
-	// use the %gs anchor). A nested laboon launches a PIE stub whose code the
+	// use the %gs anchor). A nested qqbox launches a PIE stub whose code the
 	// outer rewrites, and whose arch_prctl(ARCH_SET_GS) the outer virtualizes,
 	// so it cannot own %gs: its guests take the trap path instead.
 	outermost bool
@@ -56,7 +56,7 @@ func adoptWindow(base uint64) {
 // It maps one page there with MAP_FIXED_NOREPLACE -- which never replaces an
 // existing mapping, and (MAP_FIXED being unset) never clobbers on a kernel too
 // old to know the flag, where it degrades to an ordinary hinted mmap that
-// simply lands elsewhere -- and unmaps it. A nested laboon finds the window
+// simply lands elsewhere -- and unmaps it. A nested qqbox finds the window
 // held by its outer's stub.
 func windowFree(lo uint64) bool {
 	r, _, errno := unix.Syscall6(unix.SYS_MMAP, uintptr(lo), uintptr(pageSize),

@@ -12,7 +12,7 @@ import (
 // from user memory when it starts. A handler reads its inputs through argRead
 // and argGet, which take them from there and go to guest memory for anything
 // not copied. The area is the guest's to write, so loadArgs bounds-checks each
-// record and the bytes are copied out once. LABOON_ARGS_VALIDATE checks every
+// record and the bytes are copied out once. QQBOX_ARGS_VALIDATE checks every
 // copy against guest memory.
 //
 // A handler's results go the other way through putOut: left in the slot's
@@ -50,7 +50,7 @@ type argSet struct {
 	fault  bool // a flushed result faulted: the call fails with EFAULT
 }
 
-var argValidate = os.Getenv("LABOON_ARGS_VALIDATE") != ""
+var argValidate = os.Getenv("QQBOX_ARGS_VALIDATE") != ""
 
 func (g *dguest) argArea() []byte {
 	o := argOff + g.slot*argSize
@@ -122,7 +122,7 @@ func (g *dguest) argCStr(addr uint64) (string, bool) {
 func (g *dguest) argCheck(addr uint64, b []byte) {
 	m := make([]byte, len(b))
 	if g.mp.read(addr, m) == nil && !bytes.Equal(m, b) {
-		panic(fmt.Sprintf("laboon: syscall input at %#x copied as %x, memory holds %x", addr, b, m))
+		panic(fmt.Sprintf("qqbox: syscall input at %#x copied as %x, memory holds %x", addr, b, m))
 	}
 }
 

@@ -1,4 +1,4 @@
-package laboon
+package qqbox
 
 import (
 	"bytes"

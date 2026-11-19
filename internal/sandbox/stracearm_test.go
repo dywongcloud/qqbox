@@ -12,7 +12,7 @@ import (
 )
 
 // TestStraceArm64 runs a minimal arm64 ptrace tracer (testdata/stracearm.c)
-// under laboon: it traces a child to a write(42) syscall and reads its
+// under qqbox: it traces a child to a write(42) syscall and reads its
 // registers with PTRACE_GETREGSET(NT_PRSTATUS). This covers the syscall-entry
 // stop, register publishing and PTRACE_CONT on arm64 (linux and, through the
 // gate, darwin), where single-step and breakpoints do not apply.

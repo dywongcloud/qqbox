@@ -21,18 +21,18 @@ func (d *daemon) ping(w http.ResponseWriter, r *http.Request) {
 
 func (d *daemon) version(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"Platform":      map[string]string{"Name": "laboon"},
-		"Version":       laboonVersion,
+		"Platform":      map[string]string{"Name": "qqbox"},
+		"Version":       qqboxVersion,
 		"ApiVersion":    apiVersion,
 		"MinAPIVersion": minAPIVersion,
 		"GitCommit":     "",
 		"GoVersion":     runtime.Version(),
 		"Os":            "linux",
 		"Arch":          runtime.GOARCH,
-		"KernelVersion": "laboon",
+		"KernelVersion": "qqbox",
 		"BuildTime":     time.Now().UTC().Format(time.RFC3339),
 		"Components": []map[string]any{
-			{"Name": "Engine", "Version": laboonVersion, "Details": map[string]string{
+			{"Name": "Engine", "Version": qqboxVersion, "Details": map[string]string{
 				"ApiVersion": apiVersion, "Os": "linux", "Arch": runtime.GOARCH,
 			}},
 		},
@@ -50,14 +50,14 @@ func (d *daemon) info(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ID":                "laboon",
-		"Name":              "laboon",
-		"ServerVersion":     laboonVersion,
-		"Driver":            "laboon-vfs",
-		"OperatingSystem":   "laboon (no second kernel)",
+		"ID":                "qqbox",
+		"Name":              "qqbox",
+		"ServerVersion":     qqboxVersion,
+		"Driver":            "qqbox-vfs",
+		"OperatingSystem":   "qqbox (no second kernel)",
 		"OSType":            "linux",
 		"Architecture":      goArch(),
-		"KernelVersion":     "laboon",
+		"KernelVersion":     "qqbox",
 		"NCPU":              runtime.NumCPU(),
 		"MemTotal":          0,
 		"Containers":        n,
@@ -65,8 +65,8 @@ func (d *daemon) info(w http.ResponseWriter, r *http.Request) {
 		"ContainersPaused":  0,
 		"ContainersStopped": n - running,
 		"Images":            0,
-		"DockerRootDir":     "/var/lib/laboon",
-		"Runtimes":          map[string]any{"laboon": map[string]string{"path": "laboon"}},
-		"DefaultRuntime":    "laboon",
+		"DockerRootDir":     "/var/lib/qqbox",
+		"Runtimes":          map[string]any{"qqbox": map[string]string{"path": "qqbox"}},
+		"DefaultRuntime":    "qqbox",
 	})
 }

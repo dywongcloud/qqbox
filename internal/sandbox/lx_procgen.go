@@ -18,9 +18,9 @@ import (
 // What uname and /proc/sys/kernel report.
 const (
 	utsSysname  = "Linux"
-	utsNodename = "laboon"
+	utsNodename = "qqbox"
 	utsRelease  = "6.8.0"
-	utsVersion  = "#1 SMP PREEMPT laboon"
+	utsVersion  = "#1 SMP PREEMPT qqbox"
 	utsMachine  = guestArch
 	utsDomain   = "(none)"
 )
@@ -234,7 +234,7 @@ func (g *dguest) procSysKids() []pchild {
 	dir := func(kids ...pchild) *pnode { return pdir(func() []pchild { return kids }) }
 	// net/ipv{4,6}/conf: a directory per interface (plus all/default), each a set
 	// of writable per-interface sysctls. A created interface (a runtime's bridge
-	// or veth) resolves here so e.g. conf/podman0/rp_filter exists. laboon's
+	// or veth) resolves here so e.g. conf/podman0/rp_filter exists. qqbox's
 	// socket-level network does not act on these, so writes are accepted and
 	// dropped. find serves any interface or key name, as the kernel presents one
 	// for every interface.

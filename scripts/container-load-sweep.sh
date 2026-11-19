@@ -5,7 +5,7 @@
 # request failed or was lost, and reports throughput and latency. The tests
 # are the scripts in load/.
 #
-#   scripts/container-load-sweep.sh [laboon-binary | docker]   (default: ./laboon)
+#   scripts/container-load-sweep.sh [qqbox-binary | docker]   (default: ./qqbox)
 #
 # docker runs the same tests under Docker, as a baseline.
 # PLATFORM   linux/amd64 or linux/arm64 (default: the host architecture)
@@ -15,8 +15,8 @@
 set -u
 
 dir=$(cd "$(dirname "$0")" && pwd)/load
-RT=${1:-./laboon}
-if [ "$RT" != docker ] && [ ! -x "$RT" ]; then RT="go run ./cmd/laboon"; fi
+RT=${1:-./qqbox}
+if [ "$RT" != docker ] && [ ! -x "$RT" ]; then RT="go run ./cmd/qqbox"; fi
 PLAT=""
 if [ -n "${PLATFORM:-}" ]; then
 	if [ "$RT" = docker ]; then PLAT="--platform $PLATFORM"; else PLAT="-platform $PLATFORM"; fi

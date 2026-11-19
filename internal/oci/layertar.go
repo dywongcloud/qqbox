@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // The OCI image-layer tar conventions: a deleted path is an empty .wh.<name>

@@ -157,7 +157,7 @@ func (s *stdio) finish() {
 func newTerminalStdio(t Terminal) (*stdio, error) {
 	master, slavePath, e := hostPtyOpen()
 	if e != 0 {
-		return nil, fmt.Errorf("laboon: open pty: errno %d", int(e))
+		return nil, fmt.Errorf("qqbox: open pty: errno %d", int(e))
 	}
 	slave, err := os.OpenFile(slavePath, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {

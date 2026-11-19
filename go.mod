@@ -1,4 +1,4 @@
-module github.com/samyfodil/laboon
+module github.com/tencent/qqbox
 
 go 1.27.1
 

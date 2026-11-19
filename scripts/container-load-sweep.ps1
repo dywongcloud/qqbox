@@ -7,8 +7,8 @@
   base64-encoded as `sh -c "echo <b64> | base64 -d | sh"`, as the sh sweep
   runs them.
 
-.PARAMETER Laboon
-  The laboon.exe to use (default: .\laboon.exe).
+.PARAMETER QQBox
+  The qqbox.exe to use (default: .\qqbox.exe).
 
 .PARAMETER Timeout
   Seconds each test may run (default: 900).
@@ -20,17 +20,17 @@
   Exit code is the number of tests that failed. A failure's whole output is
   kept in load-fail-NAME.txt.
 #>
-param([string]$Laboon = ".\laboon.exe", [int]$Timeout = 900, [string]$Only = "")
+param([string]$QQBox = ".\qqbox.exe", [int]$Timeout = 900, [string]$Only = "")
 # Absolute: each test runs in a background job, whose working directory is not
 # this script's, so a relative path would not resolve there.
-$Laboon = (Resolve-Path $Laboon).Path
+$QQBox = (Resolve-Path $QQBox).Path
 
 $ErrorActionPreference = "Continue"
 $pass = 0; $fail = 0; $fails = @()
 
 # Load NAME USER IMAGE [net]: run load\NAME.sh in IMAGE as USER (empty: the
 # image's) and expect its "LOAD NAME ..." result line. net: the test needs a
-# network stack (loopback TCP), which laboon gives only with -net.
+# network stack (loopback TCP), which qqbox gives only with -net.
 function Load([string]$name, [string]$user, [string]$image, [string]$net = "") {
     if ($Only -and -not (" $Only " -like "* $name *")) { return }
     $text = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "load\$name.sh")) -replace "`r", ""
@@ -38,7 +38,7 @@ function Load([string]$name, [string]$user, [string]$image, [string]$net = "") {
     $flags = ""
     if ($user) { $flags += " -u $user" }
     if ($net) { $flags += " -net" }
-    $line = "$Laboon$flags -image $image sh -c `"echo $b64 | base64 -d | sh`""
+    $line = "$QQBox$flags -image $image sh -c `"echo $b64 | base64 -d | sh`""
     $tmp = [IO.Path]::GetTempFileName()
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $job = Start-Job -ScriptBlock { param($l, $t) cmd /c "$l > `"$t`" 2>&1"; $LASTEXITCODE } -ArgumentList $line, $tmp
@@ -46,7 +46,7 @@ function Load([string]$name, [string]$user, [string]$image, [string]$net = "") {
         $rc = [int](Receive-Job $job)
     } else {
         Stop-Job $job -EA SilentlyContinue
-        cmd /c "taskkill /F /IM laboon.exe /T >nul 2>&1" | Out-Null
+        cmd /c "taskkill /F /IM qqbox.exe /T >nul 2>&1" | Out-Null
         $rc = 124
     }
     Remove-Job $job -Force -EA SilentlyContinue
@@ -66,7 +66,7 @@ function Load([string]$name, [string]$user, [string]$image, [string]$net = "") {
     }
 }
 
-Write-Output "== container LOAD sweep (windows): $Laboon $(Get-Date)"
+Write-Output "== container LOAD sweep (windows): $QQBox $(Get-Date)"
 Load postgres postgres postgres:16-alpine
 Load postgres-connect postgres postgres:16-alpine
 Load redis "" redis:7-alpine

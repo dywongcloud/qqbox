@@ -5,7 +5,7 @@
 //     directory (rename-onto) -> the held fd must not list the impostor, on the
 //     first read and again after rewind.
 //   moveFollows: the opened dir is itself renamed -> the held fd still lists its
-//     own entries (laboon retargets the description to the new path).
+//     own entries (qqbox retargets the description to the new path).
 //   copyUpStable: a write into a lower-layer dir copies it up (new backing
 //     inode) -> the held fd still lists both the lower entry and the new one.
 #include <fcntl.h>

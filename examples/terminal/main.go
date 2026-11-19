@@ -1,14 +1,14 @@
 //go:build darwin || linux
 
 // terminal starts a confined interactive shell over a host directory, mounted
-// read-only, driven through laboon's WithTerminal interface: every process runs
-// in the laboon sandbox, so nothing it does can modify the directory or reach
+// read-only, driven through qqbox's WithTerminal interface: every process runs
+// in the qqbox sandbox, so nothing it does can modify the directory or reach
 // the rest of the host.
 //
 //	go run ./examples/terminal <dir> [image]
 //
 // The Terminal here is the local console; an app would pass its own transport
-// instead — a net.Conn, a websocket adapter — and laboon would drive a confined
+// instead — a net.Conn, a websocket adapter — and qqbox would drive a confined
 // shell against it the same way, without the app ever touching a pty.
 package main
 
@@ -20,20 +20,20 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
-// console is a Terminal backed by the local tty: laboon reads keystrokes from
+// console is a Terminal backed by the local tty: qqbox reads keystrokes from
 // os.Stdin, writes the program's output to os.Stdout, and is told the window
 // size through Resizes.
-type console struct{ sz chan laboon.WinSize }
+type console struct{ sz chan qqbox.WinSize }
 
 func (c *console) Read(p []byte) (int, error)     { return os.Stdin.Read(p) }
 func (c *console) Write(p []byte) (int, error)    { return os.Stdout.Write(p) }
 func (c *console) Close() error                   { return nil }
-func (c *console) Resizes() <-chan laboon.WinSize { return c.sz }
+func (c *console) Resizes() <-chan qqbox.WinSize { return c.sz }
 
 func main() {
 	if len(os.Args) < 2 {
@@ -52,7 +52,7 @@ func main() {
 		image = os.Args[2]
 	}
 
-	fmt.Printf("\x1b[1mlaboon · confined terminal\x1b[0m\r\n")
+	fmt.Printf("\x1b[1mqqbox · confined terminal\x1b[0m\r\n")
 	fmt.Printf("  %s  →  /work  (read-only)\r\n", dir)
 	fmt.Printf("  image %s · sandboxed · exit to leave\r\n\r\n", image)
 
@@ -65,7 +65,7 @@ func main() {
 		}
 	}
 
-	c := &console{sz: make(chan laboon.WinSize, 1)}
+	c := &console{sz: make(chan qqbox.WinSize, 1)}
 	pushSize(c.sz)
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
@@ -75,12 +75,12 @@ func main() {
 		}
 	}()
 
-	code, err := laboon.RunImage(context.Background(), image,
-		laboon.WithMountReadOnly(dir, "/work"),
-		laboon.WithDir("/work"),
-		laboon.WithEnvVar("TERM", os.Getenv("TERM")),
-		laboon.WithArgs("/bin/sh"),
-		laboon.WithTerminal(c),
+	code, err := qqbox.RunImage(context.Background(), image,
+		qqbox.WithMountReadOnly(dir, "/work"),
+		qqbox.WithDir("/work"),
+		qqbox.WithEnvVar("TERM", os.Getenv("TERM")),
+		qqbox.WithArgs("/bin/sh"),
+		qqbox.WithTerminal(c),
 	)
 	signal.Stop(winch)
 	close(c.sz)
@@ -90,13 +90,13 @@ func main() {
 	os.Exit(code)
 }
 
-func pushSize(sz chan laboon.WinSize) {
+func pushSize(sz chan qqbox.WinSize) {
 	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
 	if err != nil {
 		return
 	}
 	select {
-	case sz <- laboon.WinSize{Rows: ws.Row, Cols: ws.Col}:
+	case sz <- qqbox.WinSize{Rows: ws.Row, Cols: ws.Col}:
 	default:
 	}
 }

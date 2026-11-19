@@ -18,8 +18,8 @@ func TestEnvNotLeaked(t *testing.T) {
 	if b, err := exec.Command("gcc", "-O2", "-static", "-o", exe, "../testdata/envleak.c").CombinedOutput(); err != nil {
 		t.Skipf("static gcc unavailable: %v\n%s", err, b)
 	}
-	os.Setenv("LABOON_SECRET_PROBE", "leaked") // a host var that must not reach the guest
-	defer os.Unsetenv("LABOON_SECRET_PROBE")
+	os.Setenv("QQBOX_SECRET_PROBE", "leaked") // a host var that must not reach the guest
+	defer os.Unsetenv("QQBOX_SECRET_PROBE")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	var out bytes.Buffer

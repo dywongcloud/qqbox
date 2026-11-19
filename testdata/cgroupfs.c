@@ -7,7 +7,7 @@
 
 // A container runtime creates the container's cgroup and configures it through
 // control files. Exercise mkdir, a recorded-and-read-back write, nesting, and
-// rmdir on laboon's virtual cgroup v2 hierarchy.
+// rmdir on qqbox's virtual cgroup v2 hierarchy.
 static int wr(const char *p, const char *v) {
 	int fd = open(p, O_WRONLY);
 	if (fd < 0) return -1;

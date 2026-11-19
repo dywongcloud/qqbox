@@ -894,7 +894,7 @@ func (g *dguest) setSeccomp(mode, filter uint64) int64 {
 
 // seccomp is the seccomp(2) syscall. SET_MODE_STRICT and SET_MODE_FILTER map to
 // the PR_SET_SECCOMP modes; GET_ACTION_AVAIL just probes support. Filter flags
-// other than TSYNC/LOG/SPEC_ALLOW (and NEW_LISTENER, which laboon does not
+// other than TSYNC/LOG/SPEC_ALLOW (and NEW_LISTENER, which qqbox does not
 // provide) are rejected.
 func (g *dguest) seccomp(op, flags, args uint64) int64 {
 	const (

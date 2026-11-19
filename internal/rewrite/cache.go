@@ -29,7 +29,7 @@ type Cache struct {
 func DefaultCache() *Cache {
 	c := &Cache{}
 	if d, err := os.UserCacheDir(); err == nil {
-		c.Dir = filepath.Join(d, "laboon", "plans")
+		c.Dir = filepath.Join(d, "qqbox", "plans")
 	}
 	return c
 }

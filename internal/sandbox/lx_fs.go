@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // Confined filesystem for the macOS backend. The supervisor owns the fd table
@@ -192,7 +192,7 @@ func newDfs(root, upper string, mem []byte, done <-chan struct{}, tmp string) (*
 // into the writable upper, so such a path resolves under upperAbs; without an
 // upper (the whole host mounted as /) it is a host path under rootAbs. The result
 // is read raw (newHostDirFS), so the layer's own files are seen directly rather
-// than through laboon's outer overlay.
+// than through qqbox's outer overlay.
 func (fs *dfs) overlayLayerHost(gp string) string {
 	h := filepath.Join(fs.rootAbs, filepath.FromSlash(gp))
 	if fs.upperAbs != "" {

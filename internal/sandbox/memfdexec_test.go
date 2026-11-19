@@ -11,7 +11,7 @@ import (
 )
 
 // Executing a memfd through /proc/self/fd/<n> must run the in-descriptor image,
-// not fail on the memfd's pathless name. Container runtimes (and laboon's own
+// not fail on the memfd's pathless name. Container runtimes (and qqbox's own
 // stub launch) rely on it.
 func TestMemfdExec(t *testing.T) {
 	exe := filepath.Join(t.TempDir(), "memfdexec")

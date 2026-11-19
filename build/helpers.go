@@ -12,8 +12,8 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // baseConfig seeds the image config from the base image's.

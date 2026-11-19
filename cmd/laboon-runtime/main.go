@@ -1,7 +1,7 @@
-// Command laboon-runtime is an OCI runtime (a runc/crun drop-in) backed by
-// laboon: it runs an OCI bundle as a laboon sandbox, so an engine that speaks
-// the OCI runtime spec -- docker --runtime=laboon, containerd, podman, CRI-O --
-// runs containers on laboon without a second kernel. Separate module so its
+// Command qqbox-runtime is an OCI runtime (a runc/crun drop-in) backed by
+// qqbox: it runs an OCI bundle as a qqbox sandbox, so an engine that speaks
+// the OCI runtime spec -- docker --runtime=qqbox, containerd, podman, CRI-O --
+// runs containers on qqbox without a second kernel. Separate module so its
 // surface stays out of the core library.
 package main
 
@@ -19,13 +19,13 @@ func main() {
 	if len(os.Args) >= 2 {
 		switch os.Args[1] {
 		case "--version", "-v", "version":
-			fmt.Printf("laboon-runtime version %s\ncommit: none\nspec: 1.0.2\n", version)
+			fmt.Printf("qqbox-runtime version %s\ncommit: none\nspec: 1.0.2\n", version)
 			return
 		}
 	}
 	// runc-style global flags come before the subcommand; accept and ignore the
 	// ones an engine passes (state lives under --root).
-	g := flag.NewFlagSet("laboon-runtime", flag.ExitOnError)
+	g := flag.NewFlagSet("qqbox-runtime", flag.ExitOnError)
 	root := g.String("root", defaultStateRoot, "root directory for container state")
 	g.String("log", "", "log file (accepted, ignored)")
 	g.String("log-format", "", "log format (accepted, ignored)")
@@ -66,17 +66,17 @@ func main() {
 	case "features":
 		os.Exit(cmdFeatures())
 	case "--version", "-v", "version":
-		fmt.Printf("laboon-runtime version %s\nspec: 1.0.2\n", version)
+		fmt.Printf("qqbox-runtime version %s\nspec: 1.0.2\n", version)
 	default:
-		fmt.Fprintf(os.Stderr, "laboon-runtime: unknown command %q\n", cmd)
+		fmt.Fprintf(os.Stderr, "qqbox-runtime: unknown command %q\n", cmd)
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `laboon-runtime - an OCI runtime backed by laboon
+	fmt.Fprintf(os.Stderr, `qqbox-runtime - an OCI runtime backed by qqbox
 
-usage: laboon-runtime [global flags] <command> [args]
+usage: qqbox-runtime [global flags] <command> [args]
 
 commands:
   run    <id> --bundle <dir>   run a bundle to completion
@@ -90,6 +90,6 @@ commands:
 }
 
 func die(err error) {
-	fmt.Fprintln(os.Stderr, "laboon-runtime:", err)
+	fmt.Fprintln(os.Stderr, "qqbox-runtime:", err)
 	os.Exit(1)
 }

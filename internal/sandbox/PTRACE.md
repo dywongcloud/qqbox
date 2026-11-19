@@ -103,5 +103,5 @@ A static debug build can be checked with gdb using `break add`, `run`, `bt`,
 Alpine package installation needs `-net`:
 
 ```
-laboon -net -image alpine:3.20 sh -c 'apk add gdb gcc musl-dev && gcc -static -g -O0 -o /t /t.c && gdb --batch -ex "break add" -ex run -ex bt -ex "info args" -ex finish -ex continue /t'
+qqbox -net -image alpine:3.20 sh -c 'apk add gdb gcc musl-dev && gcc -static -g -O0 -o /t /t.c && gdb --batch -ex "break add" -ex run -ex bt -ex "info args" -ex finish -ex continue /t'
 ```

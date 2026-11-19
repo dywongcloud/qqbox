@@ -22,9 +22,9 @@ func init() {
 	syscalls[lxBpf] = func(g *dguest, a [6]uint64) int64 { return g.bpf(a[0], a[1], a[2]) }
 }
 
-// bpf models the one eBPF use laboon can honor: the cgroup v2 device controller.
+// bpf models the one eBPF use qqbox can honor: the cgroup v2 device controller.
 // A container runtime (crun) loads a BPF_PROG_TYPE_CGROUP_DEVICE program and
-// attaches it to the container's cgroup to allow/deny device access; laboon does
+// attaches it to the container's cgroup to allow/deny device access; qqbox does
 // not run eBPF but already mediates device access through the synthetic /dev set,
 // so for that one program type the filter is a no-op (PROG_LOAD hands back a
 // usable descriptor so attach and the later close succeed, attach/detach report

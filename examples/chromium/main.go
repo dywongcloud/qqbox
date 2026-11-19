@@ -1,4 +1,4 @@
-// Demonstrates running headless Chromium confined in laboon: it renders a page
+// Demonstrates running headless Chromium confined in qqbox: it renders a page
 // to a PNG through the sandbox — no browser on the host, no GPU, no VM. The
 // screenshot is written to a read-write bind, so it lands on the host.
 //
@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 func main() {
@@ -25,14 +25,14 @@ func main() {
 	}
 	dir, name := filepath.Split(abs)
 
-	fmt.Printf("rendering a page with headless Chromium, confined in laboon → %s\n", abs)
-	code, err := laboon.RunImage(context.Background(), "zenika/alpine-chrome",
-		laboon.WithMount(dir, "/out"),
-		laboon.WithArgs("--headless", "--no-sandbox", "--disable-gpu",
+	fmt.Printf("rendering a page with headless Chromium, confined in qqbox → %s\n", abs)
+	code, err := qqbox.RunImage(context.Background(), "zenika/alpine-chrome",
+		qqbox.WithMount(dir, "/out"),
+		qqbox.WithArgs("--headless", "--no-sandbox", "--disable-gpu",
 			"--virtual-time-budget=6000", "--window-size=1024,768",
 			"--screenshot=/out/"+name,
-			`data:text/html,<h1>rendered in laboon</h1>`),
-		laboon.WithStderr(os.Stderr),
+			`data:text/html,<h1>rendered in qqbox</h1>`),
+		qqbox.WithStderr(os.Stderr),
 	)
 	if err != nil {
 		fail(err)

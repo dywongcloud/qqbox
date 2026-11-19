@@ -324,7 +324,7 @@ impl ImageRef {
 pub fn cache_dir(o: &PullOptions) -> PathBuf {
     o.cache_dir
         .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("laboon/images"))
+        .unwrap_or_else(|| std::env::temp_dir().join("qqbox/images"))
 }
 
 fn ref_key(r: &ImageRef, arch: Arch) -> String {

@@ -252,14 +252,14 @@ impl State {
         for cap in &req.host_config.cap_add {
             if cap.eq_ignore_ascii_case("SYS_ADMIN") || cap.eq_ignore_ascii_case("ALL") {
                 return Err(Error::Config(format!(
-                    "capability {cap} is not supported by laboon's security model"
+                    "capability {cap} is not supported by qqbox's security model"
                 )));
             }
         }
         for opt in &req.host_config.security_opt {
             if opt == "seccomp=unconfined" {
                 return Err(Error::Config(
-                    "seccomp=unconfined is not supported by laboon's security model".into(),
+                    "seccomp=unconfined is not supported by qqbox's security model".into(),
                 ));
             }
         }
@@ -369,7 +369,7 @@ impl State {
             "" | "bridge" | "default" => cfg.network_mode = NetworkMode::Bridge,
             "host" => {
                 return Err(Error::Config(
-                    "host networking is not supported by laboon's security model".into(),
+                    "host networking is not supported by qqbox's security model".into(),
                 ))
             }
             "none" => {
@@ -406,7 +406,7 @@ impl State {
         }
         if req.host_config.privileged {
             return Err(Error::Config(
-                "privileged containers are not supported by laboon's security model".into(),
+                "privileged containers are not supported by qqbox's security model".into(),
             ));
         }
         if req.host_config.restart_policy.is_object() {
@@ -663,8 +663,8 @@ impl Daemon {
             "GET /events",
             "GET /system/df",
             "POST /auth",
-            "GET /laboon/v1/invariants",
-            "GET /laboon/v1/routes",
+            "GET /qqbox/v1/invariants",
+            "GET /qqbox/v1/routes",
         ]
     }
 
@@ -703,7 +703,7 @@ impl Daemon {
                 &serde_json::json!({
                     "ApiVersion":"1.43","MinAPIVersion":"1.24",
                     "Version":env!("CARGO_PKG_VERSION"),"Os":"linux",
-                    "Arch":Arch::host().as_str(),"KernelVersion":"laboon"
+                    "Arch":Arch::host().as_str(),"KernelVersion":"qqbox"
                 }),
             );
         }
@@ -713,16 +713,16 @@ impl Daemon {
                 &serde_json::json!({
                     "Images":state.images.len(),"Containers":state.containers.len(),
                     "ContainersRunning":state.containers.values().filter(|c| c.state==ContainerState::Running).count(),
-                    "Driver":"laboon-vfs","Runtimes":{"laboon":{"path":"laboon-runtime"}},
+                    "Driver":"qqbox-vfs","Runtimes":{"qqbox":{"path":"qqbox-runtime"}},
                     "ServerVersion":env!("CARGO_PKG_VERSION")
                 }),
             );
         }
-        if path == "/laboon/v1/invariants" {
+        if path == "/qqbox/v1/invariants" {
             let items: Vec<&str> = crate::security::audit();
             return Response::json(200, &serde_json::json!({"invariants":items}));
         }
-        if path == "/laboon/v1/routes" {
+        if path == "/qqbox/v1/routes" {
             return Response::json(200, &serde_json::json!({"routes":Self::routes()}));
         }
         if path == "/containers/json" {

@@ -1,6 +1,6 @@
 // idregs: the AArch64 feature ID registers the guest reads with mrs are
 // served and consistent with AT_HWCAP — never claiming a feature the host
-// lacks. On Linux the kernel emulates these reads; laboon emulates them on
+// lacks. On Linux the kernel emulates these reads; qqbox emulates them on
 // macOS and Windows arm64, where they otherwise trap. Not aarch64: a no-op.
 #define _GNU_SOURCE
 #include <setjmp.h>

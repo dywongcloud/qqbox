@@ -1,4 +1,4 @@
-package laboon
+package qqbox
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/sandbox"
+	"github.com/tencent/qqbox/internal/sandbox"
 )
 
 func TestResolveUser(t *testing.T) {

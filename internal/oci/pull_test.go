@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/sandbox"
+	"github.com/tencent/qqbox/internal/sandbox"
 )
 
-// TestPullAndRun needs the network: LABOON_NET_TESTS=1 go test ./oci
+// TestPullAndRun needs the network: QQBOX_NET_TESTS=1 go test ./oci
 func TestPullAndRun(t *testing.T) {
-	if os.Getenv("LABOON_NET_TESTS") == "" {
-		t.Skip("set LABOON_NET_TESTS=1 to pull from Docker Hub")
+	if os.Getenv("QQBOX_NET_TESTS") == "" {
+		t.Skip("set QQBOX_NET_TESTS=1 to pull from Docker Hub")
 	}
 	img, err := Pull(context.Background(), "alpine:3.20", Options{CacheDir: t.TempDir()})
 	if err != nil {

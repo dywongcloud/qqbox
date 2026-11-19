@@ -1,7 +1,7 @@
-// Package e2b is a small, E2B-style sandbox SDK built on laboon: disposable
+// Package e2b is a small, E2B-style sandbox SDK built on qqbox: disposable
 // code sandboxes and a GUI (XFCE) desktop sandbox, with no VM, no daemon, and no
 // cloud. It mirrors the shape of e2b.dev's Sandbox and Desktop APIs on top of
-// laboon.RunImage.
+// qqbox.RunImage.
 package e2b
 
 import (
@@ -10,21 +10,21 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 // DefaultImage has python3 and a shell, like E2B's default code sandbox.
 const DefaultImage = "python:3.12-slim"
 
 // Sandbox is a disposable code sandbox. Where E2B keeps one long-lived VM, each
-// call here runs in its own fresh laboon sandbox (per-call isolation); a host
+// call here runs in its own fresh qqbox sandbox (per-call isolation); a host
 // directory mounted at /workspace gives the filesystem continuity E2B gets from
 // the VM, so files written in one call are visible to the next.
 type Sandbox struct {
 	Image        string          // OCI image to run (DefaultImage if empty)
 	Workdir      string          // host dir mounted at /workspace; a temp dir if empty
 	Net          bool            // allow networking (pip install, fetches, ...)
-	Extra        []laboon.Option // options applied to every run
+	Extra        []qqbox.Option // options applied to every run
 	ownedWorkdir bool
 }
 
@@ -63,18 +63,18 @@ func (s *Sandbox) RunCommand(ctx context.Context, name string, args ...string) (
 		return nil, err
 	}
 	var out, errb bytes.Buffer
-	opts := []laboon.Option{
-		laboon.WithArgs(append([]string{name}, args...)...),
-		laboon.WithStdout(&out),
-		laboon.WithStderr(&errb),
-		laboon.WithMount(wd, "/workspace"),
-		laboon.WithDir("/workspace"),
+	opts := []qqbox.Option{
+		qqbox.WithArgs(append([]string{name}, args...)...),
+		qqbox.WithStdout(&out),
+		qqbox.WithStderr(&errb),
+		qqbox.WithMount(wd, "/workspace"),
+		qqbox.WithDir("/workspace"),
 	}
 	if s.Net {
-		opts = append(opts, laboon.WithNet())
+		opts = append(opts, qqbox.WithNet())
 	}
 	opts = append(opts, s.Extra...)
-	code, err := laboon.RunImage(ctx, s.Image, opts...)
+	code, err := qqbox.RunImage(ctx, s.Image, opts...)
 	if err != nil {
 		return nil, err
 	}

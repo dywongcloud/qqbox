@@ -23,7 +23,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/samyfodil/laboon/internal/winfs"
+	"github.com/tencent/qqbox/internal/winfs"
 )
 
 // The Windows hostFS. NTFS has no POSIX modes, owners, FIFOs or usable
@@ -207,7 +207,7 @@ func lowerMetaCache(root string, f *os.File, rk fileKey) string {
 		return ""
 	}
 	h := sha256.Sum256(fmt.Appendf(nil, "lcmeta-1 %s %d %d %d %d", root, rk.vol, rk.id, fi.Size(), fi.ModTime().UnixNano()))
-	return filepath.Join(d, "laboon", "meta", hex.EncodeToString(h[:16]))
+	return filepath.Join(d, "qqbox", "meta", hex.EncodeToString(h[:16]))
 }
 
 func readMetaCache(name string) ([]metaEnt, bool) {

@@ -29,8 +29,8 @@ func spinHint()
 // event-wait, no wasted spin). The only constants are measured on the running
 // machine: the peer's rhythm and the park cost.
 //
-// LABOON_SPIN=<n> replaces this with a fixed n-iteration spin (the old
-// behaviour) for comparison; LABOON_SPIN=0 always parks.
+// QQBOX_SPIN=<n> replaces this with a fixed n-iteration spin (the old
+// behaviour) for comparison; QQBOX_SPIN=0 always parks.
 
 var (
 	adaptive  = true
@@ -38,7 +38,7 @@ var (
 )
 
 func init() {
-	if v, ok := os.LookupEnv("LABOON_SPIN"); ok {
+	if v, ok := os.LookupEnv("QQBOX_SPIN"); ok {
 		if n, err := strconv.Atoi(v); err == nil {
 			adaptive = false
 			fixedSpin = n

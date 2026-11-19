@@ -110,7 +110,7 @@ var outPipeSeq atomic.Uint64
 func newOutPipe(size uint32) (*outPipe, *os.File, error) {
 	var nonce [8]byte
 	rand.Read(nonce[:])
-	name, err := windows.UTF16PtrFromString(fmt.Sprintf(`\\.\pipe\laboon-%d-%d-%x`, os.Getpid(), outPipeSeq.Add(1), nonce))
+	name, err := windows.UTF16PtrFromString(fmt.Sprintf(`\\.\pipe\qqbox-%d-%d-%x`, os.Getpid(), outPipeSeq.Add(1), nonce))
 	if err != nil {
 		return nil, nil, err
 	}

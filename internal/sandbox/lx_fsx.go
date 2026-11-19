@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // checkpointMeta projects the inode-keyed side table (the live authority for the
@@ -1168,7 +1168,7 @@ func (g *dguest) statfs(dirfd int64, pathAddr, bufAddr uint64) int64 {
 	magic := fsMagic(fsp)
 	if magic == lxOverlayfsMagic && s.ftype != 0 {
 		// A non-pseudo path reports the real backing host filesystem's type, not
-		// laboon's internal overlay: the guest sees an ordinary filesystem (ext4,
+		// qqbox's internal overlay: the guest sees an ordinary filesystem (ext4,
 		// xfs, btrfs, tmpfs...), so a container runtime's overlay storage driver,
 		// which refuses to stack overlay on overlayfs, proceeds as it would on a
 		// real host. Pseudo mounts keep their own magic below.

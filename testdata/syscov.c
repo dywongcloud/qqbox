@@ -1,7 +1,7 @@
 // syscov.c -- syscall coverage probe. Calls each audited Linux syscall with
 // benign arguments and prints one line "NAME code" per call, where code is the
 // errno (0 = served, 38 = ENOSYS = not implemented on this host). The same
-// static-PIE musl binary runs under laboon on every host OS, so a diff of its
+// static-PIE musl binary runs under qqbox on every host OS, so a diff of its
 // output across linux/darwin/windows is the authoritative coverage matrix.
 //
 // It never asserts a result value, only whether the syscall reached a handler:

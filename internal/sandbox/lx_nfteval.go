@@ -20,7 +20,7 @@ const (
 // nftables expression evaluation: the verdict and NAT half of the firewall. A
 // base chain's rules are a sequence of expressions that load packet fields into
 // registers, compare and mask them, and -- when every match in a rule passes --
-// apply statements (a verdict, masquerade, dnat). laboon services connections,
+// apply statements (a verdict, masquerade, dnat). qqbox services connections,
 // not frames, so it evaluates a chain against a synthetic packet built from a
 // connection's 5-tuple at the connect/accept/egress/publish points, rather than
 // on a per-frame hook path. Expression encodings were taken from `nft --debug`.

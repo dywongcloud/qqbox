@@ -4,7 +4,7 @@ package sandbox
 
 // process_vm_readv / process_vm_writev: a flat byte-stream copy between the
 // caller's local_iov and another process's remote_iov. A guest that is itself a
-// laboon supervisor uses these to read and write its own stub's memory, so
+// qqbox supervisor uses these to read and write its own stub's memory, so
 // nesting needs them served across guest processes.
 //
 // The caller's own (local) memory is always reachable through its channel; the

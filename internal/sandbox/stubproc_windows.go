@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	winstub "github.com/samyfodil/laboon/stub/windows"
+	winstub "github.com/tencent/qqbox/stub/windows"
 )
 
 // The stub runs in a less-privileged AppContainer (LPAC) with no
@@ -23,7 +23,7 @@ import (
 // its own. It sees only the handles the supervisor lets it inherit, and a job
 // object with kill-on-close ends it with the supervisor.
 
-const appContainerName = "laboon.stub"
+const appContainerName = "qqbox.stub"
 
 var (
 	modUserenv  = windows.NewLazySystemDLL("userenv.dll")
@@ -77,7 +77,7 @@ var stubPath = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir = filepath.Join(dir, "laboon")
+	dir = filepath.Join(dir, "qqbox")
 	p := filepath.Join(dir, "stub-"+hex.EncodeToString(sum[:8])+".exe")
 	if _, err := os.Stat(p); err == nil {
 		return p, nil

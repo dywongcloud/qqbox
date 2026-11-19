@@ -1,4 +1,4 @@
-name: literbox-witness
+name: qqbox-witness
 services:
   web:
     image: alpine:3.20

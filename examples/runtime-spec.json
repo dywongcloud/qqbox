@@ -10,7 +10,7 @@
     "capabilities": {"bounding": ["CAP_NET_ADMIN"], "effective": ["CAP_NET_ADMIN"]},
     "rlimits": [{"type": "RLIMIT_NOFILE", "soft": 1024, "hard": 4096}],
     "noNewPrivileges": true,
-    "apparmorProfile": "laboon-default",
+    "apparmorProfile": "qqbox-default",
     "oomScoreAdj": 0
   },
   "root": {"path": "rootfs", "readonly": true},
@@ -22,7 +22,7 @@
     {"destination": "/host", "type": "bind", "source": "/tmp/host", "options": ["ro", "rbind"]}
   ],
   "hooks": {"prestart": [{"path": "/usr/bin/true", "args": ["true"]}]},
-  "annotations": {"org.laboon.witness": "true"},
+  "annotations": {"org.qqbox.witness": "true"},
   "linux": {
     "namespaces": [{"type": "pid"}, {"type": "network"}],
     "uidMappings": [{"containerID": 0, "hostID": 1000, "size": 1}],

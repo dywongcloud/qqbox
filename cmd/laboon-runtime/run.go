@@ -11,41 +11,41 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
-const defaultStateRoot = "/run/laboon-runtime"
+const defaultStateRoot = "/run/qqbox-runtime"
 
-// specOptions maps an OCI bundle to the laboon run: the program is the first
+// specOptions maps an OCI bundle to the qqbox run: the program is the first
 // process arg, resolved inside the bundle's rootfs, with its env, working
 // directory, user and bind mounts.
-func specOptions(s *Spec, rootfs string, stdin io.Reader, stdout, stderr io.Writer) (string, []laboon.Option) {
+func specOptions(s *Spec, rootfs string, stdin io.Reader, stdout, stderr io.Writer) (string, []qqbox.Option) {
 	prog, opts := procOptions(s.Process, rootfs, stdin, stdout, stderr)
 	for _, m := range s.Mounts {
 		if m.Type == "bind" && m.Source != "" {
-			opts = append(opts, laboon.WithMount(m.Source, m.Destination))
+			opts = append(opts, qqbox.WithMount(m.Source, m.Destination))
 		}
 	}
 	return prog, opts
 }
 
-// procOptions maps an OCI process (the bundle's or an exec's) to a laboon run on
+// procOptions maps an OCI process (the bundle's or an exec's) to a qqbox run on
 // rootfs: program resolved on PATH, plus args, env, cwd, user and stdio.
-func procOptions(p *Process, rootfs string, stdin io.Reader, stdout, stderr io.Writer) (string, []laboon.Option) {
+func procOptions(p *Process, rootfs string, stdin io.Reader, stdout, stderr io.Writer) (string, []qqbox.Option) {
 	prog := lookPath(rootfs, p.Args[0], p.Env)
-	opts := []laboon.Option{
-		laboon.WithRoot(rootfs),
-		laboon.WithArgs(p.Args[1:]...),
-		laboon.WithStdio(stdin, stdout, stderr),
+	opts := []qqbox.Option{
+		qqbox.WithRoot(rootfs),
+		qqbox.WithArgs(p.Args[1:]...),
+		qqbox.WithStdio(stdin, stdout, stderr),
 	}
 	if len(p.Env) > 0 {
-		opts = append(opts, laboon.WithEnv(p.Env...))
+		opts = append(opts, qqbox.WithEnv(p.Env...))
 	}
 	if p.Cwd != "" {
-		opts = append(opts, laboon.WithDir(p.Cwd))
+		opts = append(opts, qqbox.WithDir(p.Cwd))
 	}
 	if u := p.User; u.UID != 0 || u.GID != 0 {
-		opts = append(opts, laboon.WithUser(fmt.Sprintf("%d:%d", u.UID, u.GID)))
+		opts = append(opts, qqbox.WithUser(fmt.Sprintf("%d:%d", u.UID, u.GID)))
 	}
 	return prog, opts
 }
@@ -74,7 +74,7 @@ func lookPath(rootfs, name string, env []string) string {
 			return cand
 		}
 	}
-	return name // not found; laboon reports ENOENT
+	return name // not found; qqbox reports ENOENT
 }
 
 // cmdRun runs a bundle to completion and returns its exit status, as `runc run`
@@ -97,7 +97,7 @@ func cmdRun(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	prog, opts := specOptions(s, rootfs, os.Stdin, os.Stdout, os.Stderr)
-	code, err := laboon.Run(ctx, prog, opts...)
+	code, err := qqbox.Run(ctx, prog, opts...)
 	if err != nil {
 		die(err)
 	}

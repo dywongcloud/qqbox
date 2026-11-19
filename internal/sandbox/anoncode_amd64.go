@@ -2,7 +2,7 @@
 
 package sandbox
 
-import "github.com/samyfodil/laboon/internal/rewrite"
+import "github.com/tencent/qqbox/internal/rewrite"
 
 // anonAnalyze finds the syscall sites of a page of code made at run time
 // (anoncode.go) and the targets of its branches out of it.

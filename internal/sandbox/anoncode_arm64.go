@@ -5,7 +5,7 @@ package sandbox
 import (
 	"encoding/binary"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // anonAnalyze finds the svc sites of a page of code made at run time

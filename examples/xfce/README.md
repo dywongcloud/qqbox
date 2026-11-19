@@ -1,6 +1,6 @@
-# XFCE desktop inside laboon
+# XFCE desktop inside qqbox
 
-A reproducible, witnessed XFCE 4.18 session running inside a laboon sandbox on
+A reproducible, witnessed XFCE 4.18 session running inside a qqbox sandbox on
 macOS/arm64, served over VNC. `xfce-desktop-native.png` shows the native
 `xfce4-terminal` rendering real shell output; `xfce-terminal-typed.png` shows a
 command typed through VNC, its echoed input, its output and the prompt. The
@@ -18,9 +18,9 @@ the control plane but cannot execute guests yet (see `docs/PORT_STATUS.md`).
 ## Build
 
 ```sh
-go build -o ./laboon ./cmd/laboon
-./laboon build -net -t laboon-xfce:fixed \
-  -f examples/xfce/Dockerfile -o /tmp/laboon-xfce.tar examples/xfce
+go build -o ./qqbox ./cmd/qqbox
+./qqbox build -net -t qqbox-xfce:fixed \
+  -f examples/xfce/Dockerfile -o /tmp/qqbox-xfce.tar examples/xfce
 ```
 
 `-net` is required: the `RUN apk add` step needs outbound network. The image is
@@ -30,9 +30,9 @@ Chromium 131, fonts, X diagnostics and an opt-in PTY-free command console.
 ## Run
 
 ```sh
-mkdir -p /tmp/laboon-xfce-out
-./laboon -image laboon-xfce:fixed -net \
-  -e VNC_PORT=5905 -mount /tmp/laboon-xfce-out:/out \
+mkdir -p /tmp/qqbox-xfce-out
+./qqbox -image qqbox-xfce:fixed -net \
+  -e VNC_PORT=5905 -mount /tmp/qqbox-xfce-out:/out \
   sh /usr/local/bin/start-xfce.sh
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
@@ -47,7 +47,7 @@ the host directory. The startup script starts `x11vnc` immediately after Xvfb
 
 ### 1. Terminal: "Failed to execute child / Failed to open PTY: Not a tty"
 
-**Root cause (found by the adversarial swarm):** PTYs work in laboon —
+**Root cause (found by the adversarial swarm):** PTYs work in qqbox —
 `pty.openpty()` and `pty.fork()` both succeed, `/dev/ptmx` and a `devpts` mount
 exist. The failure is one unhandled ioctl: Linux `TIOCPKT` (`0x5420`) was missing
 from `internal/sandbox/lx_termios.go` and from the `ttyIoctl`/`ptmxIoctl`
@@ -123,16 +123,16 @@ rc=134 with no PNG). `--version` and a headless `--screenshot` both work.
 
 ## Security note: VNC is unauthenticated
 
-`x11vnc` is started with `-nopw` (security type `None`). Under laboon's `-net`
+`x11vnc` is started with `-nopw` (security type `None`). Under qqbox's `-net`
 port forwarding that listener is bound to the host's wildcard
 (`*:5905`, IPv4 and IPv6), so it is reachable from the LAN — an adversarial
 verifier confirmed an RFB handshake against the host's LAN address. This does
-**not** cross a laboon boundary (the console runs as an emulated guest root;
+**not** cross a qqbox boundary (the console runs as an emulated guest root;
 the host supervisor is uid 501), but anyone on the LAN can drive the guest
 console while it is running.
 
 `-localhost` is **not** a valid fix: a live probe showed it silently breaks
-laboon's `-net` port forwarding (host connections are refused). To close it,
+qqbox's `-net` port forwarding (host connections are refused). To close it,
 start x11vnc with a password:
 
 ```sh
@@ -142,13 +142,13 @@ x11vnc -display :99 -rfbauth /path/to/vncpasswd -rfbport 5905 ...
 then connect with `vncviewer -passwd /path/to/vncpasswd 127.0.0.1:5905`. The
 shipped default stays passwordless so the existing local connection keeps
 working; set a password before exposing the desktop on an untrusted network.
-This is a deployment choice, not a laboon security invariant.
+This is a deployment choice, not a qqbox security invariant.
 
-## Known remaining warnings (expected under laboon)
+## Known remaining warnings (expected under qqbox)
 
 Chromium shows an `--no-sandbox` unsupported-flag infobar (cosmetic).
 `xfce4-power-manager` CRITICALs, `xfdesktop` GLib-CRITICALs, missing
-`/sys/class/backlight`, UPower, PolicyKit and DPMS all stem from laboon's
+`/sys/class/backlight`, UPower, PolicyKit and DPMS all stem from qqbox's
 synthetic `/sys` and Xvfb and do not affect the desktop. Guest `/dev/pts`
 enumeration is synthetic (no slave nodes listed) though open-by-path works.
 

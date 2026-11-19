@@ -30,9 +30,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/laboon* dist/ 2>/dev/null || true
-          cp target/${{ matrix.target }}/release/laboond* dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/qqbox* dist/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/qqboxd* dist/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
-          name: literbox-${{ matrix.target }}
+          name: qqbox-${{ matrix.target }}
           path: dist/

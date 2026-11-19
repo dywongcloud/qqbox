@@ -15,7 +15,7 @@ import (
 	"github.com/go-webgpu/goffi/types"
 )
 
-// Shorthands for the type descriptors laboon uses (all libSystem calls here
+// Shorthands for the type descriptors qqbox uses (all libSystem calls here
 // take and return integers, pointers, or void).
 var (
 	ffiPtr  = types.PointerTypeDescriptor
@@ -32,7 +32,7 @@ type ffiCall struct {
 	fn  unsafe.Pointer
 }
 
-// libSystem is the one library laboon reaches through FFI.
+// libSystem is the one library qqbox reaches through FFI.
 func ffiOpenLibSystem() (unsafe.Pointer, error) {
 	return ffi.LoadLibrary("/usr/lib/libSystem.B.dylib")
 }

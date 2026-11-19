@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// imageCreate (docker pull) streams a minimal progress record. laboon pulls the
+// imageCreate (docker pull) streams a minimal progress record. qqbox pulls the
 // image lazily on run and caches it, so this only satisfies the client.
 func (d *daemon) imageCreate(w http.ResponseWriter, r *http.Request) {
 	ref := r.URL.Query().Get("fromImage")

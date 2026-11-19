@@ -8,12 +8,12 @@ import (
 	"sync"
 )
 
-// apiVersion is the Docker Engine API version laboond reports; a client
+// apiVersion is the Docker Engine API version qqboxd reports; a client
 // negotiates down to its own if older.
 const (
 	apiVersion    = "1.43"
 	minAPIVersion = "1.24"
-	laboonVersion = "0.1.0"
+	qqboxVersion = "0.1.0"
 )
 
 // daemon holds the running containers and whether the network is allowed.

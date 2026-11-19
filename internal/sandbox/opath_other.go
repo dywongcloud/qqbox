@@ -5,7 +5,7 @@ package sandbox
 import (
 	"os"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // O_PATH (and executing a descriptor whose name is gone) is a Linux feature;

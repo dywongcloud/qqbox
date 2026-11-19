@@ -11,7 +11,7 @@ import (
 
 // cgStore is the sandbox's writable cgroup v2 hierarchy under /sys/fs/cgroup. A
 // container runtime (crun under podman) creates the container's cgroup with
-// mkdir and configures it through its control files. laboon enforces no real
+// mkdir and configures it through its control files. qqbox enforces no real
 // limits, so the hierarchy is virtual: mkdir/rmdir add and remove cgroups, a
 // control-file write is recorded and read back, and nothing is throttled. It is
 // one hierarchy shared by every process of the sandbox — a cgroup one process

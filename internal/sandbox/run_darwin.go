@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
-	macstub "github.com/samyfodil/laboon/stub/macos"
+	"github.com/tencent/qqbox/internal/rewrite"
+	macstub "github.com/tencent/qqbox/stub/macos"
 )
 
 // The macOS supervisor is a syscall broker: it coordinates the guest processes
@@ -130,7 +130,7 @@ func (g *dguest) sendRewrite(hint uint64, addrs []uint64) {
 // Run executes the static linux/arm64 ELF at path and returns its exit status.
 func Run(ctx context.Context, path string, cfg Config) (int, error) {
 	if err := initSync(); err != nil {
-		return 0, fmt.Errorf("laboon: os_sync unavailable (needs macOS 14.4+): %w", err)
+		return 0, fmt.Errorf("qqbox: os_sync unavailable (needs macOS 14.4+): %w", err)
 	}
 	if cfg.Cache == nil {
 		cfg.Cache = defaultCache()
@@ -148,13 +148,13 @@ func Run(ctx context.Context, path string, cfg Config) (int, error) {
 			return 0, err
 		}
 		if cfg.Root, err = filepath.EvalSymlinks(abs); err != nil {
-			return 0, fmt.Errorf("laboon: root: %w", err)
+			return 0, fmt.Errorf("qqbox: root: %w", err)
 		}
 	}
 	gp := path
 	guestPath := guestToHost(cfg.Root, gp)
 	if _, err := os.Stat(guestPath); err != nil {
-		return 0, fmt.Errorf("laboon: guest program: %w", err)
+		return 0, fmt.Errorf("qqbox: guest program: %w", err)
 	}
 	// Follow a #! script chain to its interpreter before the ELF load, as
 	// execve does: an OCI ENTRYPOINT is often docker-entrypoint.sh (#!/bin/sh),
@@ -163,13 +163,13 @@ func Run(ctx context.Context, path string, cfg Config) (int, error) {
 	for depth := 0; ; depth++ {
 		head, err := headBytes(guestPath, binprmBuf)
 		if err != nil {
-			return 0, fmt.Errorf("laboon: read guest program: %w", err)
+			return 0, fmt.Errorf("qqbox: read guest program: %w", err)
 		}
 		if len(head) < 2 || head[0] != '#' || head[1] != '!' {
 			break
 		}
 		if depth >= maxInterpDepth {
-			return 0, fmt.Errorf("laboon: %s: too many #! levels", path)
+			return 0, fmt.Errorf("qqbox: %s: too many #! levels", path)
 		}
 		line := head[2:]
 		if nl := bytes.IndexByte(line, '\n'); nl >= 0 {
@@ -177,7 +177,7 @@ func Run(ctx context.Context, path string, cfg Config) (int, error) {
 		}
 		interp, arg := splitShebang(string(line))
 		if interp == "" {
-			return 0, fmt.Errorf("laboon: %s: bad #! interpreter", gp)
+			return 0, fmt.Errorf("qqbox: %s: bad #! interpreter", gp)
 		}
 		np := []string{interp}
 		if arg != "" {
@@ -191,7 +191,7 @@ func Run(ctx context.Context, path string, cfg Config) (int, error) {
 		gp = interp
 		guestPath = guestToHost(cfg.Root, interp)
 		if _, err := os.Stat(guestPath); err != nil {
-			return 0, fmt.Errorf("laboon: #! interpreter %s: %w", interp, err)
+			return 0, fmt.Errorf("qqbox: #! interpreter %s: %w", interp, err)
 		}
 	}
 
@@ -208,7 +208,7 @@ func Run(ctx context.Context, path string, cfg Config) (int, error) {
 	// pool or reloc table — common in real binaries).
 	mainSites, err := computeSites(cfg.Cache, guestPath)
 	if err != nil {
-		return 0, fmt.Errorf("laboon: analyze guest: %w", err)
+		return 0, fmt.Errorf("qqbox: analyze guest: %w", err)
 	}
 	rtmp, err := newRunTmp()
 	if err != nil {
@@ -224,7 +224,7 @@ func Run(ctx context.Context, path string, cfg Config) (int, error) {
 	if interpHost != "" {
 		interpSites, err := computeSites(cfg.Cache, interpHost)
 		if err != nil {
-			return 0, fmt.Errorf("laboon: analyze dynamic linker: %w", err)
+			return 0, fmt.Errorf("qqbox: analyze dynamic linker: %w", err)
 		}
 		p, cleanInterp, err := writeSites(rtmp, interpSites)
 		if err != nil {
@@ -750,7 +750,7 @@ func signedStub() (string, error) {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	dir = filepath.Join(dir, "laboon")
+	dir = filepath.Join(dir, "qqbox")
 	sum := sha256.Sum256(bin)
 	path := filepath.Join(dir, "stub-"+hex.EncodeToString(sum[:8]))
 	if _, err := os.Stat(path); err == nil {
@@ -800,7 +800,7 @@ func signedHvfStub() (string, error) {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	dir = filepath.Join(dir, "laboon")
+	dir = filepath.Join(dir, "qqbox")
 	sum := sha256.Sum256(bin)
 	path := filepath.Join(dir, "hvfstub-"+hex.EncodeToString(sum[:8]))
 	if _, err := os.Stat(path); err == nil {
@@ -923,7 +923,7 @@ func headBytes(p string, n int) ([]byte, error) {
 func resolveInterp(elfPath, root string) (string, error) {
 	f, err := elf.Open(elfPath)
 	if err != nil {
-		return "", fmt.Errorf("laboon: read guest ELF: %w", err)
+		return "", fmt.Errorf("qqbox: read guest ELF: %w", err)
 	}
 	defer f.Close()
 
@@ -934,7 +934,7 @@ func resolveInterp(elfPath, root string) (string, error) {
 		}
 		b := make([]byte, p.Filesz)
 		if _, err := p.ReadAt(b, 0); err != nil {
-			return "", fmt.Errorf("laboon: read PT_INTERP: %w", err)
+			return "", fmt.Errorf("qqbox: read PT_INTERP: %w", err)
 		}
 		interp = strings.TrimRight(string(b), "\x00")
 		break
@@ -952,7 +952,7 @@ func resolveInterp(elfPath, root string) (string, error) {
 		host = abs
 	}
 	if _, err := os.Stat(host); err != nil {
-		return "", fmt.Errorf("laboon: dynamic linker %q: %w", interp, err)
+		return "", fmt.Errorf("qqbox: dynamic linker %q: %w", interp, err)
 	}
 	return host, nil
 }

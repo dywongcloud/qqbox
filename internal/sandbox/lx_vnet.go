@@ -354,7 +354,7 @@ func vaddrOf(raw []byte, sk *dsock, connect bool) (ip uint32, port uint16, v6 bo
 	ip, port, v6, ok := parseSock(raw)
 	switch {
 	case !ok && connect:
-		return 0, 0, false, lxENETUNREACH // a global IPv6 address laboon does not model
+		return 0, 0, false, lxENETUNREACH // a global IPv6 address qqbox does not model
 	case !ok:
 		return 0, 0, false, lxEADDRNOTAVAIL
 	case !v6 && saFamily(raw) == lxAFInet6 && sk.v6onlyLocked() && connect:

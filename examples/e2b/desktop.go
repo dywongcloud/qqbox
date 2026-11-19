@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/samyfodil/laboon"
+	"github.com/tencent/qqbox"
 )
 
 // DesktopImage is a prebuilt XFCE image, so the desktop boots without installing
@@ -75,12 +75,12 @@ func (d *Desktop) Run(ctx context.Context, actions []Action) ([]byte, error) {
 	}
 	defer os.RemoveAll(out)
 
-	code, rerr := laboon.RunImage(ctx, img,
-		laboon.WithEntrypoint("bash", "-c", desktopScript(w, h, boot, actions)),
-		laboon.WithMount(out, "/out"),
-		laboon.WithNet(),
-		laboon.WithUser("root"),      // prebuilt desktop images often default to a non-root user
-		laboon.WithStderr(os.Stderr), // apt / session progress for the caller
+	code, rerr := qqbox.RunImage(ctx, img,
+		qqbox.WithEntrypoint("bash", "-c", desktopScript(w, h, boot, actions)),
+		qqbox.WithMount(out, "/out"),
+		qqbox.WithNet(),
+		qqbox.WithUser("root"),      // prebuilt desktop images often default to a non-root user
+		qqbox.WithStderr(os.Stderr), // apt / session progress for the caller
 	)
 	if rerr != nil {
 		return nil, rerr

@@ -1,13 +1,13 @@
-package laboon
+package qqbox
 
 import (
 	"io"
 	"os"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/rewrite"
-	"github.com/samyfodil/laboon/internal/sandbox"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/rewrite"
+	"github.com/tencent/qqbox/internal/sandbox"
 )
 
 // An Option configures a run.
@@ -189,7 +189,7 @@ type (
 	WinSize  = sandbox.WinSize
 )
 
-// WithTerminal runs the program on a pseudo-terminal and bridges it to t: laboon
+// WithTerminal runs the program on a pseudo-terminal and bridges it to t: qqbox
 // reads t for the program's input and writes the program's output to t, so a
 // confined interactive shell (or any program) is driven through t — a net.Conn,
 // a websocket adapter, a pair of pipes. It overrides WithStdio. A t that also

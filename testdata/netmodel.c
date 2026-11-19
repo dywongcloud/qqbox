@@ -1,4 +1,4 @@
-// Proves laboon models a non-host netns's addresses: unshare a fresh network
+// Proves qqbox models a non-host netns's addresses: unshare a fresh network
 // namespace, add 10.99.0.1/24 to lo with RTM_NEWADDR, then confirm getifaddrs
 // (RTM_GETADDR under the hood) reports it. Under the old ack-and-fake netlink a
 // fresh netns reported only the host's loopback, so the added address was

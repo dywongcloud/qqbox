@@ -22,7 +22,7 @@ const (
 )
 
 // Stub layout; see stub/zig/stub.zig and stub/build.sh. Guest mappings may not
-// touch this window. It defaults to the primary window; a nested laboon's stub
+// touch this window. It defaults to the primary window; a nested qqbox's stub
 // is a PIE the outer places at a free high window, and adoptWindow sets these
 // to that base once the stub reports it at ready (stubwin_linux.go). A process
 // uses one stub, so one window.
@@ -39,7 +39,7 @@ const stubWinSize = 0x2000000000
 // wait blocks until the stub posts a request. It spins first (catching a
 // request without the cost of a park) and then parks on the futex. How long it
 // spins is adaptive -- learned from how fast this slot's stub keeps answering
-// -- unless LABOON_SPIN pins a fixed count. See adaptspin.go.
+// -- unless QQBOX_SPIN pins a fixed count. See adaptspin.go.
 func (c *channel) wait() error {
 	if !adaptive {
 		for range fixedSpin {

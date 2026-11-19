@@ -9,7 +9,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 // ErrKilled reports that the kernel killed the stub because the backstop

@@ -4,12 +4,12 @@
 #include <fcntl.h>
 int main(void) {
 	char b[64];
-	int fd = open("/laboonbind/hello", O_RDONLY);
+	int fd = open("/qqboxbind/hello", O_RDONLY);
 	if (fd < 0) return 1;
 	int n = read(fd, b, sizeof b);
 	close(fd);
 	if (n <= 0) return 2;
-	int w = open("/laboonbind/out", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	int w = open("/qqboxbind/out", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (w < 0) return 3;
 	if (write(w, b, n) != n) return 4;
 	close(w);

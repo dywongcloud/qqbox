@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // open(2) semantics over the overlay: openat/openat2 flags, O_PATH and
@@ -508,7 +508,7 @@ func (g *dguest) openVirtualDev(gp string, flags int64) int64 {
 	}
 	host, full, ok := hostDevByRdev(a.Rdev)
 	if !ok {
-		return sErr(lxENXIO) // a device laboon does not back
+		return sErr(lxENXIO) // a device qqbox does not back
 	}
 	f, err := hostDevOpen(host, goOpenFlags(flags)&^(os.O_CREATE|os.O_TRUNC|os.O_EXCL))
 	if err != nil {
@@ -517,7 +517,7 @@ func (g *dguest) openVirtualDev(gp string, flags int64) int64 {
 	return g.installD(&dfile{f: f, gp: gp, stub: -1, full: full}, flags)
 }
 
-// hostDevByRdev maps a Linux character-device number to the host device laboon
+// hostDevByRdev maps a Linux character-device number to the host device qqbox
 // serves it with (full reads as zeros but fails writes with ENOSPC).
 func hostDevByRdev(rdev uint64) (host string, full, ok bool) {
 	switch rdev {

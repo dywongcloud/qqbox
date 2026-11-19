@@ -29,7 +29,7 @@ int main(void) {
 	close(s);
 
 	struct sockaddr_un a;
-	socklen_t al = abstractAddr(&a, "laboon-netns-probe");
+	socklen_t al = abstractAddr(&a, "qqbox-netns-probe");
 	int hs = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (hs < 0 || bind(hs, (struct sockaddr *)&a, al) != 0) { perror("bind host abstract"); return 15; }
 

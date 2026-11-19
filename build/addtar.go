@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // archiveSuffixes are the local-archive extensions ADD auto-extracts, with the

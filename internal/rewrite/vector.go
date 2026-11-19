@@ -16,7 +16,7 @@ import (
 // nothing to detect. The scalar path is always correct.
 //
 // The only control is an on/off switch, for benchmarking the two paths and for
-// a host whose SIMD is suspect. It defaults on; LABOON_NO_VECTOR=1 in the
+// a host whose SIMD is suspect. It defaults on; QQBOX_NO_VECTOR=1 in the
 // environment turns it off before the first scan.
 
 var (
@@ -26,7 +26,7 @@ var (
 
 func vecInit() {
 	vecOnce.Do(func() {
-		if v, ok := os.LookupEnv("LABOON_NO_VECTOR"); ok && v != "0" && v != "" {
+		if v, ok := os.LookupEnv("QQBOX_NO_VECTOR"); ok && v != "0" && v != "" {
 			vecOff.Store(true)
 		}
 	})

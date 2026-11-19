@@ -6,7 +6,7 @@ import "golang.org/x/sys/unix"
 
 // -p port publishing, realized from the firewall. A container runtime publishes
 // a container port on the host by installing a DNAT rule (host:P -> container
-// addr:port) in the host namespace's nftables ruleset. laboon has no real host
+// addr:port) in the host namespace's nftables ruleset. qqbox has no real host
 // datapath into a container -- the supervisor is the host side of the virtual
 // network -- so it realizes each such rule by listening on the real host port
 // and relaying an accepted connection to the container's listener on the virtual

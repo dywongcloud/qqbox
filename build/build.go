@@ -18,20 +18,20 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/sandbox"
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/sandbox"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // Options configure a build.
 type Options struct {
 	Context   string            // build-context directory for COPY/ADD (default ".")
-	Tag       string            // reference to give the image (default "laboon-build:latest")
+	Tag       string            // reference to give the image (default "qqbox-build:latest")
 	Platform  string            // "linux/amd64" or "linux/arm64"; empty is the host's
 	Output    string            // path to write the image tarball (docker load format)
 	Target    string            // build only up to this named stage; empty is the last
 	Net       bool              // allow RUN steps to reach the network
-	Store     bool              // also place the image in the oci cache, so laboon -image <tag> runs it
+	Store     bool              // also place the image in the oci cache, so qqbox -image <tag> runs it
 	BuildArgs map[string]string // --build-arg values, overriding ARG defaults
 	CacheDir  string            // oci image cache; empty uses the default
 	Cache     Cache             // build layer cache; nil disables step caching
@@ -71,7 +71,7 @@ func Build(ctx context.Context, dockerfile io.Reader, opt Options) (v1.Hash, err
 		opt.Context = "."
 	}
 	if opt.Tag == "" {
-		opt.Tag = "laboon-build:latest"
+		opt.Tag = "qqbox-build:latest"
 	}
 	ref, err := name.ParseReference(opt.Tag)
 	if err != nil {
@@ -84,7 +84,7 @@ func Build(ctx context.Context, dockerfile io.Reader, opt Options) (v1.Hash, err
 		}
 	}
 
-	work, err := os.MkdirTemp("", "laboon-build-")
+	work, err := os.MkdirTemp("", "qqbox-build-")
 	if err != nil {
 		return zero, err
 	}
@@ -118,7 +118,7 @@ func Build(ctx context.Context, dockerfile io.Reader, opt Options) (v1.Hash, err
 		return zero, err
 	}
 	// Stamp the platform so the image is a valid linux/<arch> image and the cache
-	// keys it by the arch laboon runs (the host's, unless --platform overrode it).
+	// keys it by the arch qqbox runs (the host's, unless --platform overrode it).
 	arch := runtime.GOARCH
 	if _, a, ok := strings.Cut(opt.Platform, "/"); ok {
 		arch = a

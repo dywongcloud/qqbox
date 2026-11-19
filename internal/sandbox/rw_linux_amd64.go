@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 const (
@@ -27,7 +27,7 @@ func archAuxv() []uint64 { return nil }
 // the signal altstack, so no servicing ever runs on the guest's own stack. The
 // stealing trampoline instead services on the guest stack, which corrupts a
 // guest whose thread stacks are small and adjacently packed with no guard page
-// between them -- a nested laboon's Go goroutine stacks -- by underflowing one
+// between them -- a nested qqbox's Go goroutine stacks -- by underflowing one
 // stack's servicing frames into its neighbor. fastTramp lets a test exercise
 // the trampoline. The trampoline now services on a per-thread scratch stack
 // via the stub's %gs anchor, never the guest's own stack, so it is the default.
@@ -36,7 +36,7 @@ var fastTramp = true
 func (g *dguest) newRewriter(base, size uint64) codeRewriter {
 	// The %gs trampoline anchor is available only to the outermost stub, which
 	// owns the real %gs: its trampoline services on a per-thread scratch stack
-	// reached through %gs, never the guest's own stack. A nested laboon's stub
+	// reached through %gs, never the guest's own stack. A nested qqbox's stub
 	// cannot own %gs (its own %gs is the outer's anchor, and its
 	// arch_prctl(ARCH_SET_GS) is virtualized by the outer), so its guests take
 	// the trap path, which services on the signal altstack and composes to any

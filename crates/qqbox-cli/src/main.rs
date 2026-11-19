@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "laboon",
+    name = "qqbox",
     version,
     about = "Run untrusted Linux programs and OCI containers safely, without a VM"
 )]
@@ -115,7 +115,7 @@ fn main() {
     let cli = Cli::parse();
     let outcome = dispatch(cli);
     if let Err(message) = outcome {
-        eprintln!("laboon: {message}");
+        eprintln!("qqbox: {message}");
         std::process::exit(1);
     }
 }
@@ -123,19 +123,19 @@ fn main() {
 fn dispatch(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::Version => {
-            println!("laboon {}", env!("CARGO_PKG_VERSION"));
-            println!("host: {}", laboon::HostOs::current().as_str());
-            println!("arch: {}", laboon::Arch::host().as_str());
-            println!("oci: {}", laboon::oci::runtime::SUPPORTED_OCI_VERSION);
+            println!("qqbox {}", env!("CARGO_PKG_VERSION"));
+            println!("host: {}", qqbox::HostOs::current().as_str());
+            println!("arch: {}", qqbox::Arch::host().as_str());
+            println!("oci: {}", qqbox::oci::runtime::SUPPORTED_OCI_VERSION);
         }
         Commands::Invariants => {
-            for statement in laboon::security::audit() {
+            for statement in qqbox::security::audit() {
                 println!("{statement}");
             }
         }
         Commands::Abi => {
-            laboon::zig::validate_abi().map_err(|e| e.to_string())?;
-            println!("{}", laboon::zig::abi_layout());
+            qqbox::zig::validate_abi().map_err(|e| e.to_string())?;
+            println!("{}", qqbox::zig::abi_layout());
         }
         Commands::AddressSpace => {
             println!("decision: one address space per sandbox instance");
@@ -157,7 +157,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             reject_rwx,
             max_memory,
         } => {
-            let mut opts = laboon::Options::new()
+            let mut opts = qqbox::Options::new()
                 .with_args(&args.iter().map(String::as_str).collect::<Vec<_>>())
                 .with_no_rewrite(no_rewrite)
                 .with_reject_rwx(reject_rwx);
@@ -185,9 +185,9 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 opts = opts.with_labels(labels);
             }
             let (prog, cfg) =
-                laboon::run::program_config(&program, &opts).map_err(|e| e.to_string())?;
-            let ctx = laboon::Context::default();
-            let plan = laboon::sandbox::prepare(&ctx, &prog, &cfg).map_err(|e| e.to_string())?;
+                qqbox::run::program_config(&program, &opts).map_err(|e| e.to_string())?;
+            let ctx = qqbox::Context::default();
+            let plan = qqbox::sandbox::prepare(&ctx, &prog, &cfg).map_err(|e| e.to_string())?;
             let mut value = serde_json::to_value(&plan).unwrap_or_default();
             value["backend"] = serde_json::json!(
                 "native guest execution is not wired on this host; the control plane above is live"
@@ -203,20 +203,20 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             pull,
             args,
         } => {
-            let mut opts = laboon::Options::new()
+            let mut opts = qqbox::Options::new()
                 .with_args(&args.iter().map(String::as_str).collect::<Vec<_>>())
                 .with_pull(pull);
             if let Some(p) = platform {
                 opts = opts.with_platform(&p);
             }
-            let ctx = laboon::Context::default();
-            match laboon::run_image(&ctx, &reference, &opts) {
+            let ctx = qqbox::Context::default();
+            match qqbox::run_image(&ctx, &reference, &opts) {
                 Ok(code) => println!("exit: {code}"),
                 Err(e) => {
                     println!("image: {reference}");
                     println!(
                         "ref: {}",
-                        laboon::oci::ImageRef::parse(&reference)
+                        qqbox::oci::ImageRef::parse(&reference)
                             .map_err(|x| x.to_string())?
                             .name()
                     );
@@ -234,8 +234,8 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                     file.display()
                 ));
             }
-            let config = laboon::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
-            let cfg = laboon::oci::to_run_config(&config).map_err(|e| e.to_string())?;
+            let config = qqbox::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
+            let cfg = qqbox::oci::to_run_config(&config).map_err(|e| e.to_string())?;
             let value = serde_json::json!({
                 "architecture": config.architecture,
                 "os": config.os,
@@ -275,8 +275,8 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         }
         Commands::OciInspect { file } => {
             let bytes = read(&file)?;
-            let config = laboon::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
-            let cfg = laboon::oci::to_run_config(&config).map_err(|e| e.to_string())?;
+            let config = qqbox::oci::parse_image_config(&bytes).map_err(|e| e.to_string())?;
+            let cfg = qqbox::oci::to_run_config(&config).map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&config).unwrap_or_default()
@@ -293,12 +293,12 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::PortsCheck { specs } => {
             let mut published = Vec::new();
             for spec in &specs {
-                published.push(laboon::net::parse_published_port(spec).map_err(|e| e.to_string())?);
+                published.push(qqbox::net::parse_published_port(spec).map_err(|e| e.to_string())?);
             }
-            let forwarder = laboon::net::Forwarder::new(&published).map_err(|e| e.to_string())?;
+            let forwarder = qqbox::net::Forwarder::new(&published).map_err(|e| e.to_string())?;
             let rules = forwarder.plan();
-            let mut denied = laboon::net::ForwardRule::from_published(
-                &laboon::net::parse_published_port("203.0.113.9:9999:9999/tcp")
+            let mut denied = qqbox::net::ForwardRule::from_published(
+                &qqbox::net::parse_published_port("203.0.113.9:9999:9999/tcp")
                     .map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?;
@@ -313,7 +313,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                     "unpublished_rule": denied,
                     "denied": forwarder.check(&denied).is_err(),
                     "wildcard_spoof_denied": forwarder.check(&wildcard_spoof).is_err(),
-                    "hosts": forwarder.hosts_file("laboon", &Default::default(), &[]),
+                    "hosts": forwarder.hosts_file("qqbox", &Default::default(), &[]),
                     "resolv_conf": forwarder.resolv_conf(&[], &[]),
                 }))
                 .unwrap_or_default()
@@ -321,24 +321,24 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         }
         Commands::ComposePlan { file } => {
             let bytes = read(&file)?;
-            let compose = laboon::compose::parse(&bytes).map_err(|e| e.to_string())?;
+            let compose = qqbox::compose::parse(&bytes).map_err(|e| e.to_string())?;
             let name = file
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "laboon".to_string());
-            let plan = laboon::compose::plan(&compose, &name).map_err(|e| e.to_string())?;
+                .unwrap_or_else(|| "qqbox".to_string());
+            let plan = qqbox::compose::plan(&compose, &name).map_err(|e| e.to_string())?;
             println!(
                 "{}",
-                laboon::compose::to_json(&plan).map_err(|e| e.to_string())?
+                qqbox::compose::to_json(&plan).map_err(|e| e.to_string())?
             );
         }
         Commands::ComposeValidate { file } => {
             let bytes = read(&file)?;
-            let compose = laboon::compose::parse(&bytes).map_err(|e| e.to_string())?;
-            laboon::compose::validate(&compose).map_err(|e| e.to_string())?;
+            let compose = qqbox::compose::parse(&bytes).map_err(|e| e.to_string())?;
+            qqbox::compose::validate(&compose).map_err(|e| e.to_string())?;
             println!("services: {}", compose.services.len());
             for (name, service) in &compose.services {
-                let labels = laboon::compose::service_label_count(&service.labels);
+                let labels = qqbox::compose::service_label_count(&service.labels);
                 println!(
                     "  {name}: image={} ports={} volumes={} labels={}",
                     service.image,
@@ -354,15 +354,15 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             RuntimeAction::Features => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&laboon::oci::runtime::features())
+                    serde_json::to_string_pretty(&qqbox::oci::runtime::features())
                         .unwrap_or_default()
                 );
             }
             RuntimeAction::Validate { file, advisory } => {
                 let bytes = read(&file)?;
-                let spec = laboon::oci::runtime::parse(&bytes).map_err(|e| e.to_string())?;
+                let spec = qqbox::oci::runtime::parse(&bytes).map_err(|e| e.to_string())?;
                 let (cfg, rejected) =
-                    laboon::oci::runtime::apply(&spec).map_err(|e| e.to_string())?;
+                    qqbox::oci::runtime::apply(&spec).map_err(|e| e.to_string())?;
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
@@ -389,7 +389,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             }
         },
         Commands::ImagePlan { reference } => {
-            let r = laboon::oci::ImageRef::parse(&reference).map_err(|e| e.to_string())?;
+            let r = qqbox::oci::ImageRef::parse(&reference).map_err(|e| e.to_string())?;
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({
                 "name": r.name(),
                 "reference": r.reference(),
@@ -399,18 +399,18 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 "digest": r.digest,
                 "manifest_url": r.manifest_url(),
                 "blob_url": r.blob_url("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
-                "platform": format!("linux/{}", laboon::Arch::host().as_str()),
+                "platform": format!("linux/{}", qqbox::Arch::host().as_str()),
             })).unwrap_or_default());
         }
         Commands::NetworkPlan { file } => {
             let bytes = read(&file)?;
-            let compose = laboon::compose::parse(&bytes).map_err(|e| e.to_string())?;
+            let compose = qqbox::compose::parse(&bytes).map_err(|e| e.to_string())?;
             let name = file
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let plan = laboon::compose::plan(&compose, &name).map_err(|e| e.to_string())?;
-            let forwarder = laboon::net::Forwarder::new(
+            let plan = qqbox::compose::plan(&compose, &name).map_err(|e| e.to_string())?;
+            let forwarder = qqbox::net::Forwarder::new(
                 &plan
                     .services
                     .iter()
@@ -423,7 +423,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 "networks": plan.networks,
                 "volumes": plan.volumes,
                 "forward_plan": forwarder.plan(),
-                "hosts": forwarder.hosts_file("laboon", &Default::default(),
+                "hosts": forwarder.hosts_file("qqbox", &Default::default(),
                     &plan.services.iter().map(|s| (s.name.clone(), std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 88, 0, 2)))).collect::<Vec<_>>()),
                 "resolv_conf": forwarder.resolv_conf(&[], &[]),
                 "order": plan.order,
@@ -436,7 +436,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             token,
             auth,
         } => {
-            let daemon = laboon::daemon::Daemon::new(token);
+            let daemon = qqbox::daemon::Daemon::new(token);
             let effective_auth = auth.or_else(|| daemon.token().map(|t| format!("Bearer {t}")));
             let bytes = match body {
                 Some(p) => read(&p)?,
@@ -454,8 +454,8 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             println!("{}", String::from_utf8_lossy(&response.body));
         }
         Commands::Daemon { listen, token } => {
-            let daemon = laboon::daemon::Daemon::new(token);
-            println!("laboond listening on {listen}");
+            let daemon = qqbox::daemon::Daemon::new(token);
+            println!("qqboxd listening on {listen}");
             println!("bearer token: {}", daemon.token().unwrap_or_default());
             daemon.serve(&listen).map_err(|e| e.to_string())?;
         }

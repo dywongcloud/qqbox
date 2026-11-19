@@ -1,15 +1,15 @@
 {
-  "artifact": "literbox-xfce-fixes",
-  "target": "laboon XFCE desktop, x11vnc TCP 5905 / verification 5906, macOS arm64",
-  "method": "adversarial swarm (recon + refutation + synthesis) plus live witnessed execution in laboon guests",
+  "artifact": "qqbox-xfce-fixes",
+  "target": "qqbox XFCE desktop, x11vnc TCP 5905 / verification 5906, macOS arm64",
+  "method": "adversarial swarm (recon + refutation + synthesis) plus live witnessed execution in qqbox guests",
   "status": "FIXED_VERIFIED_NATIVE_TERMINAL",
   "claims": [
     {
       "id": "C1",
-      "claim": "The 'Failed to open PTY: Not a tty' error is caused by laboon lacking PTY support",
+      "claim": "The 'Failed to open PTY: Not a tty' error is caused by qqbox lacking PTY support",
       "verdict": "REFUTED",
       "evidence": [
-        "pty.openpty() -> OPENPTY_OK 3 4 /dev/pts/8 in a laboon guest",
+        "pty.openpty() -> OPENPTY_OK 3 4 /dev/pts/8 in a qqbox guest",
         "pty.fork() -> READ b'CHILD_ON_PTY_OK\\r\\n', WAIT (8, 0)",
         "devpts mounted on /dev/pts; /dev/ptmx is crw-rw-rw- 5,2",
         "gm codesearch receipts 1795032694909-932-d2e15aebb8aef2e6 / 1795032706695-933-699e5aef15c518cf / 1795032724958-934-60bb10e67518f679"
@@ -24,12 +24,12 @@
         "internal/sandbox/lx_termios.go: lxTIOCPKT = 0x5420",
         "internal/sandbox/pty_unix.go: guarded case in ptmxIoctl forwards TIOCPKT to the host pty master with unix.IoctlSetPointerInt",
         "internal/sandbox/termios_unix.go: guarded case in ttyIoctl for the slave",
-        "go build ./cmd/laboon -> Mach-O arm64; gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass"
+        "go build ./cmd/qqbox -> Mach-O arm64; gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass"
       ],
       "witness": [
         "probe/tiocpkt-direct.txt: fcntl.ioctl(master, TIOCPKT, struct.pack('i',1)) -> TIOCPKT_OK /dev/pts/13; off variant also OK",
-        "probe/native2.png: xfce4-terminal shows uid=0(root) gid=0(root) and Linux laboon 6.8.0 aarch64",
-        "probe/native3-typed.png: command typed through VNC (RFB KeyEvent) echoed, executed and showed VNC_NATIVE_TERMINAL_OK / uid=0(root) / Linux laboon 6.8.0 / prompt / #",
+        "probe/native2.png: xfce4-terminal shows uid=0(root) gid=0(root) and Linux qqbox 6.8.0 aarch64",
+        "probe/native3-typed.png: command typed through VNC (RFB KeyEvent) echoed, executed and showed VNC_NATIVE_TERMINAL_OK / uid=0(root) / Linux qqbox 6.8.0 / prompt / #",
         "no PTY error dialog in vte2.log / vte3.log"
       ],
       "remaining_limitation": null,
@@ -43,13 +43,13 @@
       "evidence": [
         "guest FIFO console -> PIPE_CONSOLE_OK, uid=0(root), DONE",
         "/healthz -> 200 {\"ok\": true, \"console\": \"pipe\"}",
-        "POST /run -> 200 with LABOON_CONSOLE_OK / uid=0(root) / Linux laboon 6.8.0 aarch64 / exit=0",
+        "POST /run -> 200 with QQBOX_CONSOLE_OK / uid=0(root) / Linux qqbox 6.8.0 aarch64 / exit=0",
         "RFB KeyEvent/PointerEvent injection typed 'echo VNC_TYPED_OK; id' into the Chromium console and the framebuffer showed VNC_TYPED_OK / uid=0(root) gid=0(root) / exit 0 (terminal-console-typed.png)"
       ]
     },
     {
       "id": "C4",
-      "claim": "Chromium can be installed and launched inside laboon",
+      "claim": "Chromium can be installed and launched inside qqbox",
       "verdict": "CONFIRMED_WITH_CONSTRAINT",
       "evidence": [
         "apk search -x chromium -> chromium-131.0.6778.108-r0; chromium-swiftshader same",
@@ -84,7 +84,7 @@
   "adjacent_fixes": [
     "removed xfce4-pulseaudio-plugin: it loads libpulse and triggered the same pa_mutex_new() abort, producing a blocking 'Plugin Restart' dialog",
     "wrote a custom xfce4-panel.xml with only working plugins (no pulseaudio, no notification, no undefined plugin-7)",
-    "dock and Applications-menu terminal launchers point at the native xfce4-terminal (laboon-terminal.desktop); the browser console is only a fallback",
+    "dock and Applications-menu terminal launchers point at the native xfce4-terminal (qqbox-terminal.desktop); the browser console is only a fallback",
     "mkdir -p /var/run/dbus before dbus-daemon --system",
     "disable xfwm4 compositing via xfconf XML so scrot captures the real desktop",
     "install exact X diagnostics, fonts, mousepad, pm-utils, xrdb, xdotool",
@@ -94,21 +94,21 @@
   ],
   "console_security_verdict": {
     "verdict": "SAFE_WITHIN_SANDBOX",
-    "evidence": "adversarial verifier: guest uid=0 is an emulated Linux credential; host supervisor runs as uid 501; listener is guest loopback 127.0.0.1 only; no host-path syscall, no wildcard bind, no control-plane call. Explicitly UNSAFE if run on the host (no laboon boundary) - hardening above applied anyway.",
+    "evidence": "adversarial verifier: guest uid=0 is an emulated Linux credential; host supervisor runs as uid 501; listener is guest loopback 127.0.0.1 only; no host-path syscall, no wildcard bind, no control-plane call. Explicitly UNSAFE if run on the host (no qqbox boundary) - hardening above applied anyway.",
     "attacks_now_rejected": ["foreign Origin -> 403", "foreign Host -> 403", "text/plain body -> 415", "malformed JSON -> 400", "empty cmd -> 400", "cmd > 8192 -> 400", "body > 64 KiB -> 413", "output > 1 MiB -> truncated"]
   },
   "surfaced_not_imposed": {
     "issue": "x11vnc -nopw is wildcard-bound (*:5905, IPv4+IPv6) and LAN-reachable: an adversarial verifier completed an RFB handshake against the host LAN address 192.168.1.76:5905",
-    "why_not_silently_fixed": "setting a VNC password changes how the user connects; -localhost is NOT a valid fix (live probe showed it silently breaks laboon -net port forwarding, host connections refused)",
+    "why_not_silently_fixed": "setting a VNC password changes how the user connects; -localhost is NOT a valid fix (live probe showed it silently breaks qqbox -net port forwarding, host connections refused)",
     "mitigation": "x11vnc -rfbauth <vncpasswd> and vncviewer -passwd <file>; documented in README.md. The shipped default stays passwordless for a working local connection."
   },
   "remaining_limitations": [
     "Chromium shows an '--no-sandbox' unsupported-flag infobar (cosmetic)",
-    "xfce4-power-manager CRITICALs, xfdesktop GLib-CRITICAL and missing /sys/class/backlight, UPower, PolicyKit and DPMS are expected under laboon's synthetic /sys and Xvfb",
+    "xfce4-power-manager CRITICALs, xfdesktop GLib-CRITICAL and missing /sys/class/backlight, UPower, PolicyKit and DPMS are expected under qqbox's synthetic /sys and Xvfb",
     "guest /dev/pts directory enumeration is synthetic (no slave nodes listed), though open-by-path works"
   ],
   "images": {
-    "fixed": "laboon-xfce:fixed (378 packages, 1098 MiB)",
-    "rollback": "laboon-xfce:latest@arm64 = 462f992e7056113eea635edd04e40db923474491fa05eadc8c76eb9448ef910b"
+    "fixed": "qqbox-xfce:fixed (378 packages, 1098 MiB)",
+    "rollback": "qqbox-xfce:latest@arm64 = 462f992e7056113eea635edd04e40db923474491fa05eadc8c76eb9448ef910b"
   }
 }

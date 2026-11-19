@@ -15,7 +15,7 @@ import (
 var syscalls = map[uint64]func(g *dguest, a [6]uint64) int64{}
 
 // sysTable holds the handlers of the Linux numbers, which index it, so a
-// call finds its handler without a map lookup; laboon's own numbers stay in
+// call finds its handler without a map lookup; qqbox's own numbers stay in
 // syscalls. Built once, after every init has registered its handlers.
 var sysTable = sync.OnceValue(func() *[1024]func(g *dguest, a [6]uint64) int64 {
 	var t [1024]func(g *dguest, a [6]uint64) int64

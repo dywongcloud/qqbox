@@ -2,8 +2,8 @@ go 1.27.1
 
 use (
 	.
-	./cmd/laboon
-	./cmd/laboond
-	./cmd/laboon-runtime
-	./cmd/laboon-mcp
+	./cmd/qqbox
+	./cmd/qqboxd
+	./cmd/qqbox-runtime
+	./cmd/qqbox-mcp
 )

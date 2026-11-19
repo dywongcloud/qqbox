@@ -1,4 +1,4 @@
-package laboon
+package qqbox
 
 import (
 	"bytes"
@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/rewrite"
-	"github.com/samyfodil/laboon/internal/sandbox"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/rewrite"
+	"github.com/tencent/qqbox/internal/sandbox"
 )
 
 func TestOptionsApply(t *testing.T) {

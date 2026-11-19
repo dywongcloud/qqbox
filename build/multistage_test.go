@@ -13,7 +13,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	"github.com/samyfodil/laboon/internal/oci"
+	"github.com/tencent/qqbox/internal/oci"
 )
 
 // TestMultiStage builds a two-stage Dockerfile: a builder stage produces a file,
@@ -31,7 +31,7 @@ FROM scratch
 COPY --from=builder /out/app /app
 CMD ["/app"]
 `
-	h, err := Build(ctx, strings.NewReader(df), Options{Tag: "laboon-ms:1"})
+	h, err := Build(ctx, strings.NewReader(df), Options{Tag: "qqbox-ms:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ CMD ["/app"]
 		t.Fatal("empty digest")
 	}
 
-	img := buildImage(t, ctx, df, "laboon-ms:1")
+	img := buildImage(t, ctx, df, "qqbox-ms:1")
 	names := layerNames(t, img)
 	if !names["app"] {
 		t.Errorf("final image missing /app (have %v)", names)
@@ -53,7 +53,7 @@ CMD ["/app"]
 	}
 
 	// --target builds only the builder stage, whose base is alpine.
-	ht, err := Build(ctx, strings.NewReader(df), Options{Tag: "laboon-ms-b:1", Target: "builder"})
+	ht, err := Build(ctx, strings.NewReader(df), Options{Tag: "qqbox-ms-b:1", Target: "builder"})
 	if err != nil {
 		t.Fatalf("target build: %v", err)
 	}

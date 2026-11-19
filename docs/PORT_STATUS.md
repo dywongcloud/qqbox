@@ -6,7 +6,7 @@ plane for a complete runtime.
 
 ## Done and witnessed
 
-- A Cargo workspace (`crates/laboon`, `crates/laboon-cli`, `crates/laboond`) builds
+- A Cargo workspace (`crates/qqbox`, `crates/qqbox-cli`, `crates/qqboxd`) builds
   cleanly with `cargo build --workspace` on darwin/arm64 with rustc 1.98.1.
 - The full typed configuration surface: `Options` (every `With…` option), `Config`
   (55 fields), image config, runtime-spec config, compose spec, labels, ports,
@@ -29,13 +29,13 @@ plane for a complete runtime.
 - A Docker-compatible daemon with 48 routes, real JSON, label filters, HostConfig
   and NetworkingConfig, fail-closed handling of unsupported security keys, stored
   cancellation so `DELETE --force` tears down, and bearer-token authz on every route.
-- The Zig stub ABI frozen in `crates/laboon/src/zig/abi.rs`: 128-byte `chanPage`,
+- The Zig stub ABI frozen in `crates/qqbox/src/zig/abi.rs`: 128-byte `chanPage`,
   all 13 offsets, all eight committed stub blobs embedded with `include_bytes!`, and
   `validate_abi()` asserting the layout. No Zig source and no `.bin` blob changed.
 - A typed supervisor control plane: bounds-checked ELF32/ELF64 parsing, syscall-site
   classification and trampoline patching, seccomp BPF filter construction, a typed
   syscall table, W^X and memory-cap enforcement, cancellation without timed polling,
-  and a `RunPlan` that is computed and printed by `laboon run`.
+  and a `RunPlan` that is computed and printed by `qqbox run`.
 - Security invariants enumerated in `security::audit()` and enforced by typed checks.
 - Evidence-based decisions in `docs/SINGLE_ADDRESS_SPACE.md` and
   `docs/OCI_MATRIX.md`.
@@ -118,11 +118,11 @@ emulated syscalls. On macOS it drives a Mach task / Seatbelt / Hypervisor.framew
 stub; on Windows an LPAC AppContainer with the instrumentation callback. Those three
 backends are the part that makes a Linux program actually run without a VM.
 
-`laboon::run` therefore prepares and validates the whole control plane and then
+`qqbox::run` therefore prepares and validates the whole control plane and then
 returns `Error::UnsupportedPlatform` with a precise diagnostic on this host. It does
-not pretend to have executed a guest. `laboon run <elf>` prints the `RunPlan` instead.
+not pretend to have executed a guest. `qqbox run <elf>` prints the `RunPlan` instead.
 
-**The Go sources are deliberately still in the tree** (`laboon.go`, `options.go`,
+**The Go sources are deliberately still in the tree** (`qqbox.go`, `options.go`,
 `internal/`, `cmd/`, `build/`, `go.work`). Removing them now would delete the only
 working guest runtime without a replacement — a regression the request explicitly
 asked to avoid. The PRD row `go-removal` stays open for that reason. The Rust build
@@ -143,12 +143,12 @@ That package is the real porting unit; `oci`, `vfs`, `rewrite`, `build` and the 
 workspace covers the control plane and OCI/Compose surface first and leaves the
 syscall-emulation engine to a dedicated `Platform` trait pass.
 
-The fork is `dywongcloud/literbox` but the retained Go module paths, Go import paths
-and `go.work` still say `github.com/samyfodil/laboon`. They are deliberately left
+The fork is `dywongcloud/qqbox` but the retained Go module paths, Go import paths
+and `go.work` still say `github.com/tencent/qqbox`. They are deliberately left
 alone: rewriting them would break `go build` on the one working guest runtime, and
 the upstream attribution is correct for the retained code. The Rust crates, README,
-`AGENTS.md`, `llms.txt`, `Makefile`, CI and `.goreleaser.yaml` use `literbox` /
-`laboon` without the upstream owner. Rebranding the Go module path belongs with the
+`AGENTS.md`, `llms.txt`, `Makefile`, CI and `.goreleaser.yaml` use `qqbox` /
+`qqbox` without the upstream owner. Rebranding the Go module path belongs with the
 final Go removal, not before it.
 
 The recon also confirmed `AGENTS.md`'s old `purego` claim was stale: no Go source

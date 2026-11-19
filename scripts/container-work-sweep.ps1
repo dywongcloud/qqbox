@@ -4,11 +4,11 @@
   "it starts". Every language runtime compiles and runs a real program
   (sum 1..100 == 5050) and every database starts a server and serves a real
   query over a unix socket. Each workload is a POSIX sh script; to survive the
-  PowerShell -> laboon -> sh quoting layers it is base64-encoded and run as
+  PowerShell -> qqbox -> sh quoting layers it is base64-encoded and run as
   `sh -c "echo <b64> | base64 -d | sh"`, which is identical to the sh sweep.
 
-.PARAMETER Laboon
-  The laboon.exe to use (default: .\laboon.exe).
+.PARAMETER QQBox
+  The qqbox.exe to use (default: .\qqbox.exe).
 
 .PARAMETER Timeout
   Seconds each workload may run (default: 180); a slow host needs more.
@@ -16,15 +16,15 @@
 .NOTES
   Env: PLATFORM (linux/amd64|linux/arm64). Exit code is the non-deferred fails.
 #>
-param([string]$Laboon = ".\laboon.exe", [int]$Timeout = 180)
+param([string]$QQBox = ".\qqbox.exe", [int]$Timeout = 180)
 # Absolute: each workload runs in a background job, whose working directory is
 # not this script's, so a relative path would not resolve there.
-$Laboon = (Resolve-Path $Laboon).Path
+$QQBox = (Resolve-Path $QQBox).Path
 
 $ErrorActionPreference = "Continue"
 $pass = 0; $fail = 0; $fails = @()
 
-# Work NAME MARKER EXTRAFLAGS IMAGE SCRIPT: run SCRIPT (sh) in IMAGE under laboon
+# Work NAME MARKER EXTRAFLAGS IMAGE SCRIPT: run SCRIPT (sh) in IMAGE under qqbox
 # with any EXTRAFLAGS (e.g. "-u postgres"), expect MARKER in the output. A
 # leading "?" on NAME marks a known-deferred image. A failure's whole output is
 # kept in work-fail-NAME.txt.
@@ -36,8 +36,8 @@ function Work([string]$name, [string]$marker, [string]$extra, [string]$image, [s
     # cmd /c (not Start-Process): PowerShell's -ArgumentList does not quote a
     # single arg containing spaces, which splits the sh -c payload. The $line
     # starts with the exe (not a quote), so cmd parses the inner "..." as one
-    # argument to laboon and applies the > redirect itself.
-    $pre = if ($extra) { "$Laboon $extra" } else { "$Laboon" }
+    # argument to qqbox and applies the > redirect itself.
+    $pre = if ($extra) { "$QQBox $extra" } else { "$QQBox" }
     $line = "$pre -image $image sh -c `"$inner`""
     $tmp = [IO.Path]::GetTempFileName()
     # Per-image cap via a job; on expiry kill the guest + its stub children.
@@ -46,7 +46,7 @@ function Work([string]$name, [string]$marker, [string]$extra, [string]$image, [s
         $rc = [int](Receive-Job $job)
     } else {
         Stop-Job $job -EA SilentlyContinue
-        cmd /c "taskkill /F /IM laboon.exe /T >nul 2>&1" | Out-Null
+        cmd /c "taskkill /F /IM qqbox.exe /T >nul 2>&1" | Out-Null
         $rc = 124
     }
     Remove-Job $job -Force -EA SilentlyContinue
@@ -65,7 +65,7 @@ function Work([string]$name, [string]$marker, [string]$extra, [string]$image, [s
     }
 }
 
-Write-Output "== container WORK sweep (windows): $Laboon $($env:PLATFORM) $(Get-Date)"
+Write-Output "== container WORK sweep (windows): $QQBox $($env:PLATFORM) $(Get-Date)"
 
 Work python  pysum   "" python:3.12-alpine  "python3 -c `"print('pysum', sum(range(101)))`""
 Work node    nodesum "" node:22-alpine      "node -e `"let s=0;for(let i=1;i<=100;i++)s+=i;console.log('nodesum',s)`""

@@ -1,6 +1,6 @@
 package sandbox
 
-import "github.com/samyfodil/laboon/internal/vfs"
+import "github.com/tencent/qqbox/internal/vfs"
 
 // Guest ownership and any permission bits an upper file cannot carry on the
 // host live in a side table keyed by the upper file's host inode, so they

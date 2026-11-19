@@ -11,7 +11,7 @@ import (
 // unshare), so joining one through a descriptor only has to move the caller's
 // id. A container runtime creates a network namespace, persists it by
 // bind-mounting /proc/<pid>/ns/net (accepted in lx_mount.go), then has the
-// container open that file and setns into it; the net effect laboon needs is an
+// container open that file and setns into it; the net effect qqbox needs is an
 // isolated (non-host) network namespace for the container.
 
 const (
@@ -43,7 +43,7 @@ func (g *dguest) setns(fd, nstype int64) int64 {
 		// one, so joining it through that file enters that same namespace (how a
 		// runtime hands a container's netns to the process that runs in it);
 		// joining any other namespace descriptor moves the caller into a fresh
-		// isolated one (laboon has no other per-namespace network state).
+		// isolated one (qqbox has no other per-namespace network state).
 		if ns, ok := g.dfs.nsBindNetns(d.name()); ok {
 			g.ps.netns.Store(ns)
 		} else {
@@ -54,7 +54,7 @@ func (g *dguest) setns(fd, nstype int64) int64 {
 			fs.mu.Unlock()
 		}
 	}
-	// The other namespace kinds carry no state laboon changes here; accept the
+	// The other namespace kinds carry no state qqbox changes here; accept the
 	// join so a runtime's namespace setup proceeds.
 	return 0
 }

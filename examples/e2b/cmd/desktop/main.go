@@ -1,4 +1,4 @@
-// Demonstrates the E2B-Desktop-style GUI sandbox on laboon: boot a full XFCE
+// Demonstrates the E2B-Desktop-style GUI sandbox on qqbox: boot a full XFCE
 // desktop on a virtual framebuffer (no VM), drive it with mouse/keyboard, and
 // save a screenshot.
 //
@@ -10,7 +10,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/samyfodil/laboon/examples/e2b"
+	"github.com/tencent/qqbox/examples/e2b"
 )
 
 func main() {

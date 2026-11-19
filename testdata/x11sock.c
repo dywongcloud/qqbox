@@ -1,5 +1,5 @@
 // Connect to a host AF_UNIX socket under /tmp/.X11-unix/ (where an X server
-// listens), the path laboon's -x11 passthrough opens up. argv[1] is the socket
+// listens), the path qqbox's -x11 passthrough opens up. argv[1] is the socket
 // path. Sends "ping", expects "pong". Returns 0 on success, else the failing
 // line; a refused connect (no -x11) exits at the connect check.
 #define _GNU_SOURCE

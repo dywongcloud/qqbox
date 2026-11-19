@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // Mount flags (uapi/linux/mount.h).
@@ -38,7 +38,7 @@ func init() {
 }
 
 // pivotRoot makes new_root the process's root, as a container runtime does
-// after assembling the container's mounts. laboon tracks a per-process root
+// after assembling the container's mounts. qqbox tracks a per-process root
 // (like chroot), so this re-roots the caller and the processes it goes on to
 // exec; the old root is simply dropped rather than relocated to put_old (the
 // runtime unmounts and removes it immediately). This is a single mount
@@ -66,7 +66,7 @@ func (g *dguest) pivotRoot(newAddr uint64) int64 {
 	return 0
 }
 
-// mount serves a guest mount(2). laboon has a single mount namespace, so a
+// mount serves a guest mount(2). qqbox has a single mount namespace, so a
 // propagation-type change is a no-op and a remount of unmodelled flags is
 // accepted. A new filesystem is added to the vfs Namespace as a vfs.FileSystem,
 // so paths under it resolve through the same confined chokepoint; it is never a
@@ -90,7 +90,7 @@ func (g *dguest) mount(srcAddr, tgtAddr, fsAddr, flags, dataAddr uint64) int64 {
 	if flags&msBind != 0 {
 		if s, err := g.readCStr(srcAddr); err == nil && isNsPath(s) {
 			// A container runtime persists a network namespace by bind-mounting
-			// /proc/<pid>/ns/net onto a file under /run/netns. laboon models a
+			// /proc/<pid>/ns/net onto a file under /run/netns. qqbox models a
 			// namespace as an id, not a bind-mountable nsfs file; the target
 			// already exists, so accept the mount and record it (pinning the
 			// caller's current network namespace, the usual self/thread-self
@@ -129,7 +129,7 @@ func (g *dguest) mount(srcAddr, tgtAddr, fsAddr, flags, dataAddr uint64) int64 {
 // and the upperdir the data string names into a real copy-on-write view and
 // mounts it at target. The layers are read from their BACKING host directories
 // (newHostDirFS reads a host subtree raw), so each layer's own content -- the
-// files a runtime extracted into it -- is seen directly, not through laboon's
+// files a runtime extracted into it -- is seen directly, not through qqbox's
 // outer overlay. lowerdir is colon-separated, highest-precedence first; overlayFS
 // takes layers lowest first with the writable top last.
 func (g *dguest) mountOverlay(target, data string) int64 {
@@ -244,7 +244,7 @@ func (fs *dfs) dropMntnsMounts(ns int) {
 	}
 }
 
-// umount2 removes a mount laboon added with mount(2). A container runtime
+// umount2 removes a mount qqbox added with mount(2). A container runtime
 // unmounts the old root in a loop until umount fails, so a target that is not a
 // tracked mount point must report EINVAL (as the kernel does for a non-mount);
 // always reporting success spins that loop forever.

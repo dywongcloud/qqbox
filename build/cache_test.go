@@ -9,7 +9,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
-	"github.com/samyfodil/laboon/internal/oci"
+	"github.com/tencent/qqbox/internal/oci"
 )
 
 // countCache wraps a real Cache and counts hits and puts, so a test can see
@@ -48,7 +48,7 @@ RUN echo two > /b
 `
 	dc, _ := NewDirCache(t.TempDir())
 	c := &countCache{inner: dc}
-	h1, err := Build(ctx, strings.NewReader(df), Options{Tag: "laboon-cache:1", Cache: c})
+	h1, err := Build(ctx, strings.NewReader(df), Options{Tag: "qqbox-cache:1", Cache: c})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ RUN echo two > /b
 
 	// Identical rebuild: both RUN steps are cache hits, no new runs, same image.
 	c.hits, c.puts = 0, 0
-	h2, err := Build(ctx, strings.NewReader(df), Options{Tag: "laboon-cache:1", Cache: c})
+	h2, err := Build(ctx, strings.NewReader(df), Options{Tag: "qqbox-cache:1", Cache: c})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ RUN echo two > /b
 RUN echo ONE > /a
 RUN echo two > /b
 `
-	if _, err := Build(ctx, strings.NewReader(df2), Options{Tag: "laboon-cache:1", Cache: c}); err != nil {
+	if _, err := Build(ctx, strings.NewReader(df2), Options{Tag: "qqbox-cache:1", Cache: c}); err != nil {
 		t.Fatal(err)
 	}
 	if c.hits != 0 || c.puts != 2 {

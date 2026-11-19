@@ -3,7 +3,7 @@
 package sandbox
 
 // The kernel keyring: a container runtime joins a fresh session keyring for the
-// container (crun does this before start). laboon has no keyring subsystem, so
+// container (crun does this before start). qqbox has no keyring subsystem, so
 // it fakes just enough for that to succeed: a join returns a keyring id and the
 // operations a runtime then performs on it are accepted. No keys are stored.
 

@@ -378,7 +378,7 @@ func (g *dguest) ifIoctl(req, arg uint64) (int64, bool) {
 	case lxSiocgifconf:
 		return g.ifconf(arg), true
 	case lxSiocsifflags:
-		// Set interface flags. laboon's loopback is modeled as always up, so a
+		// Set interface flags. qqbox's loopback is modeled as always up, so a
 		// runtime's "bring lo up" is accepted as a no-op; other interfaces and
 		// down requests are not configurable.
 		b, err := g.readMem(arg, ifreqSize)

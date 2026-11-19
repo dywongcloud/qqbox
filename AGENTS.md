@@ -4,13 +4,13 @@ Guidance for coding agents (and humans) working in this repository.
 
 ## What this is
 
-laboon runs an unmodified Linux program — a static or dynamic ELF binary, or a
+qqbox runs an unmodified Linux program — a static or dynamic ELF binary, or a
 whole OCI container — inside a host process on Linux, macOS, or Windows, on
 amd64 or arm64. There is no virtual machine and no second kernel. The guest's
 own machine code runs natively on the host CPU; only its `syscall`/`svc`
 instructions are redirected into a Go supervisor that emulates the Linux ABI.
 
-The Rust supervisor is the current control plane (`crates/laboon`); the original Go
+The Rust supervisor is the current control plane (`crates/qqbox`); the original Go
 supervisor remains in the tree as the working native guest backend until the three
 per-OS backends are ported. See docs/PORT_STATUS.md. The in-guest stub and every
 native helper are Zig. The two talk over the shared-memory channel.
@@ -80,15 +80,15 @@ become an I/O engine.
   `process_vm_readv`/`writev` for guest memory, and the Linux host-op thread.
   `purego` is a stale indirect dependency in the `cmd/*/go.mod` files and is not
   imported by any Go source — do not follow that claim when porting.
-- `crates/laboon/src/zig/abi.rs` freezes the 128-byte channel layout. Any change
+- `crates/qqbox/src/zig/abi.rs` freezes the 128-byte channel layout. Any change
   to the Zig side must keep those offsets byte-identical.
 
 ## Rule 5: libraries take options, not environment
 
-- `laboon`, `sandbox`, `oci`, `vfs`, and `rewrite` read **no** environment
+- `qqbox`, `sandbox`, `oci`, `vfs`, and `rewrite` read **no** environment
   variables; behavior is set through `With…` options (`options.go`), a `Config`,
-  or their Rust equivalents `Options` / `Config` in `crates/laboon`. Only
-  `cmd/laboon`, examples, and test tooling read the environment.
+  or their Rust equivalents `Options` / `Config` in `crates/qqbox`. Only
+  `cmd/qqbox`, examples, and test tooling read the environment.
 - The public default is permissive where a developer expects it (RWX guest
   memory allowed, no network) and tightened by an explicit option
   (`WithRejectRWX`, `WithNet` plus the egress allowlist options). Keep new
@@ -100,9 +100,9 @@ become an I/O engine.
   syscall handler, the rewriter, or the channel is cross-platform until proven
   otherwise — gate the item, then run the full corpus.
 - The Rust workspace is the build entry point: `cargo build --workspace` builds the
-  library, the `laboon` CLI and the `laboond` daemon. The Go workspace (`go.work`)
-  remains as the native backend reference; build its CLI with `go build ./cmd/laboon`.
-- `cargo run -p laboon-cli -- invariants` and the live CLI witnesses are the gate
+  library, the `qqbox` CLI and the `qqboxd` daemon. The Go workspace (`go.work`)
+  remains as the native backend reference; build its CLI with `go build ./cmd/qqbox`.
+- `cargo run -p qqbox-cli -- invariants` and the live CLI witnesses are the gate
   for control-plane changes. Zig stubs rebuild through `make stubs`; the committed
   `.bin` blobs are embedded with `include_bytes!` so a Rust build needs no Zig.
 - Never use a sleep, timeout, or periodic recheck as a correctness fix, and

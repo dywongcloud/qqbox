@@ -233,7 +233,7 @@ impl Namespace {
             return Some("MemTotal:       1048576 kB\nMemFree:         524288 kB\n".to_string());
         }
         if p == "proc/cpuinfo" {
-            return Some("processor\t: 0\nmodel name\t: laboon guest\n".to_string());
+            return Some("processor\t: 0\nmodel name\t: qqbox guest\n".to_string());
         }
         if p == "proc/mounts" {
             return Some("overlay / overlay rw 0 0\nproc /proc proc ro 0 0\n".to_string());

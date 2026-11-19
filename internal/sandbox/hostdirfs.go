@@ -8,7 +8,7 @@ import (
 	"path"
 	"syscall"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // hostDirFS presents a host directory tree as a vfs.FileSystem, doing its I/O

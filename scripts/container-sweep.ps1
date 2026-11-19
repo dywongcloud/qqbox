@@ -1,20 +1,20 @@
 <#
 .SYNOPSIS
   Windows counterpart of container-sweep.sh: run the language runtimes and
-  databases laboon is expected to handle, each as an OCI image, and report which
+  databases qqbox is expected to handle, each as an OCI image, and report which
   start and execute. A version command per image starts the full runtime and
   exits; it is not a full test suite.
 
-.PARAMETER Laboon
-  The laboon.exe to use (default: .\laboon.exe).
+.PARAMETER QQBox
+  The qqbox.exe to use (default: .\qqbox.exe).
 
 .NOTES
   Env: PLATFORM (linux/amd64|linux/arm64), SWEEP_NET (any value -> pass -net).
-  laboon is invoked through `cmd /c` with cmd-level redirection: PowerShell's own
+  qqbox is invoked through `cmd /c` with cmd-level redirection: PowerShell's own
   native-stream redirection deadlocks a child that writes to its console.
   Exit code is the number of non-deferred images that failed.
 #>
-param([string]$Laboon = ".\laboon.exe")
+param([string]$QQBox = ".\qqbox.exe")
 
 $ErrorActionPreference = "Continue"
 $plat = if ($env:PLATFORM) { "-platform $($env:PLATFORM) " } else { "" }
@@ -22,7 +22,7 @@ $net  = if ($env:SWEEP_NET) { "-net " } else { "" }
 
 $pass = 0; $fail = 0; $fails = @()
 
-# Run NAME MARKER IMAGE CMD...: run IMAGE's CMD under laboon, expect MARKER in
+# Run NAME MARKER IMAGE CMD...: run IMAGE's CMD under qqbox, expect MARKER in
 # the output. A leading "?" on NAME marks a known-deferred image. The command
 # must be quote-free so the single cmd string needs no escaping. A failure's
 # whole output is kept in sweep-fail-NAME.txt.
@@ -30,7 +30,7 @@ function Run([string]$name, [string]$marker, [string]$image) {
     $cmd = $args -join " "
     $defer = $false
     if ($name.StartsWith("?")) { $defer = $true; $name = $name.Substring(1) }
-    $line = "$Laboon $plat$net-image $image $cmd"
+    $line = "$QQBox $plat$net-image $image $cmd"
     # Redirect at the cmd level to a file, then read it: piping a native child's
     # output straight into PowerShell (| Out-String) can deadlock it.
     $tmp = [System.IO.Path]::GetTempFileName()
@@ -52,7 +52,7 @@ function Run([string]$name, [string]$marker, [string]$image) {
     }
 }
 
-Write-Output "== container sweep: $Laboon $($env:PLATFORM) $(Get-Date)"
+Write-Output "== container sweep: $QQBox $($env:PLATFORM) $(Get-Date)"
 
 Run python  Python   python:3.12-alpine        python3 --version
 Run node    v22      node:22-alpine            node --version

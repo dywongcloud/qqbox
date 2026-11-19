@@ -1,7 +1,7 @@
 // Package build turns a Dockerfile into an OCI image by running each
-// instruction under laboon: RUN executes in the image's root filesystem and its
+// instruction under qqbox: RUN executes in the image's root filesystem and its
 // changes become a layer, COPY/ADD bring in build-context files, and the
-// metadata instructions update the image config. It is laboon's `docker build`.
+// metadata instructions update the image config. It is qqbox's `docker build`.
 package build
 
 import (

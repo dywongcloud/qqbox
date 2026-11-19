@@ -1,5 +1,5 @@
 #!/bin/sh
-# Boots the fixed XFCE desktop inside a laboon sandbox.
+# Boots the fixed XFCE desktop inside a qqbox sandbox.
 #
 # Fixes vs the first version:
 #  * xfce4-terminal / xterm could not allocate a PTY ("Failed to execute child:
@@ -55,7 +55,7 @@ cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml <<'XML'
 </channel>
 XML
 # A panel config without the pulseaudio / notification plugins: they load
-# libpulse, whose pa_mutex_new() assertion aborts under laboon and produces a
+# libpulse, whose pa_mutex_new() assertion aborts under qqbox and produces a
 # blocking "Plugin Restart" dialog. The default config also references an
 # undefined plugin-7. This one lists only plugins that actually work.
 cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'XML'
@@ -114,7 +114,7 @@ cat > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'XML'
     <property name="plugin-16" type="string" value="separator"/>
     <property name="plugin-17" type="string" value="launcher">
       <property name="items" type="array">
-        <value type="string" value="laboon-terminal.desktop"/>
+        <value type="string" value="qqbox-terminal.desktop"/>
       </property>
     </property>
     <property name="plugin-18" type="string" value="launcher">
@@ -140,7 +140,7 @@ XML
 # The dock and the Applications menu open the real VTE terminal. The browser
 # console remains available as a fallback, but is not the default terminal.
 mkdir -p /root/.local/share/applications
-cat > /root/.local/share/applications/laboon-terminal.desktop <<'DESKTOP'
+cat > /root/.local/share/applications/qqbox-terminal.desktop <<'DESKTOP'
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -151,7 +151,7 @@ Icon=utilities-terminal
 Terminal=false
 Categories=System;TerminalEmulator;
 DESKTOP
-cp /root/.local/share/applications/laboon-terminal.desktop \
+cp /root/.local/share/applications/qqbox-terminal.desktop \
    /root/.local/share/applications/xfce4-terminal-emulator.desktop
 update-desktop-database /root/.local/share/applications 2>/dev/null || true
 stage "compositing_and_panel_configured"
@@ -191,7 +191,7 @@ sleep 22
 stage "starting native xfce4-terminal"
 # The real terminal is the primary console. It needs the TIOCPKT fix in the Go
 # runtime; without it VTE reports "Failed to open PTY: Not a tty".
-xfce4-terminal --disable-server --title laboon-terminal \
+xfce4-terminal --disable-server --title qqbox-terminal \
   --geometry 90x28+120+110 >/out/terminal.log 2>&1 &
 TERMINAL_PID=$!
 sleep 6
@@ -205,7 +205,7 @@ stage "starting chromium"
   --disable-crash-reporter --disable-breakpad --mute-audio --disable-infobars \
   --no-first-run --no-default-browser-check \
   --window-size=1000,660 --window-position=180,190 \
-  --user-data-dir=/tmp/chrome-laboon \
+  --user-data-dir=/tmp/chrome-qqbox \
   "https://example.com/" >/out/chromium.log 2>&1 &) || true
 sleep 14
 

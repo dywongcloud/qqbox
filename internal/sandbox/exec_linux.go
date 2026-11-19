@@ -128,7 +128,7 @@ func execve(dg *dguest, dirfd int64, pathAddr, argvAddr, envpAddr uint64, flags 
 	m.mu.Unlock()
 	// Move the stub onto its exec stack, then clear the old address space.
 	// A real execve replaces it; the new image maps over its own range, but
-	// one loaded at a different address than the old (a laboon stub, whose
+	// one loaded at a different address than the old (a qqbox stub, whose
 	// fixed range does not overlap the Go image it forked from) would leave
 	// the old mappings in the way of a later load into this process. The exec
 	// stack is in the stub window, never a guest mapping, so unmapping every

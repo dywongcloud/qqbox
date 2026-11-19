@@ -1,7 +1,7 @@
-// Command laboond serves the Docker Engine API, backed by laboon: a docker
-// client (or any Moby client) drives it, and each container runs as a laboon
+// Command qqboxd serves the Docker Engine API, backed by qqbox: a docker
+// client (or any Moby client) drives it, and each container runs as a qqbox
 // sandbox rather than through a second kernel. It is a separate module so its
-// client-facing dependencies stay out of the core laboon library.
+// client-facing dependencies stay out of the core qqbox library.
 package main
 
 import (
@@ -17,13 +17,13 @@ import (
 )
 
 func main() {
-	host := flag.String("host", "unix:///run/laboon/laboond.sock", "address to serve the Docker API on (unix://path or tcp://host:port)")
+	host := flag.String("host", "unix:///run/qqbox/qqboxd.sock", "address to serve the Docker API on (unix://path or tcp://host:port)")
 	net_ := flag.Bool("net", false, "allow containers to use the network")
 	flag.Parse()
 
 	ln, err := listen(*host)
 	if err != nil {
-		log.Fatalf("laboond: listen %s: %v", *host, err)
+		log.Fatalf("qqboxd: listen %s: %v", *host, err)
 	}
 	d := newDaemon(*net_)
 	srv := &http.Server{Handler: d.router()}
@@ -35,9 +35,9 @@ func main() {
 		srv.Close()
 	}()
 
-	log.Printf("laboond: Docker API on %s", *host)
+	log.Printf("qqboxd: Docker API on %s", *host)
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("laboond: serve: %v", err)
+		log.Fatalf("qqboxd: serve: %v", err)
 	}
 }
 

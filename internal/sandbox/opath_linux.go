@@ -3,7 +3,7 @@ package sandbox
 import (
 	"os"
 
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/vfs"
 	"golang.org/x/sys/unix"
 )
 

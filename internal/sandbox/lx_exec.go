@@ -285,8 +285,8 @@ func (g *dguest) execTarget(dirfd int64, pathAddr, argvAddr uint64, flags int64)
 		// A /proc/<pid>/fd/<n> (or /dev/fd/<n>) that names an open file with no
 		// path of its own — a memfd or an unlinked file — is run from the
 		// descriptor, as execve of that magic link does on Linux. This is how
-		// laboon's own stub is launched (memfd + exec /proc/self/fd/N), so it
-		// lets a guest run laboon under laboon.
+		// qqbox's own stub is launched (memfd + exec /proc/self/fd/N), so it
+		// lets a guest run qqbox under qqbox.
 		if loc, rerr := g.vns().Resolve(gp, false); rerr == nil {
 			if d := fdOfPseudo(loc.Node); d != nil {
 				rf, own, e := g.descExec(d)

@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/samyfodil/laboon/internal/rewrite"
+	"github.com/tencent/qqbox/internal/rewrite"
 )
 
 type image struct {
@@ -180,10 +180,10 @@ func (g *dguest) loadELF(pf *progFile, dynBias uint64, mm mmapLayout) (*image, e
 
 // The window-placement note (stub/zig/stub.zig lc_window_note): an image that
 // carries it in a PT_NOTE segment asks to be loaded in a private high window
-// rather than at the exe bias. A nested laboon's stub carries it; the loader
+// rather than at the exe bias. A nested qqbox's stub carries it; the loader
 // honors it so nesting composes to any depth. It is a declared property of the
 // image, not a recognition of specific bytes.
-var windowNoteName = []byte("laboon\x00")
+var windowNoteName = []byte("qqbox\x00")
 
 const windowNoteType = 1
 

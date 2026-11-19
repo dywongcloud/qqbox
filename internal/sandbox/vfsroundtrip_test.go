@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/samyfodil/laboon/internal/oci"
-	"github.com/samyfodil/laboon/internal/vfs"
+	"github.com/tencent/qqbox/internal/oci"
+	"github.com/tencent/qqbox/internal/vfs"
 )
 
 // TestVFSRoundTrip is the overlay serialization gate: a guest writes a rich
