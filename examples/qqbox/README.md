@@ -140,6 +140,32 @@ killed (`Method http has died unexpectedly! … signal 9`) under host CPU/memory
 contention; the build uses `Acquire::Retries=2` and
 `Acquire::http::Timeout=25`.
 
+## Live 5905 witness
+
+The final `qqbox-xubuntu:26` image (built digest
+`sha256:9fa9634a8dea82c92fca169c6fc9a5eeea6d072cd165a393d085a5d544b2b59c`) is
+booted on VNC TCP 5905. `live-5905-x26-final/requirements.txt` records:
+
+| check | live result |
+| --- | --- |
+| OS | `PRETTY_NAME="Ubuntu 26.04.1 LTS"`, `VERSION_ID="26.04"` |
+| wallpaper | `xwallpaper_final_rc=0`; `01-wallpaper-final.png` 1280x800, 7,918 distinct colors; six sampled pixels match the source Xubuntu 26 backdrop byte-for-byte |
+| independent RFB | RFB 3.8 over TCP 5905: `ServerInit` name `qbox:99`, 1280x800, 1 raw rect 4,096,000 bytes, 7,917 colors |
+| toolchain | `v18.19.1`, `npm 9.2.0`, `1.0.128 (Claude Code)`, Python 3.14.4, pip 25.1.1, git 2.53.0, gh 2.46.0, Chromium 150.0.7871.100 |
+| vi / vim | `vim_rc=0` → `qqbox-vim`, `vi_rc=0` → `qqbox-vi` |
+| GNU tools | zero `MISSING` across ~50 probed binaries |
+| audio | `paplay_rc=0`, PulseAudio null sink |
+| network | `ping_rc=0` (0% loss), `curl -4` HTTP 200 |
+| D-Bus fix | `dbus_list_rc=0`, `NO_DBUS_ERROR`; PackageKit ping returns `ServiceUnknown` (expected after trigger removal), never `PermissionsInvalid` |
+| repeat apt | `apt_update_rc=0`, `fastfetch`/`tree`/`htop` all `rc=0` with `install ok installed` |
+| desktop | `QQBOX_BOOT_READY`, `Example Domain - Chromium` and `QQBOX-TERMINAL` windows |
+
+`01-wallpaper.png` (captured before Xvfb flushed the root pixmap) is solid white;
+the deterministic final repaint `01-wallpaper-final.png` is the witness. The
+`xfdesktop_procs=0` line reflects that 26.04's xfdesktop exits on a Wnck
+assertion after the glycin loader failure — the wallpaper is painted by
+`xwallpaper`, not by xfdesktop, and that is why the workaround is needed.
+
 ## Why Chromium's sandbox cannot be on
 
 **The user's premise ("sandbox should be on for performance/stability") is

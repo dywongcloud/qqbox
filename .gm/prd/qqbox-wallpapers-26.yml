@@ -1,7 +1,0 @@
-id: qqbox-wallpapers-26
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Working Xubuntu 26 wallpaper (glycin/bwrap blocker)
-description: 'The qqbox-wallpapers row was resolved on a 24.04 noble witness (9,049 distinct colors), but the user requires Xubuntu 26. A live 26.04 boot (live-5926/01-wallpaper.png) painted a solid single color. Ubuntu 26.04''s gdk-pixbuf/glycin image loaders require bwrap, which fails verbatim under qqbox: ''bwrap: Failed to make / slave: Bad address''. 26.04''s default xfce4-desktop.xml has ZERO backdrop keys and XFCE 4.20 uses monitorscreen/workspaceN/last-image keys, not monitor0/image-path. Fix being witnessed: xwallpaper (libpng, no gdk-pixbuf) or noble''s traditional gdk-pixbuf loaders.'
-acceptance_criteria: A live Xubuntu 26 VNC screenshot shows the real Xubuntu 26 backdrop with >1000 distinct colors (not a solid fill), with xfconf state and the exact paint command recorded. Until then this row stays pending.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending
