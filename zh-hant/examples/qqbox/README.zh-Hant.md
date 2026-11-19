@@ -84,6 +84,39 @@ rm -f /etc/apt/apt.conf.d/20packagekit \
   因此改附 noble 的 Node 18 二進位檔、六個 SONAME、五個外部化 builtin，
   以及 npm registry 的 npm 9.2.0。
 
+## 事件驅動監督：工作列不再於執行中消失
+
+執行約 15 小時後，5905 桌面的工作列、導覽列與所有視窗同時消失，但桌布（根
+像素圖）仍在。鑑識結果：
+
+| 證據 | 值 |
+| --- | --- |
+| 修復前 RFB | 只剩桌布，1280x800、17,916 種顏色，`ServerInit qbox:99` 未變 |
+| `x11vnc.log` | 只有 06:18:58 一次 `screen setup finished`，X server 未重啟 |
+| `xfce.log` | Thunar 中止；重複 `Wnck:ERROR:../libwnck/xutils.c:1510:default_icon_at_size: assertion failed (base)` 與 `Bail out!` |
+| `xfce.log` | `xfce4-terminal`、`xfsettingsd`、`xfwm4`、`xfce4-panel` 於 21:10:23 全部 `ICE I/O Error`／`Disconnected from session manager` |
+
+`xfce4-session` 擁有 session bus，是單點故障：它一死，所有客戶端連線中斷、
+所有視窗被撤銷映射；桌布根像素圖仍留在 X server。X server 重啟與 VNC 重新
+連線已排除（`ServerInit` 名稱相同、沒有第二次 screen setup、`client_count`
+正常）。原本也沒有任何重啟機制。
+
+修復：**完全移除 `xfce4-session`**。自行持有永久性 session bus
+（`dbus-daemon --session --fork`）與 `xfconfd`，並以事件驅動的 `wait $pid`
+迴圈分別監督 `xfwm4`、`xfce4-panel`、`xfdesktop`、終端機與 Chromium。
+`wait` 會在子行程結束時才返回：沒有 sleep、timeout 或週期性重查（符合 gm
+鐵律）。熔斷器會在元件連續六次立即結束時停止重啟。Chromium 重啟前清除
+singleton lock。此設計維持恰好一個面板與一個 xfconfd，不會重演先前的重複管理
+員錯誤。
+
+實測：刻意 `pkill -x xfce4-panel` rc=0 → `panel exited rc=0 → restarting`，
+視窗回到 `1280x41+0+0 +0+759`。切換後的獨立 RFB 3.8 幀：`qbox:99`、
+1280x800、4,096,000 raw bytes、7,484 種顏色、底部 50px 有 1,182 種顏色，
+畫面可見 Applications 選單、三個啟動器、含 `Example Domain - Chromium` 與
+`QQBOX-TERMINAL` 的工作列。全新開機日誌沒有 ICE 錯誤、Wnck 斷言或重複管理員
+訊息。Chromium 加上 `--password-store=basic` 並隱藏 gnome-keyring 的
+autostart 項目，移除了「Choose password for new keyring」對話框。
+
 ## 清除隨機 XFCE 錯誤與子 PTY 錯誤
 
 早期 26.04 開機流程會產生一連串錯誤，皆已修復並實測：

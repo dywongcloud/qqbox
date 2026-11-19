@@ -1,7 +1,0 @@
-id: qqbox-5905-forensic-rootcause
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Determine why the dock vanished at runtime
-description: 'Forensic root cause from live logs: Wnck assertion in xfce.log, ICE I/O Error, panel process vs window state, and whether xfwm4/xfce4-session died.'
-acceptance_criteria: An adversarial verifier independently reproduces the failure and confirms the root cause with verbatim log lines, rc values and timestamps.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

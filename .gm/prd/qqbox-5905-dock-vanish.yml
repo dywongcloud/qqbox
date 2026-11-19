@@ -1,7 +1,0 @@
-id: qqbox-5905-dock-vanish
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Restore dock and navbar on live 5905 after runtime disappearance
-description: The live 5905 desktop now shows bare wallpaper with no dock and no windows. Investigate the Wnck default_icon_at_size assertion and xfce4-session ICE I/O Error at 21:10; fix with a durable supervisor/watchdog and witness a live VNC screenshot with dock, taskbar, Chromium and terminal.
-acceptance_criteria: A live 5905 RFB frame shows an xfce4-panel at 1280x41+0+0 +0+759 with Applications menu, launchers and a tasklist, plus Chromium and terminal windows; the fix survives a fresh boot and a simulated crash.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

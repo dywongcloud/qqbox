@@ -201,6 +201,42 @@ install does not kill the stub. Until then `--no-sandbox --single-process
 isolation and V8 JIT are off. Headless `--headless=new --dump-dom` times out;
 windowed rendering under Xvfb is the supported path.
 
+## Live dock survives runtime crashes (event-driven supervision)
+
+The dock, navbar and every window disappeared from a running 5905 desktop after
+~15h uptime while the wallpaper root pixmap survived. Forensics:
+
+| evidence | value |
+| --- | --- |
+| RFB before fix | bare wallpaper, 1280x800, 17,916 colors, `ServerInit qbox:99` unchanged |
+| `x11vnc.log` | one `screen setup finished` at 06:18:58, no X restart |
+| `xfce.log` | Thunar aborted; repeated `Wnck:ERROR:../libwnck/xutils.c:1510:default_icon_at_size: assertion failed (base)` + `Bail out!` |
+| `xfce.log` | `xfce4-terminal`, `xfsettingsd`, `xfwm4`, `xfce4-panel` all `ICE I/O Error` / `Disconnected from session manager` at 21:10:23 |
+
+`xfce4-session` owned the session bus, so its death killed every client and
+unmapped every window. X server restart and VNC reconnect were ruled out (same
+`ServerInit` name, no second screen setup, normal `client_count`). There was no
+restart mechanism.
+
+Fix: **remove `xfce4-session` entirely**. Own one persistent session bus
+(`dbus-daemon --session --fork`) plus `xfconfd`, and supervise `xfwm4`,
+`xfce4-panel`, `xfdesktop`, the terminal and Chromium with an event-driven
+`wait $pid` loop per component. `wait` blocks on child exit: no sleep, no
+timeout, no periodic recheck (gm standing rule). A circuit breaker stops a
+component that exits immediately six times. Chromium restarts with its
+singleton locks cleared. This keeps exactly one panel and one xfconfd, so the
+earlier duplicate-manager regressions do not return.
+
+Witnessed: deliberate `pkill -x xfce4-panel` rc=0 → `panel exited rc=0 →
+restarting` and the window back at `1280x41+0+0 +0+759`. After cutover an
+independent RFB 3.8 frame on live 5905: `qbox:99`, 1280x800, 4,096,000 raw
+bytes, 7,484 colors, 1,182 bottom-band colors, showing the Applications menu,
+three launchers, a tasklist with `Example Domain - Chromium` and
+`QQBOX-TERMINAL`. Fresh boot logs contain no ICE error, Wnck assertion or
+duplicate-manager message. Chromium is launched with `--password-store=basic`
+and the gnome-keyring autostart entries hidden, removing the "Choose password
+for new keyring" modal.
+
 ## Clean session and child PTY (no random XFCE errors)
 
 The first 26.04 boots emitted a stream of errors from duplicate processes and
