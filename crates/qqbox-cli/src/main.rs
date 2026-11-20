@@ -1,4 +1,6 @@
 use clap::{Parser, Subcommand};
+use std::io::Write as _;
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -94,6 +96,53 @@ enum Commands {
         listen: String,
         #[arg(long)]
         token: Option<String>,
+    },
+    Migrate {
+        #[command(subcommand)]
+        action: MigrateAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum MigrateAction {
+    Features,
+    Checkpoint {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    Restore {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    Verify {
+        #[arg(long)]
+        input: PathBuf,
+    },
+    Serve {
+        #[arg(long)]
+        secret: String,
+        #[arg(long)]
+        port_file: PathBuf,
+        #[arg(long)]
+        ready_fifo: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    Send {
+        #[arg(long)]
+        secret: String,
+        #[arg(long)]
+        endpoint: String,
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        delta: Vec<PathBuf>,
+        #[arg(long)]
+        final_out: Option<PathBuf>,
     },
 }
 
@@ -462,6 +511,224 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             println!("qqboxd listening on {listen}");
             println!("bearer token: {}", daemon.token().unwrap_or_default());
             daemon.serve(&listen).map_err(|e| e.to_string())?;
+        }
+        Commands::Migrate { action } => dispatch_migrate(action)?,
+    }
+    Ok(())
+}
+
+fn migration_state_from(config: &PathBuf) -> Result<qqbox::migrate::MigrationState, String> {
+    let bytes = read(config)?;
+    let cfg: qqbox::Config =
+        serde_json::from_slice(&bytes).map_err(|e| format!("config parse: {e}"))?;
+    let root = cfg.root.as_deref().unwrap_or("/");
+    let mut ns =
+        qqbox::vfs::Namespace::new(std::path::Path::new(root)).map_err(|e| e.to_string())?;
+    for mount in &cfg.mounts {
+        ns.mount(mount).map_err(|e| e.to_string())?;
+    }
+    Ok(qqbox::migrate::MigrationState::capture(
+        &cfg,
+        &qqbox::sandbox::GuestState::default(),
+        &ns,
+    ))
+}
+
+fn decode_state_file(path: &PathBuf) -> Result<qqbox::migrate::MigrationState, String> {
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let frame = qqbox::migrate::read_frame(&mut file).map_err(|e| e.to_string())?;
+    if frame.kind != qqbox::migrate::Kind::State {
+        return Err(format!("expected State frame, got {:?}", frame.kind));
+    }
+    qqbox::migrate::decode_state(&frame.payload).map_err(|e| e.to_string())
+}
+
+fn write_state_file(path: &PathBuf, state: &qqbox::migrate::MigrationState) -> Result<(), String> {
+    let mut file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let payload = qqbox::migrate::state_payload(state).map_err(|e| e.to_string())?;
+    qqbox::migrate::write_frame(&mut file, qqbox::migrate::Kind::State, &payload)
+        .map_err(|e| e.to_string())
+}
+
+fn dispatch_migrate(action: MigrateAction) -> Result<(), String> {
+    use qqbox::migrate as m;
+    match action {
+        MigrateAction::Features => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&m::features()).unwrap_or_default()
+            );
+        }
+        MigrateAction::Checkpoint { config, out } => {
+            let state = migration_state_from(&config)?.normalize();
+            write_state_file(&out, &state)?;
+            let d = state.digest().map_err(|e| e.to_string())?;
+            println!("checkpoint_digest={}", hex::encode(d));
+            println!("guestExecution={:?}", state.boundary.guest_execution);
+            println!(
+                "frame_bytes={}",
+                std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0)
+            );
+        }
+        MigrateAction::Restore { input, out } => {
+            let state = decode_state_file(&input)?;
+            let applied = state.apply().map_err(|e| e.to_string())?;
+            let mut recaptured =
+                m::MigrationState::capture(&applied.config, &applied.guest, &applied.namespace);
+            recaptured.generation = state.generation;
+            let ok = recaptured.normalize() == state.normalize();
+            let d = state.digest().map_err(|e| e.to_string())?;
+            let mut file = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+            file.write_all(
+                serde_json::to_string_pretty(&state.normalize())
+                    .unwrap_or_default()
+                    .as_bytes(),
+            )
+            .map_err(|e| e.to_string())?;
+            println!("restore_digest={}", hex::encode(d));
+            println!("capture_apply_identity={ok}");
+            println!(
+                "normalize_idempotent={}",
+                state.normalize().normalize() == state.normalize()
+            );
+            if !ok {
+                return Err("capture(apply(state)) != state".to_owned());
+            }
+        }
+        MigrateAction::Verify { input } => {
+            let raw = read(&input)?;
+            let mut cursor = std::io::Cursor::new(raw.as_slice());
+            let frame = m::read_frame(&mut cursor).map_err(|e| e.to_string())?;
+            let state = m::decode_state(&frame.payload).map_err(|e| e.to_string())?;
+            let applied = state.apply().map_err(|e| e.to_string())?;
+            let mut recaptured =
+                m::MigrationState::capture(&applied.config, &applied.guest, &applied.namespace);
+            recaptured.generation = state.generation;
+            let laws = [
+                (
+                    "capture_apply_identity",
+                    recaptured.normalize() == state.normalize(),
+                ),
+                (
+                    "normalize_idempotent",
+                    state.normalize().normalize() == state.normalize(),
+                ),
+                (
+                    "digest_canonical",
+                    state.digest().map_err(|e| e.to_string())?
+                        == state.normalize().digest().map_err(|e| e.to_string())?,
+                ),
+                ("delta_idempotent", {
+                    let d = state.delta(&state);
+                    let one = state.apply_delta(&d).map_err(|e| e.to_string())?;
+                    let two = one.apply_delta(&d).map_err(|e| e.to_string())?;
+                    one == two && m::MigrationState::is_empty_delta(&d)
+                }),
+            ];
+            for (name, ok) in laws {
+                println!("{name}={ok}");
+                if !ok {
+                    return Err(format!("law {name} failed"));
+                }
+            }
+            // Live rejection probes, all in memory: no test files on disk.
+            let mut corrupted = raw.clone();
+            if let Some(b) = corrupted.get_mut(m::HEADER_LEN + 2) {
+                *b ^= 0x01;
+            }
+            let corrupt = m::read_frame(&mut std::io::Cursor::new(corrupted.as_slice()))
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            let truncated = m::read_frame(&mut std::io::Cursor::new(
+                &raw[..raw.len().saturating_sub(1)],
+            ))
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+            let mut oversize = raw.clone();
+            if oversize.len() > 10 {
+                oversize[6..10].copy_from_slice(&(m::MAX_FRAME + 1).to_be_bytes());
+            }
+            let oversized = m::read_frame(&mut std::io::Cursor::new(oversize.as_slice()))
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            println!("corrupt_rejected={}", corrupt.contains("digest"));
+            println!(
+                "truncated_rejected={}",
+                truncated.contains("digest read") || truncated.contains("payload read")
+            );
+            println!("oversize_rejected={}", oversized.contains("MAX_FRAME"));
+            println!("corrupt_error={corrupt}");
+            println!("truncated_error={truncated}");
+            println!("oversize_error={oversized}");
+            if !corrupt.contains("digest")
+                || !oversized.contains("MAX_FRAME")
+                || !(truncated.contains("digest read") || truncated.contains("payload read"))
+            {
+                return Err("a malformed frame was accepted".to_owned());
+            }
+        }
+        MigrateAction::Serve {
+            secret,
+            port_file,
+            ready_fifo,
+            out,
+        } => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+            let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+            std::fs::write(&port_file, port.to_string()).map_err(|e| e.to_string())?;
+            // The FIFO write blocks until a reader opens it: event-driven
+            // readiness, no sleep or periodic recheck.
+            let mut fifo = std::fs::File::create(&ready_fifo).map_err(|e| e.to_string())?;
+            fifo.write_all(b"READY\n").map_err(|e| e.to_string())?;
+            fifo.flush().map_err(|e| e.to_string())?;
+            drop(fifo);
+            let (stream, _) = listener.accept().map_err(|e| e.to_string())?;
+            let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
+            let mut writer = stream;
+            let cap = m::Capability::derive(secret.as_bytes());
+            let done = m::receive(&mut reader, &mut writer, &cap).map_err(|e| e.to_string())?;
+            write_state_file(&out, done.state())?;
+            println!("receive_digest={}", hex::encode(done.digest()));
+            println!("receive_rounds={}", done.rounds());
+            println!(
+                "receive_peer_digest={}",
+                done.peer_digest().map(hex::encode).unwrap_or_default()
+            );
+        }
+        MigrateAction::Send {
+            secret,
+            endpoint,
+            input,
+            delta,
+            final_out,
+        } => {
+            let state = decode_state_file(&input)?;
+            let mut deltas = Vec::with_capacity(delta.len());
+            for path in &delta {
+                deltas.push(migration_state_from(path)?.normalize());
+            }
+            let stream = TcpStream::connect(&endpoint).map_err(|e| e.to_string())?;
+            let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
+            let mut writer = stream;
+            let cap = m::Capability::derive(secret.as_bytes());
+            let done = m::send(&mut reader, &mut writer, state, &cap, &deltas)
+                .map_err(|e| e.to_string())?;
+            println!("send_digest={}", hex::encode(done.digest()));
+            println!(
+                "send_peer_digest={}",
+                done.peer_digest().map(hex::encode).unwrap_or_default()
+            );
+            println!("send_rounds={}", done.rounds());
+            if let Some(path) = &final_out {
+                write_state_file(path, done.state())?;
+            }
+            match done.peer_digest() {
+                Some(p) if p == done.digest() => println!("source_destination_match=true"),
+                _ => return Err("source/destination digest mismatch".to_owned()),
+            }
         }
     }
     Ok(())

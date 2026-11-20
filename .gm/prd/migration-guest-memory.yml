@@ -1,0 +1,7 @@
+id: migration-guest-memory
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: 'HONEST LIMITATION: guest CPU/memory/dirty-page capture is unavailable'
+description: Firecracker-style live migration needs guest physical memory, vCPU registers and dirty-page tracking from a VMM. qqbox has no hypervisor and the three native guest backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF, Windows LPAC) are NOT ported to Rust (inherited go-removal row remains pending). Do NOT fabricate this state. Record the boundary explicitly in docs and keep this row pending until a real backend exists.
+acceptance_criteria: Documented boundary plus a PRD row that stays pending; no code claims to capture guest memory.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

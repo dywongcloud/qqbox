@@ -1,0 +1,7 @@
+id: migration-cli
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: CLI migration subcommands
+description: Add qqbox migrate checkpoint|restore|state subcommands that drive the crate API over an explicit endpoint/capability, with all errors surfaced as non-zero exit codes.
+acceptance_criteria: Live CLI round-trip over two processes returns rc=0 and matching state digests.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

@@ -3,6 +3,7 @@ pub mod config;
 pub mod daemon;
 pub mod error;
 pub mod labels;
+pub mod migrate;
 pub mod net;
 pub mod oci;
 pub mod options;

@@ -1,0 +1,7 @@
+id: migration-daemon-api
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Migration endpoints in qqboxd behind zero-trust auth
+description: Add /migrate/checkpoint, /migrate/restore, /migrate/state routes to the 48-route Docker-compatible daemon, gated by the existing bearer token, with parameterized request bodies and no raw shell/command interpolation.
+acceptance_criteria: Live HTTP call without the token is rejected; with the token, checkpoint returns the state and restore applies it, witnessed with curl.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

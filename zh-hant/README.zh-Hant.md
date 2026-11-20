@@ -72,9 +72,17 @@ qqbox = { path = "crates/qqbox" }   # 發佈後亦可取自 crates.io 或 git
 | **OCI runtime** | 作為 Docker、containerd、Podman 或 CRI-O 的 runc／crun 替代品。向引擎註冊後，以 `docker run --runtime=qqbox …` 選用。 | [`crates/qqbox-runtime`](../crates/qqbox-runtime/src/main.rs)：`qqbox-runtime create <id> <bundle>` |
 | **MCP 伺服器** | 讓 AI 代理呼叫 `run` 工具，取得結束狀態、標準輸出與標準錯誤。支援 stdio 與 streamable HTTP。 | [`crates/qqbox-mcp`](../crates/qqbox-mcp/src/main.rs)：`qqbox-mcp`／`qqbox-mcp --http 127.0.0.1:8080` |
 | **Rust 程式庫** | 在自己的程式中嵌入沙箱，不需要 daemon。 | `qqbox` crate：`qqbox::run_image(&ctx, "alpine:3.20", &opts)` |
+| **即時遷移** | 在兩台宿主之間對監督器擁有的控制平面狀態進行 checkpoint、pre-copy 與還原。 | `qqbox migrate checkpoint\|verify\|restore\|serve\|send`、`/qqbox/v1/migrate/*` daemon 路由、[`qqbox::migrate`](../crates/qqbox/src/migrate/mod.rs) |
 
 daemon 與 OCI runtime 是兩種獨立整合：前者服務用戶端，後者執行既有引擎交付的
 bundle。選用 qqbox 作為 OCI runtime，並不會移除引擎本身對宿主平台的要求。
+
+**遷移邊界。** `qqbox migrate` 以具版本、SHA-256 校驗的 ADT 傳送工作負載規格、
+vfs Namespace、chanPage／fd 表與網路政策，具備仿射型別狀態與 capability 閘控的
+commit。它**不會**傳送來賓記憶體或 vCPU 暫存器：qqbox 沒有 VMM，三個原生來賓
+後端尚未移植到 Rust。詳見
+[docs/LIVE_MIGRATION.zh-Hant.md](docs/LIVE_MIGRATION.zh-Hant.md)（英文：
+[../docs/LIVE_MIGRATION.md](../docs/LIVE_MIGRATION.md)）。
 
 ## 開始使用
 

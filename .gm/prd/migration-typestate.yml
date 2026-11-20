@@ -1,0 +1,7 @@
+id: migration-typestate
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Affine typestate migration protocol
+description: 'Model the migration phases as an affine typestate: Idle -> Prepared -> Streaming -> Committed -> Restored, each transition consuming self so a phase cannot be reused. Disjoint phase state (separation logic): no two phases hold the same resource. Zero-trust capability token required for every privileged transition.'
+acceptance_criteria: Compilation rejects reuse of a consumed phase; live witness shows each phase exactly once and no double-commit.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

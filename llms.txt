@@ -39,6 +39,14 @@ Key facts for answering questions about this repository:
   (create/start/state/kill/delete/features), the `qqbox-mcp` MCP server
   (stdio + streamable HTTP, `run` tool plus seven witnessed control-plane tools),
   and the `qqbox` Rust library (`run_image(&ctx, ref, &opts)`).
+- Live migration (docs/LIVE_MIGRATION.md): `qqbox migrate` plus four
+  `/qqbox/v1/migrate/*` daemon routes transfer supervisor-owned control-plane
+  state (spec, vfs Namespace, chanPage/fd table, network policy) as a versioned
+  ADT with four disjoint partitions, pure capture/apply morphisms, bounded
+  SHA-256-checked frames, affine typestate, pre-copy deltas and zero-trust
+  capability gating. Firecracker-style guest RAM/vCPU/dirty-page migration is
+  impossible here and is explicitly NOT claimed: qqbox has no VMM and the three
+  native guest backends are not ported to Rust (go-removal remains pending).
 - The Xubuntu 26.04.1 LTS desktop example (examples/qqbox/) boots with working
   Xubuntu wallpapers, a bottom dock, PulseAudio, Chromium 150, vi/vim and GNU
   tools, and `root@qbox`. It is booted with the pre-removal Go runtime binary

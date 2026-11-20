@@ -1,6 +1,24 @@
+use serde::{Deserialize, Serialize};
+
 use crate::error::{Error, Result};
 use crate::types::Mount;
 use std::path::{Component, Path, PathBuf};
+
+/// Serializable, resolved mount entry. A pure value: no PathBuf, no ambient
+/// filesystem state, so it can be transferred and applied on another host.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct MountSnapshot {
+    pub host: String,
+    pub guest: String,
+    pub read_only: bool,
+}
+
+/// The complete vfs Namespace state captured for migration.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NamespaceSnapshot {
+    pub root: String,
+    pub mounts: Vec<MountSnapshot>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPath {
@@ -248,6 +266,51 @@ impl Namespace {
             return Some(String::new());
         }
         None
+    }
+
+    /// Pure snapshot of the resolved namespace. No IO beyond reading own fields.
+    pub fn snapshot(&self) -> NamespaceSnapshot {
+        NamespaceSnapshot {
+            root: self.root.to_string_lossy().into_owned(),
+            mounts: self
+                .mounts
+                .iter()
+                .map(|entry| MountSnapshot {
+                    host: entry.host.to_string_lossy().into_owned(),
+                    guest: entry.guest.clone(),
+                    read_only: entry.read_only,
+                })
+                .collect(),
+        }
+    }
+
+    /// Total inverse of `snapshot`. Rejects a path that escapes confinement
+    /// rather than constructing an unsafe Namespace.
+    pub fn from_snapshot(snap: &NamespaceSnapshot) -> Result<Self> {
+        let root = if snap.root.is_empty() {
+            PathBuf::from("/")
+        } else {
+            PathBuf::from(&snap.root)
+        };
+        let mut mounts = Vec::with_capacity(snap.mounts.len());
+        for entry in &snap.mounts {
+            if entry.host.contains("..") {
+                return Err(Error::PathEscape(entry.host.clone()));
+            }
+            let guest = normalize_guest(&entry.guest)?;
+            if guest.is_empty() {
+                return Err(Error::Config(
+                    "mount snapshot has an empty guest path".to_owned(),
+                ));
+            }
+            mounts.push(MountEntry {
+                host: PathBuf::from(&entry.host),
+                guest,
+                read_only: entry.read_only,
+            });
+        }
+        mounts.sort_by_key(|entry| std::cmp::Reverse(entry.guest.len()));
+        Ok(Namespace { root, mounts })
     }
 
     pub fn allowed_devices() -> &'static [&'static str] {

@@ -1,0 +1,7 @@
+id: migration-state-adt
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Versioned migration state ADT for supervisor-owned state
+description: 'Define a versioned, serde-serializable MigrationState ADT covering the state qqbox actually owns: OCI config (image, env, ports, volumes, labels, entrypoint), the vfs Namespace tree (paths, kinds, modes, contents), the chanPage channel/fd table, and network bindings/allow policy. Pure morphisms only: capture and apply are total, deterministic and idempotent (apply(apply(s)) == apply(s)). No phantom guest state in the AST.'
+acceptance_criteria: cargo test --workspace and a live checkpoint/transfer/restore round-trip over a real TCP socket both show byte-identical state after apply, with no panics.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

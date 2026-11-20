@@ -6,6 +6,7 @@ use crate::types::{
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub args: Vec<String>,
     pub env: Vec<String>,

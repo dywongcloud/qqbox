@@ -91,10 +91,19 @@ fetching is separate from the guest's network permissions.
 | **OCI runtime** | You want a runc/crun drop-in for Docker, containerd, Podman, or CRI-O. Register it with your engine; Docker selects it with `docker run --runtime=qqbox …`. | [`crates/qqbox-runtime`](crates/qqbox-runtime/src/main.rs): `qqbox-runtime create <id> <bundle>` |
 | **MCP server** | You want an AI agent to call a `run` tool and receive the exit status, stdout, and stderr. Supports stdio and streamable HTTP server mode. | [`crates/qqbox-mcp`](crates/qqbox-mcp/src/main.rs): `qqbox-mcp` / `qqbox-mcp --http 127.0.0.1:8080` |
 | **Rust library** | You want to embed the sandbox in your own program, with no daemon. | `qqbox` crate: `qqbox::run_image(&ctx, "alpine:3.20", &opts)` |
+| **Live migration** | You want to checkpoint, pre-copy and restore supervisor-owned control-plane state between two hosts. | `qqbox migrate checkpoint\|verify\|restore\|serve\|send`, `/qqbox/v1/migrate/*` daemon routes, [`qqbox::migrate`](crates/qqbox/src/migrate/mod.rs) |
 
 The daemon and OCI runtime are separate integrations: one serves clients, the
 other runs bundles supplied by an existing engine. Selecting qqbox as an OCI
 runtime does not remove an engine's own host-platform requirements.
+
+**Migration boundary.** `qqbox migrate` transfers the workload spec, the vfs
+Namespace, the chanPage/fd table and the network policy as a versioned,
+SHA-256-checked ADT with affine typestate and capability-gated commit. It does
+**not** transfer guest memory or vCPU registers: qqbox has no VMM and the three
+native guest backends are not ported to Rust. See
+[docs/LIVE_MIGRATION.md](docs/LIVE_MIGRATION.md) (Traditional Chinese:
+[zh-hant/docs/LIVE_MIGRATION.zh-Hant.md](zh-hant/docs/LIVE_MIGRATION.zh-Hant.md)).
 
 ## Get started
 

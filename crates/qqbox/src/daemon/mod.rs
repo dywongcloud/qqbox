@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::{Error, Result};
+use crate::migrate::{Capability, MigrationState};
 use crate::types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -215,6 +216,9 @@ pub struct State {
     pub images: BTreeMap<Id, ImageEntry>,
     pub networks: BTreeMap<Id, NetworkEntry>,
     pub volumes: BTreeMap<String, VolumeEntry>,
+    /// Last checkpointed control-plane state. `None` until an explicit
+    /// checkpoint; the daemon never invents a state.
+    pub migration: Option<MigrationState>,
     next: u64,
     pulls: u64,
 }
@@ -599,13 +603,19 @@ fn generated_token() -> String {
 pub struct Daemon {
     pub state: Mutex<State>,
     pub token: Option<String>,
+    /// Capability required for restore. Derived from the bearer token at
+    /// construction, so no secret is embedded in source.
+    pub migration_capability: Capability,
 }
 
 impl Daemon {
     pub fn new(token: Option<String>) -> Self {
+        let token = Some(token.unwrap_or_else(generated_token));
+        let migration_capability = Capability::derive(token.as_deref().unwrap_or("").as_bytes());
         Daemon {
             state: Mutex::new(State::new()),
-            token: Some(token.unwrap_or_else(generated_token)),
+            token,
+            migration_capability,
         }
     }
 
@@ -665,6 +675,10 @@ impl Daemon {
             "POST /auth",
             "GET /qqbox/v1/invariants",
             "GET /qqbox/v1/routes",
+            "GET /qqbox/v1/migrate/features",
+            "GET /qqbox/v1/migrate/state",
+            "POST /qqbox/v1/migrate/checkpoint",
+            "POST /qqbox/v1/migrate/restore",
         ]
     }
 
@@ -724,6 +738,139 @@ impl Daemon {
         }
         if path == "/qqbox/v1/routes" {
             return Response::json(200, &serde_json::json!({"routes":Self::routes()}));
+        }
+        if path == "/qqbox/v1/migrate/features" {
+            return Response::json(200, &crate::migrate::features());
+        }
+        if path == "/qqbox/v1/migrate/state" {
+            return match &state.migration {
+                Some(ms) => match ms.digest() {
+                    Ok(d) => Response::json(
+                        200,
+                        &serde_json::json!({
+                            "digest": hex::encode(d), "state": ms
+                        }),
+                    ),
+                    Err(e) => Response::json(500, &serde_json::json!({"message": e.to_string()})),
+                },
+                None => Response::json(
+                    404,
+                    &serde_json::json!({
+                        "message": "no checkpoint; POST /qqbox/v1/migrate/checkpoint first"
+                    }),
+                ),
+            };
+        }
+        if path == "/qqbox/v1/migrate/checkpoint" && method == "POST" {
+            #[derive(Deserialize)]
+            struct CheckpointRequest {
+                container: String,
+            }
+            let req: CheckpointRequest = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Response::json(
+                        400,
+                        &serde_json::json!({
+                            "message": format!("checkpoint requires {{\"container\":\"<id>\"}}: {e}")
+                        }),
+                    );
+                }
+            };
+            let container = state
+                .containers
+                .values()
+                .find(|c| c.id == req.container || c.name == req.container);
+            let container = match container {
+                Some(c) => c,
+                None => {
+                    return Response::json(
+                        404,
+                        &serde_json::json!({
+                            "message": format!("container {} not found", req.container)
+                        }),
+                    );
+                }
+            };
+            let cfg = container.config.clone();
+            let root = cfg.root.as_deref().unwrap_or("/");
+            let mut ns = match crate::vfs::Namespace::new(std::path::Path::new(root)) {
+                Ok(n) => n,
+                Err(e) => {
+                    return Response::json(500, &serde_json::json!({"message": e.to_string()}))
+                }
+            };
+            for mount in &cfg.mounts {
+                if let Err(e) = ns.mount(mount) {
+                    return Response::json(500, &serde_json::json!({"message": e.to_string()}));
+                }
+            }
+            let ms = MigrationState::capture(&cfg, &crate::sandbox::GuestState::default(), &ns);
+            let canonical = ms.normalize();
+            let digest = match canonical.digest() {
+                Ok(d) => d,
+                Err(e) => {
+                    return Response::json(500, &serde_json::json!({"message": e.to_string()}))
+                }
+            };
+            state.migration = Some(canonical.clone());
+            return Response::json(
+                200,
+                &serde_json::json!({
+                    "digest": hex::encode(digest),
+                    "generation": canonical.generation,
+                    "guestExecution": "NotCapturable",
+                    "state": canonical
+                }),
+            );
+        }
+        if path == "/qqbox/v1/migrate/restore" && method == "POST" {
+            #[derive(Deserialize)]
+            struct RestoreRequest {
+                capability: String,
+                state: MigrationState,
+            }
+            let req: RestoreRequest = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Response::json(
+                        400,
+                        &serde_json::json!({
+                            "message": format!("restore requires capability and state: {e}")
+                        }),
+                    );
+                }
+            };
+            let presented = Capability {
+                digest: match hex::decode(&req.capability) {
+                    Ok(bytes) if bytes.len() == 32 => {
+                        let mut d = [0u8; 32];
+                        d.copy_from_slice(&bytes);
+                        d
+                    }
+                    _ => [0u8; 32],
+                },
+            };
+            if !self.migration_capability.matches(&presented) {
+                return Response::json(403, &serde_json::json!({"message": "capability rejected"}));
+            }
+            if let Err(e) = req.state.apply() {
+                return Response::json(422, &serde_json::json!({"message": e.to_string()}));
+            }
+            let canonical = req.state.normalize();
+            let digest = match canonical.digest() {
+                Ok(d) => d,
+                Err(e) => {
+                    return Response::json(500, &serde_json::json!({"message": e.to_string()}))
+                }
+            };
+            state.migration = Some(canonical);
+            return Response::json(
+                200,
+                &serde_json::json!({
+                    "digest": hex::encode(digest), "status": "restored"
+                }),
+            );
         }
         if path == "/containers/json" {
             let filters = parse_label_filter(query);
