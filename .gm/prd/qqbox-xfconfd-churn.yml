@@ -1,7 +1,0 @@
-id: qqbox-xfconfd-churn
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Remove redundant xfconfd supervision
-description: xfconfd is D-Bus activatable and the explicit supervise loop exits rc=0 every 300s, causing churn. Drop it; keep DBUS_SESSION_BUS_ADDRESS exported inside the group so a fresh bus activates a fresh xfconfd.
-acceptance_criteria: pgrep -c -x xfconfd = 1 after boot with no repeated start/exit lines in supervisor.log.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

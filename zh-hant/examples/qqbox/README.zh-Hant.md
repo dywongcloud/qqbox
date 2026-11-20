@@ -117,6 +117,31 @@ singleton lock。此設計維持恰好一個面板與一個 xfconfd，不會重�
 訊息。Chromium 加上 `--password-store=basic` 並隱藏 gnome-keyring 的
 autostart 項目，移除了「Choose password for new keyring」對話框。
 
+### 強化：session bus 也受監督，且 shim 能承受 dpkg
+
+對抗式 swarm（9 個代理）找出兩個殘留缺口。第一，永久性 session bus 本身仍是
+單點故障。六個獨立迴圈已改為**單一群組監督器**，同時持有 bus 與所有客戶端：
+FIFO 讀取阻塞於 bus 位址，`wait -n -p` 阻塞於第一個子行程結束，而
+`BUS_EXITED` 事件會 kill／wait 整個群組並啟動全新 bus。`xfconfd` 刻意不受監督
+— 它可由 D-Bus 啟動，舊迴圈每 300 秒以 rc=0 結束一次。
+
+第二，`dpkg -i bubblewrap_*.deb` 會覆寫 glycin shim。映像現在註冊
+`dpkg-divert --local --divert /usr/bin/bwrap.distrib --rename --add
+/usr/bin/bwrap`，開機指令稿則冪等地重新宣告。真正的 ELF 保存在
+`bwrap.qqbox-orig`（於 `--rename` 前以 magic `7f454c46` 驗證），因此 fallback
+絕不會遞迴執行 shim 本身。
+
+全新來賓（VNC 5985）的實測證據，live 5905 完全未動：
+
+| 探測 | 結果 |
+| --- | --- |
+| 乾淨開機 | `xfce4_session_procs=0`、`xfconfd_procs=1`、`xfce4_panel_procs=1`、`bwrap_shim=#!/bin/sh size=250`、divert 存在、零 `Wnck:ERROR`／`ICE I/O Error` |
+| `kill -9` session bus（pid 89） | `kill9_rc=0`；`BUS_EXITED rc=137 -> group restart`；第二個 `SESSION_BUS pid=1462`；`panel_procs_after_bus_kill=1`；`supervisor_alive=yes` |
+| `dpkg -i bubblewrap_0.11.1-1ubuntu0.3_arm64.deb` | `dpkg_rc=0`；`bwrap_head=#!/bin/sh`；`bwrap_size=250`；divert 保留；`panel_procs_after_dpkg=1`；零 Wnck／ICE 錯誤 |
+
+取樣瞬間的 `xfconfd_procs_after_bus_kill=0` 屬預期：它在新 bus 上是延遲啟動。
+見證日誌：`/Users/dylanwong/.gm-work/qqbox/harden-probe.log`。
+
 ## 清除隨機 XFCE 錯誤與子 PTY 錯誤
 
 早期 26.04 開機流程會產生一連串錯誤，皆已修復並實測：

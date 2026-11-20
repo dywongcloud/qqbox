@@ -237,6 +237,34 @@ duplicate-manager message. Chromium is launched with `--password-store=basic`
 and the gnome-keyring autostart entries hidden, removing the "Choose password
 for new keyring" modal.
 
+### Hardening: the bus is supervised too, and the shim survives dpkg
+
+An adversarial swarm (9 agents) found two remaining gaps. First, the persistent
+session bus was itself a single point of failure. The six independent loops are
+replaced by **one group supervisor** that owns the bus and all clients together:
+a FIFO read blocks on the bus address, `wait -n -p` blocks on the first child
+exit, and a `BUS_EXITED` event kills/waits the group and starts a fresh bus.
+`xfconfd` is deliberately not supervised — it is D-Bus activatable and the old
+loop exited rc=0 every 300 s.
+
+Second, `dpkg -i bubblewrap_*.deb` overwrote the glycin shim. The image now
+registers `dpkg-divert --local --divert /usr/bin/bwrap.distrib --rename --add
+/usr/bin/bwrap`, and the boot script re-asserts it idempotently. The real ELF is
+kept in `bwrap.qqbox-orig` (verified by magic `7f454c46` before `--rename`), so
+the fallback can never exec the shim recursively.
+
+Fresh-guest witnesses at VNC 5985, with live 5905 untouched:
+
+| probe | result |
+| --- | --- |
+| clean boot | `xfce4_session_procs=0`, `xfconfd_procs=1`, `xfce4_panel_procs=1`, `bwrap_shim=#!/bin/sh size=250`, divert present, zero `Wnck:ERROR` / `ICE I/O Error` |
+| `kill -9` the session bus (pid 89) | `kill9_rc=0`; `BUS_EXITED rc=137 -> group restart`; second `SESSION_BUS pid=1462`; `panel_procs_after_bus_kill=1`; `supervisor_alive=yes` |
+| `dpkg -i bubblewrap_0.11.1-1ubuntu0.3_arm64.deb` | `dpkg_rc=0`; `bwrap_head=#!/bin/sh`; `bwrap_size=250`; divert preserved; `panel_procs_after_dpkg=1`; zero Wnck/ICE errors |
+
+`xfconfd_procs_after_bus_kill=0` at the sampled instant is expected: it is
+activated lazily on the fresh bus. Witness log:
+`/Users/dylanwong/.gm-work/qqbox/harden-probe.log`.
+
 ## Clean session and child PTY (no random XFCE errors)
 
 The first 26.04 boots emitted a stream of errors from duplicate processes and

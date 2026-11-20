@@ -1,7 +1,0 @@
-id: qqbox-bus-spof
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Supervise the persistent session bus as a group
-description: 'The event-driven supervisor owns dbus-daemon --session --fork but does not supervise the bus itself; kill -9 of the bus leaves Xvfb/x11vnc alive but all XFCE clients exit with Name org.xfce.Panel lost. Replace six independent loops with one bus-owning group supervisor: FIFO read blocks on bus address, wait -n -p blocks on first child exit; on bus exit kill/wait the group then restart with a fresh bus. No sleep/timeout/periodic recheck as correctness.'
-acceptance_criteria: After kill -9 of the bus daemon, a fresh guest shows pgrep -c -x xfce4-panel = 1 and an xfce4-panel window at 1280x41+0+0 +0+759, with no duplicate panels.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending
