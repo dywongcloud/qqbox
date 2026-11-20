@@ -265,6 +265,25 @@ Fresh-guest witnesses at VNC 5985, with live 5905 untouched:
 activated lazily on the fresh bus. Witness log:
 `/Users/dylanwong/.gm-work/qqbox/harden-probe.log`.
 
+### Live 5905 cutover
+
+The pre-cutover 5905 wrapper expired at its 24-hour `gtimeout`; before that, at
+05:37 on 2026-11-20, the old six-loop supervisor tripped all six circuit
+breakers because host disk exhaustion made every X client exit immediately.
+Live 5905 was then re-booted from the hardened `start-xubuntu.sh` (group
+supervisor + dpkg-divert shim), with a fresh `/out` at
+`/Users/dylanwong/.gm-work/qqbox/live-5905-hardened`.
+
+Independent RFB 3.8 witness: `qbox:99`, 1280x800, 4,096,000 raw bytes, 6,187
+distinct colors, showing the Applications menu, three launchers, the tasklist
+with `Example Domain - Chro...` and `QQBOX-TERMINAL`, Chromium rendering
+`https://example.com/`, the `root@qbox:/out#` terminal and the Xubuntu
+wallpaper, with no keyring dialog. Boot evidence:
+`xfce4_session_procs=0`, `xfconfd_procs=1`, `xfce4_panel_procs=1`,
+panel window `1280x41+0+0 +0+759`, shim `#!/bin/sh` size 250, divert present,
+`QQBOX_BOOT_READY`. This removes the earlier residual where live 5905 still ran
+the pre-hardening script.
+
 ## Clean session and child PTY (no random XFCE errors)
 
 The first 26.04 boots emitted a stream of errors from duplicate processes and

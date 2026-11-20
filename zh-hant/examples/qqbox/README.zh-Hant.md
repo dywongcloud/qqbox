@@ -142,6 +142,22 @@ FIFO 讀取阻塞於 bus 位址，`wait -n -p` 阻塞於第一個子行程結束
 取樣瞬間的 `xfconfd_procs_after_bus_kill=0` 屬預期：它在新 bus 上是延遲啟動。
 見證日誌：`/Users/dylanwong/.gm-work/qqbox/harden-probe.log`。
 
+### Live 5905 切換
+
+先前的 5905 wrapper 在 24 小時的 `gtimeout` 到期後結束；在此之前，
+2026-11-20 05:37 時舊版六迴圈監督器因為宿主磁碟耗盡、每個 X 客戶端都立即
+結束，而觸發全部六個熔斷器。live 5905 隨後以強化後的 `start-xubuntu.sh`
+（群組監督器 + dpkg-divert shim）重新啟動，`/out` 指向
+`/Users/dylanwong/.gm-work/qqbox/live-5905-hardened`。
+
+獨立的 RFB 3.8 見證：`qbox:99`、1280x800、4,096,000 raw bytes、6,187 種顏色，
+可見 Applications 選單、三個啟動器、含 `Example Domain - Chro...` 與
+`QQBOX-TERMINAL` 的工作列、Chromium 呈現 `https://example.com/`、
+`root@qbox:/out#` 終端機與 Xubuntu 桌布，且沒有 keyring 對話框。開機證據：
+`xfce4_session_procs=0`、`xfconfd_procs=1`、`xfce4_panel_procs=1`、面板視窗
+`1280x41+0+0 +0+759`、shim `#!/bin/sh` size 250、divert 存在、
+`QQBOX_BOOT_READY`。這消除了先前 live 5905 仍執行強化前指令稿的殘留問題。
+
 ## 清除隨機 XFCE 錯誤與子 PTY 錯誤
 
 早期 26.04 開機流程會產生一連串錯誤，皆已修復並實測：
