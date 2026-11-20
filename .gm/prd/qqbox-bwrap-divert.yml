@@ -1,0 +1,7 @@
+id: qqbox-bwrap-divert
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Make the glycin bwrap shim dpkg-durable
+description: The shim at /usr/bin/bwrap is overwritten by dpkg -i bubblewrap_*.deb, which restores the real bubblewrap ELF; fresh icon decode then aborts libwnck with Wnck:ERROR default_icon_at_size assertion failed (base). Use dpkg-divert --local --divert /usr/bin/bwrap.distrib --rename --add /usr/bin/bwrap, preserving bwrap.qqbox-orig as the REAL ELF, and re-assert the shim idempotently at boot.
+acceptance_criteria: 'After dpkg -i of the bubblewrap .deb, head -1 /usr/bin/bwrap is #!/bin/sh; stat size is stable; dpkg-divert --list shows the local diversion; a fresh iconless client produces no Wnck:ERROR and the panel stays alive.'
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

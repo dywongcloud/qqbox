@@ -126,7 +126,16 @@ RUN mkdir -p /opt/claude-code && tar -xzf /tmp/claude-code.tgz -C /opt/claude-co
 RUN ln -sf /opt/chromium/chromium-wrapper.sh /usr/local/bin/wrapped-chromium && \
     sed -i 's|^Exec=.*|Exec=/usr/local/bin/chromium|' /usr/share/applications/chromium.desktop
 
-RUN cp /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig && \
+# Ubuntu 26.04's glycin image loaders are spawned by the real bubblewrap ELF,
+# whose mount(MS_SLAVE) fails under qqbox. A fresh icon decode then aborts
+# libwnck with "Wnck:ERROR:default_icon_at_size: assertion failed (base)" and
+# "Bail out!", killing the panel, the session and every window. A shim that
+# execs the real glycin loader fixes it, but `dpkg -i bubblewrap_*.deb`
+# overwrites the shim. dpkg-divert moves the packaged ELF to bwrap.distrib so
+# dpkg can never install over our script. bwrap.qqbox-orig is a copy of the
+# REAL ELF, never of the shim.
+RUN cp -f /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig && \
+    dpkg-divert --local --divert /usr/bin/bwrap.distrib --rename --add /usr/bin/bwrap && \
     printf '%s\n' '#!/bin/sh' \
       'i=1' \
       'for a in "$@"; do' \
@@ -136,8 +145,13 @@ RUN cp /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig && \
       '  esac' \
       '  i=$((i+1))' \
       'done' \
-      'exec /usr/bin/bwrap.qqbox-orig "$@"' > /usr/bin/bwrap && \
-    chmod 755 /usr/bin/bwrap
+      'for r in /usr/bin/bwrap.distrib /usr/bin/bwrap.qqbox-orig; do' \
+      '  [ -x "$r" ] && exec "$r" "$@"' \
+      'done' \
+      'exit 1' > /usr/bin/bwrap && \
+    chmod 755 /usr/bin/bwrap && \
+    dpkg-divert --list | grep -q '^local diversion of /usr/bin/bwrap to /usr/bin/bwrap.distrib' && \
+    head -1 /usr/bin/bwrap | grep -qx '#!/bin/sh'
 
 COPY start-xubuntu.sh /usr/local/bin/start-xubuntu.sh
 RUN chmod +x /usr/local/bin/start-xubuntu.sh

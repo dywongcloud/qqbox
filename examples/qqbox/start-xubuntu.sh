@@ -14,11 +14,28 @@ rm -f /out/ready.txt /out/result.txt /out/stages.log /run/dbus/pid /run/dbus/sys
 stage() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >>/out/stages.log; }
 
 # Ubuntu 26.04 routes scalable icons through glycin, whose loaders are spawned
-# by bwrap; bwrap's mount(MS_SLAVE) fails under qqbox and xfce4-panel aborts.
-# Exec the real glycin loader without that unusable mount sandbox. Idempotent:
-# the image's Dockerfile also installs this shim, so preserve the original once.
-if [ ! -x /usr/bin/bwrap.qqbox-orig ]; then
-  cp /usr/bin/bwrap /usr/bin/bwrap.qqbox-orig 2>/dev/null || true
+# by the real bubblewrap ELF. Its mount(MS_SLAVE) fails under qqbox, so a fresh
+# icon decode aborts libwnck and takes the panel/session/every window down.
+# The shim execs the real glycin loader without that unusable mount sandbox.
+# dpkg-divert moves the packaged ELF to bwrap.distrib so `dpkg -i bubblewrap`
+# cannot clobber the shim. bwrap.qqbox-orig must hold the REAL ELF.
+# bwrap.qqbox-orig must always hold the REAL ELF (magic 7f454c46), never a
+# shim: dpkg-divert --rename moves /usr/bin/bwrap to bwrap.distrib, so if a
+# shim were there the fallback below would exec itself. Recover from either
+# a rebuilt image (ELF already saved) or the current one (shim installed).
+is_elf() { [ "$(head -c4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" = 7f454c46 ]; }
+if ! is_elf /usr/bin/bwrap.qqbox-orig; then
+  for cand in /usr/bin/bwrap.distrib /usr/bin/bwrap; do
+    if is_elf "$cand"; then cp -f "$cand" /usr/bin/bwrap.qqbox-orig; break; fi
+  done
+fi
+if ! dpkg-divert --list 2>/dev/null | grep -q '^local diversion of /usr/bin/bwrap to /usr/bin/bwrap.distrib'; then
+  # Put the real ELF in place so --rename moves the ELF, not the shim.
+  if is_elf /usr/bin/bwrap.qqbox-orig; then
+    cp -f /usr/bin/bwrap.qqbox-orig /usr/bin/bwrap
+  fi
+  dpkg-divert --local --divert /usr/bin/bwrap.distrib --rename --add /usr/bin/bwrap >/out/bwrap-divert.log 2>&1
+  echo "divert_add_rc=$?" >> /out/bwrap-divert.log
 fi
 cat > /usr/bin/bwrap <<'SHIM'
 #!/bin/sh
@@ -30,10 +47,13 @@ for a in "$@"; do
   esac
   i=$((i+1))
 done
-exec /usr/bin/bwrap.qqbox-orig "$@"
+for r in /usr/bin/bwrap.distrib /usr/bin/bwrap.qqbox-orig; do
+  [ -x "$r" ] && exec "$r" "$@"
+done
+exit 1
 SHIM
 chmod 755 /usr/bin/bwrap
-echo "bwrap_shim_installed=$(test -x /usr/bin/bwrap.qqbox-orig && echo yes || echo no)" > /out/bwrap-shim.txt
+echo "bwrap_shim=$(head -1 /usr/bin/bwrap) size=$(stat -c%s /usr/bin/bwrap) divert=$(dpkg-divert --list | grep -c 'bwrap')" > /out/bwrap-shim.txt
 
 # Install helpers missing on earlier builds; the rebuilt image bakes them.
 if ! command -v xdg-user-dir >/dev/null 2>&1 || ! command -v gnome-keyring-daemon >/dev/null 2>&1; then
@@ -301,47 +321,108 @@ Exec=/usr/local/bin/qqbox-terminal
 OnlyShowIn=XFCE;
 DESK
 
-# ---- Event-driven desktop supervision (NO xfce4-session) ----
-# xfce4-session was a single point of failure: when it died, the session bus
-# it owned died too, every client got "ICE I/O Error" / "Disconnected from
-# session manager", and ALL windows (dock, taskbar, terminal, Chromium)
-# vanished while the wallpaper root pixmap survived. Remove that dependency:
-# own one persistent session bus + xfconfd, and supervise each desktop
-# component with `wait $pid` (blocks on child exit; no polling, no sleep,
-# no periodic recheck). A circuit breaker stops a component that crashes
-# immediately on every start.
-export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
-echo "session_bus=$DBUS_SESSION_BUS_ADDRESS" > /out/session-bus.txt
-supervise() {
-  name=$1; shift
-  (
-    fast=0
+# ---- Event-driven group supervision (NO xfce4-session) ----
+# xfce4-session owned the session bus and was the single point of failure:
+# when it died every client logged "ICE I/O Error" / "Disconnected from
+# session manager" and ALL windows (dock, taskbar, terminal, Chromium)
+# vanished while the wallpaper root pixmap survived. The bus is ALSO a single
+# point of failure: kill -9 of dbus-daemon leaves Xvfb and x11vnc alive while
+# the panel exits with "Name org.xfce.Panel lost on the message dbus".
+# Therefore ONE group supervisor owns the bus and all desktop clients. It
+# blocks on the first child exit with `wait -n -p` and restarts the whole
+# group with a fresh bus when the bus dies. FIFO reads block on the bus
+# address: no sleep, no timeout, no periodic recheck as a correctness
+# mechanism. xfconfd is D-Bus activatable and deliberately NOT supervised:
+# the explicit loop exited rc=0 every 300 s and produced restart churn.
+rm -f /out/bus-addr.fifo /out/bus-ready.fifo /out/bus-published
+mkfifo /out/bus-addr.fifo /out/bus-ready.fifo
+
+desktop_group() {
+  while :; do
+    # --nofork keeps the bus a child of this group so wait -n can see its
+    # death. --print-address=3 publishes the address to a FIFO; the read
+    # below blocks until that write arrives (event-driven, no polling).
+    dbus-daemon --session --nofork --print-address=3 3>/out/bus-addr.fifo \
+      >/out/dbus-session.log 2>&1 &
+    BUS=$!
+    read -r ADDR < /out/bus-addr.fifo
+    export DBUS_SESSION_BUS_ADDRESS="$ADDR"
+    printf 'session_bus=%s\n' "$ADDR" > /out/session-bus.txt
+    printf '%s SESSION_BUS pid=%s addr=%s\n' \
+      "$(date -u +%H:%M:%S)" "$BUS" "$ADDR" >> /out/supervisor.log
+    # Hand the address to the parent shell once; its FIFO read blocks here.
+    # xfconf-query in the evidence block needs a valid session bus.
+    if [ ! -e /out/bus-published ]; then
+      printf '%s\n' "$ADDR" > /out/bus-ready.fifo
+      : > /out/bus-published
+    fi
+    declare -A NAME=() T0=() FAST=()
+    start() {
+      local n=$1 p; shift
+      [ "$n" = panel ] && pgrep -x xfce4-panel >/dev/null && return 0
+      "$@" > "/out/$n.log" 2>&1 & p=$!
+      NAME[$p]=$n; T0[$p]=$SECONDS
+      printf '%s %s started pid=%s\n' \
+        "$(date -u +%H:%M:%S)" "$n" "$p" >> /out/supervisor.log
+    }
+    start wm xfwm4 --compositor=off --replace
+    start panel xfce4-panel
+    start desktop xfdesktop --disable-wm-check
+    start terminal /usr/local/bin/qqbox-terminal
+    start chromium /usr/local/bin/chromium --window-size=1000,700 \
+      --window-position=150,120 --password-store=basic \
+      --user-data-dir=/tmp/chrome-qqbox https://example.com/
     while :; do
-      t0=$SECONDS
-      "$@" > "/out/$name.log" 2>&1 & p=$!
-      echo "$(date -u +%H:%M:%S) $name started pid=$p" >> /out/supervisor.log
-      wait "$p"; rc=$?
-      echo "$(date -u +%H:%M:%S) $name exited rc=$rc" >> /out/supervisor.log
-      if [ $((SECONDS - t0)) -lt 2 ]; then
-        fast=$((fast + 1))
-        [ "$fast" -gt 5 ] && { echo "$(date -u +%H:%M:%S) $name circuit-breaker: 6 immediate exits" >> /out/supervisor.log; exit 1; }
-      else
-        fast=0
+      DEAD=
+      wait -n -p DEAD "${!NAME[@]}" "$BUS"; RC=$?
+      [ -z "$DEAD" ] && break
+      if [ "$DEAD" = "$BUS" ]; then
+        printf '%s BUS_EXITED rc=%s -> group restart\n' \
+          "$(date -u +%H:%M:%S)" "$RC" >> /out/supervisor.log
+        if [ "${#NAME[@]}" -gt 0 ]; then
+          kill "${!NAME[@]}" 2>/dev/null || true
+          wait "${!NAME[@]}" 2>/dev/null || true
+        fi
+        break
       fi
-      echo "$(date -u +%H:%M:%S) $name restarting" >> /out/supervisor.log
-      [ "$name" = chromium ] && rm -f /tmp/chrome-qqbox/Singleton* 2>/dev/null
+      N=${NAME[$DEAD]}; unset "NAME[$DEAD]"
+      printf '%s %s exited rc=%s pid=%s\n' \
+        "$(date -u +%H:%M:%S)" "$N" "$RC" "$DEAD" >> /out/supervisor.log
+      if [ $((SECONDS - T0[$DEAD])) -lt 2 ]; then
+        FAST[$N]=$(( ${FAST[$N]:-0} + 1 ))
+        if [ "${FAST[$N]}" -gt 5 ]; then
+          printf '%s %s circuit-breaker -> group restart\n' \
+            "$(date -u +%H:%M:%S)" "$N" >> /out/supervisor.log
+          if [ "${#NAME[@]}" -gt 0 ]; then
+            kill "$BUS" "${!NAME[@]}" 2>/dev/null || true
+            wait "$BUS" "${!NAME[@]}" 2>/dev/null || true
+          else
+            kill "$BUS" 2>/dev/null || true; wait "$BUS" 2>/dev/null || true
+          fi
+          break
+        fi
+      else
+        FAST[$N]=0
+      fi
+      unset "T0[$DEAD]"
+      [ "$N" = chromium ] && rm -f /tmp/chrome-qqbox/Singleton* 2>/dev/null
+      case "$N" in
+        wm) start wm xfwm4 --compositor=off --replace ;;
+        panel) start panel xfce4-panel ;;
+        desktop) start desktop xfdesktop --disable-wm-check ;;
+        terminal) start terminal /usr/local/bin/qqbox-terminal ;;
+        chromium) start chromium /usr/local/bin/chromium \
+          --window-size=1000,700 --window-position=150,120 \
+          --password-store=basic --user-data-dir=/tmp/chrome-qqbox \
+          https://example.com/ ;;
+      esac
     done
-  ) &
-  echo $! > "/out/$name.supervisor.pid"
+  done
 }
-supervise xfconfd /usr/lib/aarch64-linux-gnu/xfce4/xfconf/xfconfd
-supervise wm xfwm4 --compositor=off --replace
-supervise panel xfce4-panel
-supervise desktop xfdesktop --disable-wm-check
-supervise terminal /usr/local/bin/qqbox-terminal
-supervise chromium /usr/local/bin/chromium --window-size=1000,700 \
-  --window-position=150,120 --password-store=basic \
-  --user-data-dir=/tmp/chrome-qqbox https://example.com/
+desktop_group & GROUP_PID=$!
+echo "$GROUP_PID" > /out/desktop.supervisor.pid
+read -r MAIN_BUS < /out/bus-ready.fifo
+export DBUS_SESSION_BUS_ADDRESS="$MAIN_BUS"
 sleep 18
 xwallpaper --zoom "$WALL" > /out/xwallpaper.log 2>&1; echo "xwallpaper_rc=$?" > /out/xwallpaper-rc.txt
 sleep 3
@@ -394,7 +475,12 @@ stage "chromium_started_by_supervisor"
   echo "npm_payload=$(npm --version 2>&1) (apt npm is unavailable on 26.04; Node 18 payload is used)"
   grep -rin 'PermissionsInvalid\|setuid helper' /out/apt-final-*.log /out/dbus*.log || echo NO_DBUS_ERROR
   echo '=== dock / taskbar ==='
-  echo "bwrap_shim=$(head -1 /usr/bin/bwrap) fallback=$(test -x /usr/bin/bwrap.qqbox-orig && echo present || echo missing)"
+  echo "bwrap_shim=$(head -1 /usr/bin/bwrap) size=$(stat -c%s /usr/bin/bwrap) fallback=$(test -x /usr/bin/bwrap.qqbox-orig && echo present || echo missing)"
+  echo "bwrap_divert=$(dpkg-divert --list | grep bwrap | tr '\n' ' ')"
+  echo "session_bus=$(cat /out/session-bus.txt)"
+  echo "desktop_group_pid=$(cat /out/desktop.supervisor.pid)"
+  echo "xfce4_session_procs=$(pgrep -c -x xfce4-session || true)"
+  echo "xfconfd_procs=$(pgrep -c -x xfconfd || true)"
   echo "xfce4_panel_procs=$(pgrep -c xfce4-panel || true)"
   xwininfo -root -tree 2>/dev/null | grep -i xfce4-panel || echo NO_PANEL_WINDOW
   echo '=== wallpaper ==='
@@ -419,4 +505,25 @@ echo QQBOX_BOOT_READY > /out/result.txt
 echo ready > /out/ready.txt
 cat /out/requirements.txt
 cat /out/stages.log
-while :; do sleep 3600; done
+# Block on the group supervisor (event-driven, no sleep). If it ever exits,
+# relaunch so the desktop can never silently disappear; a circuit breaker
+# stops a relaunch spin when the group dies immediately six times.
+REL=0
+while :; do
+  t0=$SECONDS
+  wait "$GROUP_PID"; rc=$?
+  printf '%s desktop_group exited rc=%s -> relaunch\n' \
+    "$(date -u +%H:%M:%S)" "$rc" >> /out/supervisor.log
+  if [ $((SECONDS - t0)) -lt 2 ]; then
+    REL=$((REL + 1))
+    [ "$REL" -gt 5 ] && {
+      echo "$(date -u +%H:%M:%S) group-supervisor circuit-breaker" >> /out/supervisor.log
+      break
+    }
+  else
+    REL=0
+  fi
+  desktop_group &
+  GROUP_PID=$!
+  echo "$GROUP_PID" > /out/desktop.supervisor.pid
+done
