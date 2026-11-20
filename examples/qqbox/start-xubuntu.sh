@@ -60,6 +60,25 @@ if ! command -v xdg-user-dir >/dev/null 2>&1 || ! command -v gnome-keyring-daemo
   timeout 200 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/out/hygiene-update.log 2>&1 || true
   timeout 250 apt-get install -y --no-install-recommends xdg-user-dirs gnome-keyring >/out/hygiene-install.log 2>&1 || true
 fi
+# Stock Xubuntu 26 uses the Whisker menu in its top panel. The linuxserver
+# base image does not ship that plugin, so an earlier build substituted a
+# generic applicationsmenu bar. Install it when missing; the XML below falls
+# back to applicationsmenu if the network is unavailable. The Dockerfile bakes
+# it into rebuilt images. Notification/power/indicator plugins are omitted
+# because their daemons need xfce4-session, which was removed as a crash SPOF.
+PANEL_PLUGIN_DIR=/usr/lib/aarch64-linux-gnu/xfce4/panel/plugins
+if [ ! -f "$PANEL_PLUGIN_DIR/libwhiskermenu.so" ]; then
+  timeout 200 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/out/panel-plugins-update.log 2>&1 || true
+  timeout 250 apt-get install -y --no-install-recommends \
+    xfce4-whiskermenu-plugin >/out/panel-plugins-install.log 2>&1 || true
+  echo "panel_plugins_rc=$?" >> /out/panel-plugins-install.log
+fi
+if [ -f "$PANEL_PLUGIN_DIR/libwhiskermenu.so" ]; then
+  MENU_PLUGIN=whiskermenu
+else
+  MENU_PLUGIN=applicationsmenu
+fi
+echo "menu_plugin=$MENU_PLUGIN whisker=$([ -f "$PANEL_PLUGIN_DIR/libwhiskermenu.so" ] && echo yes || echo no)" > /out/panel-plugins.txt
 echo "xdg_user_dir=$(command -v xdg-user-dir || echo MISSING) gnome_keyring=$(command -v gnome-keyring-daemon || echo MISSING)" > /out/hygiene.txt
 # The stock chromium.desktop points at the Ubuntu snap stub, which segfaults
 # when clicked from the dock. Override it with the working Debian wrapper.
@@ -68,6 +87,16 @@ if [ -f /usr/share/applications/chromium.desktop ]; then
 fi
 ln -sf /opt/chromium/chromium-wrapper.sh /usr/local/bin/wrapped-chromium
 echo "chromium_override_rc=$? exec=$(grep '^Exec=' /usr/share/applications/chromium.desktop 2>/dev/null)" >> /out/hygiene.txt
+# Live guests mount the build context at /boot; rebuilt images bake the same
+# wrapper. Prefer the mounted copy so a running desktop picks up wrapper
+# hardening (uid drop, sandbox rationale) without rebuilding the image.
+if [ -f /boot/chromium/chromium-wrapper.sh ]; then
+  cat /boot/chromium/chromium-wrapper.sh > /opt/chromium/chromium-wrapper.sh
+  chmod 755 /opt/chromium/chromium-wrapper.sh
+  echo "chromium_wrapper_source=/boot chromium_wrapper_setpriv=$(grep -c setpriv /opt/chromium/chromium-wrapper.sh)" >> /out/hygiene.txt
+else
+  echo "chromium_wrapper_source=baked" >> /out/hygiene.txt
+fi
 
 # 20packagekit's gdbus hook and PackageKit's system-service file ask the bus
 # to activate a User=root service, which needs the setuid helper qqbox cannot
@@ -197,17 +226,28 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml" <<XM
 </channel>
 XML
 
-# ---- bottom dock/taskbar: p=10 is bottom on XFCE 4.18+ ----
+# ---- Stock Xubuntu two-panel desktop ----
+# The image ships /etc/xdg/xfce4/panel/default.xml with TWO panels: panel-1 at
+# p=6 (top header: applications menu, tasklist, pager, systray, clock,
+# actions) and panel-2 at p=10 (bottom dock: showdesktop, four launchers,
+# directorymenu). An earlier build replaced both with ONE custom bottom panel,
+# which is why the top header and the original dock were missing. Restore the
+# stock arrangement using only plugin .so files actually installed in the
+# image. Plugin IDs 1-10 belong to the top panel, 11-18 to the dock; they are
+# disjoint, so no plugin is instantiated twice.
 mkdir -p "$HOME/.local/share/applications"
-cat > "$HOME/.local/share/applications/qqbox-terminal.desktop" <<'DESK'
+# Keep the stock launcher .desktop NAMES (the panel references them) but point
+# them at binaries that work under qqbox. The stock Exec lines use exo-open,
+# which resolves to the Ubuntu chromium snap stub and segfaults when clicked.
+cat > "$HOME/.local/share/applications/xfce4-terminal-emulator.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
 Name=Terminal
-Exec=xfce4-terminal --disable-server
+Exec=/usr/local/bin/qqbox-terminal
 Icon=utilities-terminal
 Categories=System;TerminalEmulator;
 DESK
-cat > "$HOME/.local/share/applications/qqbox-files.desktop" <<'DESK'
+cat > "$HOME/.local/share/applications/xfce4-file-manager.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
 Name=Files
@@ -215,7 +255,7 @@ Exec=thunar
 Icon=system-file-manager
 Categories=System;FileManager;
 DESK
-cat > "$HOME/.local/share/applications/qqbox-browser.desktop" <<'DESK'
+cat > "$HOME/.local/share/applications/xfce4-web-browser.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
 Name=Chromium
@@ -223,19 +263,21 @@ Exec=/usr/local/bin/chromium
 Icon=web-browser
 Categories=Network;WebBrowser;
 DESK
-cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<'XML'
+cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
   <property name="configver" type="int" value="2"/>
   <property name="panels" type="array">
     <value type="int" value="1"/>
+    <value type="int" value="2"/>
+    <property name="dark-mode" type="bool" value="true"/>
     <property name="panel-1" type="empty">
       <property name="autohide-behavior" type="uint" value="0"/>
-      <property name="position" type="string" value="p=10;x=0;y=0"/>
+      <property name="position" type="string" value="p=6;x=0;y=0"/>
       <property name="length" type="uint" value="100"/>
       <property name="position-locked" type="bool" value="true"/>
-      <property name="icon-size" type="uint" value="24"/>
-      <property name="size" type="uint" value="40"/>
+      <property name="icon-size" type="uint" value="16"/>
+      <property name="size" type="uint" value="26"/>
       <property name="plugin-ids" type="array">
         <value type="int" value="1"/>
         <value type="int" value="2"/>
@@ -243,26 +285,77 @@ cat > "$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<'XML
         <value type="int" value="4"/>
         <value type="int" value="5"/>
         <value type="int" value="6"/>
+        <value type="int" value="7"/>
+        <value type="int" value="8"/>
+        <value type="int" value="9"/>
+      </property>
+    </property>
+    <property name="panel-2" type="empty">
+      <property name="autohide-behavior" type="uint" value="0"/>
+      <property name="position" type="string" value="p=10;x=0;y=0"/>
+      <property name="length" type="uint" value="1"/>
+      <property name="position-locked" type="bool" value="true"/>
+      <property name="size" type="uint" value="48"/>
+      <property name="plugin-ids" type="array">
+        <value type="int" value="11"/>
+        <value type="int" value="12"/>
+        <value type="int" value="13"/>
+        <value type="int" value="14"/>
+        <value type="int" value="15"/>
+        <value type="int" value="16"/>
+        <value type="int" value="17"/>
+        <value type="int" value="18"/>
       </property>
     </property>
   </property>
   <property name="plugins" type="empty">
-    <property name="plugin-1" type="string" value="applicationsmenu"/>
-    <property name="plugin-2" type="string" value="launcher">
-      <property name="items" type="array"><value type="string" value="qqbox-terminal.desktop"/></property>
-    </property>
-    <property name="plugin-3" type="string" value="launcher">
-      <property name="items" type="array"><value type="string" value="qqbox-files.desktop"/></property>
-    </property>
-    <property name="plugin-4" type="string" value="launcher">
-      <property name="items" type="array"><value type="string" value="qqbox-browser.desktop"/></property>
-    </property>
-    <property name="plugin-5" type="string" value="separator">
-      <property name="expand" type="bool" value="true"/>
-    </property>
-    <property name="plugin-6" type="string" value="tasklist">
+    <property name="plugin-1" type="string" value="${MENU_PLUGIN}"/>
+    <property name="plugin-2" type="string" value="tasklist">
       <property name="grouping" type="uint" value="1"/>
     </property>
+    <property name="plugin-3" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-4" type="string" value="pager"/>
+    <property name="plugin-5" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-6" type="string" value="systray">
+      <property name="square-icons" type="bool" value="true"/>
+    </property>
+    <property name="plugin-7" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-8" type="string" value="clock"/>
+    <property name="plugin-9" type="string" value="pulseaudio">
+      <property name="enable-keyboard-shortcuts" type="bool" value="true"/>
+      <property name="show-notifications" type="bool" value="true"/>
+    </property>
+    <property name="plugin-11" type="string" value="showdesktop"/>
+    <property name="plugin-12" type="string" value="separator"/>
+    <property name="plugin-13" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="xfce4-terminal-emulator.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-14" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="xfce4-file-manager.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-15" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="xfce4-web-browser.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-16" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="xfce4-appfinder.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-17" type="string" value="separator"/>
+    <property name="plugin-18" type="string" value="directorymenu"/>
   </property>
 </channel>
 XML

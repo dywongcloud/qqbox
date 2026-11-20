@@ -1,0 +1,7 @@
+id: migration-honest-answer
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Answer whether live migration works
+description: State precisely what the implemented qqbox migrate does and does not do; verify by live execution. Guest RAM/vCPU/dirty-page migration is impossible without a VMM.
+acceptance_criteria: CLI and daemon witnesses re-run; docs state the boundary; final answer is serialized and honest.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

@@ -84,6 +84,57 @@ rm -f /etc/apt/apt.conf.d/20packagekit \
   因此改附 noble 的 Node 18 二進位檔、六個 SONAME、五個外部化 builtin，
   以及 npm registry 的 npm 9.2.0。
 
+## 桌面外觀：還原原廠 Xubuntu 面板與 Chromium 權限
+
+### 還原原廠雙面板配置
+
+先前的組態把映像內整套面板設定換成單一自訂底部面板（`p=10`），只有應用程式
+選單、三個啟動器與工作列，因此**頂部標題列消失**，底部 dock 也與原廠 Xubuntu
+不同。映像其實提供兩份預設：
+
+| 檔案 | 配置 |
+| --- | --- |
+| `/etc/xdg/xfce4/panel/default.xml`（通用 xfce4-panel） | 兩面板：頂部 `p=6` 標題列、底部 `p=10` dock |
+| `/etc/xdg/xdg-xubuntu/xfce4/panel/default.xml`（xubuntu-default-settings） | 單一頂部 `p=6` 面板，含 Whisker 選單 |
+
+`start-xubuntu.sh` 現在寫入雙面板組態，只使用映像中確實存在的 plugin：頂部
+`p=6` 含 Whisker 選單、工作列、桌面切換器、系統匣、音量與時鐘；底部 `p=10`
+dock 含顯示桌面、四個啟動器與目錄選單。plugin ID 互不相交（頂部 1-9、
+dock 11-18）。保留四個原廠啟動器 `.desktop` 名稱，但 `Exec` 指向在 qqbox 下
+可運作的執行檔（原廠 `exo-open` 會導向會 segfault 的 snap stub）。
+`xfce4-whiskermenu-plugin` 已寫入 Dockerfile，舊映像則於開機時安裝；若無法
+取得，XML 會退回 `applicationsmenu`。`actions` plugin 在沒有 session manager
+時崩潰，已移除。
+
+見證（live 5905）：獨立 RFB 3.8 幀 `qbox:99` 1280x800、7,593 種顏色，可見
+頂部標題列的 Whisker 選單、工作列、桌面切換器、時鐘與音量，以及底部 dock 的
+五個啟動器；`menu_plugin=whiskermenu whisker=yes`；沒有缺少 plugin 或崩潰訊息。
+
+### Chromium sandbox：為何仍關閉，以及實際改了什麼
+
+Chromium **自身的** sandbox 在 qqbox 下無法啟用。42 個即時變體（先前 27 個、
+本次再測 15 個）因兩個獨立原因失敗：
+
+| 嘗試 | 結果 |
+| --- | --- |
+| 以 root 啟用 sandbox | `rc=1`，`Running as root without --no-sandbox is not supported`（`zygote_host_impl_linux.cc:101`） |
+| 以 uid 911（`abc`）啟用 sandbox | `rc=134/133`，`FATAL ... zygote_host_impl_linux.cc:221 Check failed: . : No such file or directory (2)` — zygote 在送出 hello 訊息前即死亡 |
+| `--disable-setuid-sandbox`、`--no-zygote`、`--single-process`、使用者命名空間 | 全部失敗；`unshare -U -r` 本身 rc=0 |
+| `--no-sandbox` | 可運作，能呈現 `https://example.com/` |
+
+zygote 需要真正的 setuid helper／PID namespace／seccomp-bpf 安裝；qqbox 的
+`execve` 忽略 setuid、PID namespace 模擬為空操作，且安裝 seccomp filter 會
+殺掉 stub。這是底層限制，不是旗標選擇。
+
+**實際變更**：Chromium 不再以 **root** 執行。`chromium-wrapper.sh` 現在透過
+`setpriv` 降級到映像內的非特權使用者 `abc`（uid 911／gid 1001），並給予專屬
+的 HOME、使用者資料目錄、crash 目錄與 runtime 目錄。即使 renderer 遭到攻陷，
+也不再具備 root 權限。宿主層的 qqbox backstop 仍是外層邊界。
+`--no-sandbox`、`--single-process`、`--no-zygote` 保留：多行程的 headless
+Chromium 在 qqbox 下會卡住（已見證）。wrapper 會把 `chromium_uid=911` 寫入
+`/out/chromium-uid.txt`。Chromium 自身的 `--no-sandbox` 警告橫幅**刻意不隱藏**
+— 隱藏安全警告並不誠實。
+
 ## 事件驅動監督：工作列不再於執行中消失
 
 執行約 15 小時後，5905 桌面的工作列、導覽列與所有視窗同時消失，但桌布（根

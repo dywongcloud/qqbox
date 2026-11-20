@@ -63,6 +63,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     apt-get install -y --no-install-recommends \
       x11vnc xvfb scrot xdotool iputils-ping curl ca-certificates \
       xfce4-panel xfdesktop4 xfwm4 thunar xfce4-terminal xwallpaper \
+      xfce4-whiskermenu-plugin \
       pulseaudio pulseaudio-utils \
       python3 python3-pip python3-venv git gh dbus-x11 \
       vim vim-tiny nano less man-db coreutils findutils grep gawk sed \

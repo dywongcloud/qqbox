@@ -201,6 +201,62 @@ install does not kill the stub. Until then `--no-sandbox --single-process
 isolation and V8 JIT are off. Headless `--headless=new --dump-dom` times out;
 windowed rendering under Xvfb is the supported path.
 
+## Desktop chrome: stock Xubuntu panels and Chromium privilege
+
+### Stock two-panel layout restored
+
+An earlier build replaced the image's entire panel configuration with a single
+custom bottom panel (`p=10`) carrying an applications menu, three launchers and
+a tasklist. That removed the **top header bar** and made the bottom dock look
+unlike stock Xubuntu. The image actually ships two relevant defaults:
+
+| file | layout |
+| --- | --- |
+| `/etc/xdg/xfce4/panel/default.xml` (generic xfce4-panel) | two panels: top `p=6` header, bottom `p=10` dock |
+| `/etc/xdg/xdg-xubuntu/xfce4/panel/default.xml` (xubuntu-default-settings) | one top `p=6` panel with Whisker menu |
+
+`start-xubuntu.sh` now writes a two-panel config using only plugin `.so` files
+present in the image: top `p=6` with the Whisker menu, tasklist, pager, systray,
+pulseaudio and clock; bottom `p=10` dock with showdesktop, four launchers and a
+directory menu. Plugin IDs are disjoint (1-9 top, 11-18 dock). The four stock
+launcher `.desktop` names are kept but their `Exec` lines point at binaries that
+work under qqbox (the stock `exo-open` resolves to the segfaulting snap stub).
+`xfce4-whiskermenu-plugin` is baked into the Dockerfile and installed at boot
+on older images; the XML falls back to `applicationsmenu` if it is unavailable.
+The `actions` plugin was removed after it crashed without a session manager.
+
+Witness (live 5905): independent RFB 3.8 frame `qbox:99` 1280x800, 7,593
+distinct colors, showing the top header with Whisker menu, tasklist, desktop
+switcher, clock and volume, plus the bottom dock with five launchers;
+`menu_plugin=whiskermenu whisker=yes`; no missing-plugin or crash messages.
+
+### Chromium sandbox: why it stays off, and what changed instead
+
+Chromium's **own** sandbox cannot be enabled under qqbox. 42 live variants
+(27 earlier, 15 re-tested) fail for two independent reasons:
+
+| attempt | result |
+| --- | --- |
+| sandbox ON as root | `rc=1`, `Running as root without --no-sandbox is not supported` (`zygote_host_impl_linux.cc:101`) |
+| sandbox ON as uid 911 (`abc`) | `rc=134/133`, `FATAL ... zygote_host_impl_linux.cc:221 Check failed: . : No such file or directory (2)` -- the zygote dies before its hello message |
+| `--disable-setuid-sandbox`, `--no-zygote`, `--single-process`, `--disable-features=...`, user namespaces | all fail; `unshare -U -r` itself returns rc=0 |
+| `--no-sandbox` | works; renders `https://example.com/` |
+
+The zygote needs a real setuid helper / PID namespace / seccomp-bpf install;
+qqbox's `execve` ignores setuid, its PID-namespace emulation is a no-op and
+installing a seccomp filter kills the stub. This is a substrate limit, not a
+flag choice.
+
+**What changed:** Chromium no longer runs as **root**. `chromium-wrapper.sh`
+now drops to the image's unprivileged user `abc` (uid 911 / gid 1001) via
+`setpriv`, with an owned HOME, user-data dir, crash dir and runtime dir. A
+compromised renderer is no longer root. The host-level qqbox backstop remains
+the outer boundary. `--no-sandbox`, `--single-process` and `--no-zygote` stay:
+multi-process headless Chromium hangs under qqbox (witnessed). The wrapper
+records `chromium_uid=911` in `/out/chromium-uid.txt`. Chromium's own
+`--no-sandbox` banner is deliberately **not** suppressed -- hiding a security
+warning would be dishonest.
+
 ## Live dock survives runtime crashes (event-driven supervision)
 
 The dock, navbar and every window disappeared from a running 5905 desktop after
