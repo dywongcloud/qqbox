@@ -60,8 +60,61 @@ relies on kernel writeback of `MAP_SHARED` guest RAM, qqbox has no guest RAM at
 all — so that primitive is inapplicable. The fork's `Msync` path cannot be
 ported, and claiming otherwise would be a category error.
 
-Loophole Labs' separate `drafter` project was not verified in this study; no
-claims about it are made here.
+### The layer above the fork: drafter + silo (verified)
+
+Loophole Labs' actual live migration is **not** in the Firecracker fork; it is
+in [`loopholelabs/drafter`](https://github.com/loopholelabs/drafter) (HEAD
+`c963a0e4938c`) over
+[`loopholelabs/silo`](https://github.com/loopholelabs/silo) (HEAD
+`6acfd0038005`). Verified phases, from `pkg/common/migrations.go:MigrateToPipe`
+and `pkg/peer/peer.go:MigrateTo`:
+
+1. `protocol.NewRW` over one bidirectional `io.ReadWriter` — a plain TCP
+   `net.Dial` / `net.Listen` (default `localhost:1337`) in `cmd/drafter-peer/net.go`.
+   Destination gets `DeviceGroupInfo` + per-device `DevInfo`.
+2. `dg.MigrateAll(concurrency=1024)`: bulk **pre-copy while the VM runs**.
+3. Iterative **dirty rounds** (`NewDirtyManager`, `dg.MigrateDirty`):
+   `PreGetDirty` → `VMStateMgr.Msync()` → `FlushData` →
+   `CreateSnapshot(snapshot_type: "Msync")` **without pausing**; `dirtytracker.Remote.Sync()`
+   yields a dirty-block bitfield. Convergence at `len(blocks) < 200` for 5
+   cycles, capped at 20 cycles, 500 ms throttle.
+4. `SuspendAndMsync()`: `BeforeSuspend` RPC → `PATCH /vm Paused` →
+   `PUT /snapshot/create "MsyncAndState"` → `AfterSuspend`.
+5. `authTransfer` → `EventCustom`; source sends `EventCompleted` and shuts down.
+6. Destination resumes immediately; with post-copy (default) missing blocks are
+   pulled on demand via Silo `waitingcache` (`NeedAt` / `DontNeedAt`).
+   `--disable-postcopy-migration` instead waits for full completion.
+
+State is packaged as six Silo block devices — `vmlinux`, `rootfs.ext4`,
+`state.bin` (`MicrovmState`), `memory.bin` (guest RAM), `config.json`,
+`oci.ext4` — each with a CoW `overlay` over an immutable `Base`, 64 KiB blocks,
+exposed on the destination via `unix.Mknod` inside a fresh jailer chroot.
+Silo's wire protocol is a bidirectional packet protocol with `DirtyList`,
+`NeedAt`, `DontNeedAt`, `WriteAtWithMap`, `Hashes`, `Event`. Guest RPC
+`BeforeSuspend` / `AfterResume` runs over panrpc on AF_VSOCK (port 26).
+Drafter's README reports sub-100 ms same-DC and ~500 ms Europe↔North-America
+migrations; the design source is F. Pojtinger's thesis *Efficient
+Synchronization of Linux Memory Regions over a Network* (2023).
+
+**Correcting an earlier draft of this document:** the first version attributed
+pre-copy dirty-page migration to the Firecracker fork itself. That is wrong —
+the fork supplies only the `Msync` primitives; drafter implements the protocol
+in userspace via `MAP_SHARED` + `msync` + Silo block-level dirty tracking. There
+is **no KVM dirty log** (`KVM_GET_DIRTY_LOG`) and **no userfaultfd** in drafter's
+path: `LoadSnapshot` sets `track_dirty_pages=false` and `Diff` is never
+requested. The correction is recorded in `.gm/prd-log.jsonl`; history is not
+rewritten.
+
+### What this means for qqbox
+
+The drafter protocol shape — bulk pre-copy, bounded iterative dirty rounds, a
+single suspend/commit barrier, on-demand post-copy — is the closest external
+analogue to our `delta` rounds and `Commit` frame. But drafter's dirty set is a
+bitmap of 64 KiB memory blocks; ours is a set of four control-plane partitions.
+Both are finite convergence loops over a well-defined state ADT. That is the
+extent of the analogy: drafter still needs a VMM's guest RAM, which qqbox does
+not have. We did not copy drafter's transport (it has no built-in auth/TLS and
+delegates that to the `io.ReadWriter`); our capability gate is in the protocol.
 
 ## 2. The boundary (stated first, on purpose)
 

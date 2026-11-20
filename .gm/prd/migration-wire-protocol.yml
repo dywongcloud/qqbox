@@ -1,7 +1,0 @@
-id: migration-wire-protocol
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Framed integrity-checked migration wire protocol
-description: Length-prefixed frames with magic+version, bounded lengths, explicit capacity checks, SHA-256 integrity digest, and total error handling (every error handled or propagated, no unwrap/panic). All IO is parameterized by an explicit capability + reader/writer passed in; no ambient or global state, no injection.
-acceptance_criteria: Live transfer of a corrupted frame, a truncated frame and an oversized length is refused with a typed error, while a valid frame round-trips.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

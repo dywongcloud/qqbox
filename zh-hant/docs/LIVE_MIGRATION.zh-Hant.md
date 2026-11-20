@@ -54,7 +54,57 @@ vsock／佇列還原的修正因造成 VM resume 失效而被還原（`f60a14959
 核心對 `MAP_SHARED` 來賓 RAM 的寫回，而 qqbox 完全沒有來賓 RAM — 因此該原語
 不適用。該分支的 `Msync` 路徑無法移植；若宣稱可以，即是範疇錯誤。
 
-Loophole Labs 另一個 `drafter` 專案未在本研究中查證；此處不對它作任何宣稱。
+### 分支之上的層級：drafter + silo（已查證）
+
+Loophole Labs 真正的即時遷移**不在** Firecracker 分支中，而是在
+[`loopholelabs/drafter`](https://github.com/loopholelabs/drafter)（HEAD
+`c963a0e4938c`）搭配
+[`loopholelabs/silo`](https://github.com/loopholelabs/silo)（HEAD
+`6acfd0038005`）。由 `pkg/common/migrations.go:MigrateToPipe` 與
+`pkg/peer/peer.go:MigrateTo` 查證的階段：
+
+1. `protocol.NewRW` 建立在單一雙向 `io.ReadWriter` 上 —
+   `cmd/drafter-peer/net.go` 中是單純的 TCP `net.Dial`／`net.Listen`（預設
+   `localhost:1337`）。目的端取得 `DeviceGroupInfo` 與各裝置的 `DevInfo`。
+2. `dg.MigrateAll(concurrency=1024)`：在 VM 執行時進行大量 **pre-copy**。
+3. 迭代**髒區塊回合**（`NewDirtyManager`、`dg.MigrateDirty`）：
+   `PreGetDirty` → `VMStateMgr.Msync()` → `FlushData` →
+   `CreateSnapshot(snapshot_type: "Msync")`，**不暫停**；`dirtytracker.Remote.Sync()`
+   產生髒區塊位元圖。收斂條件為連續 5 個週期 `len(blocks) < 200`，最多 20 個
+   週期，節流 500 毫秒。
+4. `SuspendAndMsync()`：`BeforeSuspend` RPC → `PATCH /vm Paused` →
+   `PUT /snapshot/create "MsyncAndState"` → `AfterSuspend`。
+5. `authTransfer` → `EventCustom`；來源端送出 `EventCompleted` 後關閉。
+6. 目的端立即恢復；預設的 post-copy 透過 Silo `waitingcache`（`NeedAt`／
+   `DontNeedAt`）按需拉取缺失區塊。`--disable-postcopy-migration` 改為等待
+   完整傳送後才恢復。
+
+狀態封裝為六個 Silo 區塊裝置 — `vmlinux`、`rootfs.ext4`、`state.bin`
+（`MicrovmState`）、`memory.bin`（來賓 RAM）、`config.json`、`oci.ext4` — 各自
+以 CoW `overlay` 覆蓋不可變的 `Base`，區塊 64 KiB，目的端在新的 jailer
+chroot 內以 `unix.Mknod` 暴露。Silo 線路協定是雙向封包協定，含
+`DirtyList`、`NeedAt`、`DontNeedAt`、`WriteAtWithMap`、`Hashes`、`Event`。
+來賓 RPC `BeforeSuspend`／`AfterResume` 透過 AF_VSOCK（port 26）上的 panrpc
+執行。drafter README 回報同一資料中心內低於 100 毫秒、歐洲↔北美約 500 毫秒；
+設計源於 F. Pojtinger 的論文 *Efficient Synchronization of Linux Memory
+Regions over a Network*（2023）。
+
+**更正本說明頁面先前的草稿**：初版把 pre-copy 髒頁遷移歸給 Firecracker 分支本身。
+這是錯的 — 分支只提供 `Msync` 原語；drafter 在使用者空間以 `MAP_SHARED` +
+`msync` + Silo 區塊層級髒區塊追蹤實作協定。drafter 的路徑中**沒有 KVM 髒頁
+記錄**（`KVM_GET_DIRTY_LOG`），也**沒有 userfaultfd**：`LoadSnapshot` 設定
+`track_dirty_pages=false`，且從不請求 `Diff`。此更正已記錄於
+`.gm/prd-log.jsonl`，不重寫歷史。
+
+### 對 qqbox 的意義
+
+drafter 的協定形狀 — 大量 pre-copy、有界的迭代髒區塊回合、單一
+suspend/commit 屏障、按需 post-copy — 是我們的 `delta` 回合與 `Commit` 訊框
+最接近的外部類比。但 drafter 的髒集合是 64 KiB 記憶體區塊的位元圖；我們的是
+四個控制平面分割的集合。兩者都是在明確狀態 ADT 上的有限收斂迴圈，類比僅止於
+此：drafter 仍需要 VMM 的來賓 RAM，而 qqbox 沒有。我們沒有抄襲 drafter 的
+傳輸層（它沒有內建認證／TLS，把這部分交給外部 `io.ReadWriter`）；我們的
+capability 閘控在協定之內。
 
 ## 2. 邊界（刻意先說明）
 

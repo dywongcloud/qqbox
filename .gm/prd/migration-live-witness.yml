@@ -1,7 +1,0 @@
-id: migration-live-witness
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Live witnessed migration execution
-description: 'Verify migration with real execution in the same turn: two real processes, a real TCP socket, real vfs/config state, idempotence, tamper/truncation rejection, and an RFB-free structural digest comparison. No test files on disk.'
-acceptance_criteria: A single live run prints matching source/destination digests, idempotence rc=0, and all rejection cases with typed errors.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending
