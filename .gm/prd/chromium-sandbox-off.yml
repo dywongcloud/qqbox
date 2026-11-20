@@ -1,7 +1,0 @@
-id: chromium-sandbox-off
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Re-investigate and enable the Chromium sandbox if possible
-description: The wrapper uses --no-sandbox. Test sandbox-enabled variants on a real guest and either enable it with evidence or document the exact blocker with reproducible rc/errors.
-acceptance_criteria: Live guest runs each variant and records rc + stderr; if enabled, an independent RFB frame shows Chromium rendering example.com with sandbox active.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending

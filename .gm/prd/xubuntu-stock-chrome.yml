@@ -1,7 +1,0 @@
-id: xubuntu-stock-chrome
-SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
-subject: Restore stock Xubuntu dock, taskbar and top panel
-description: Current config has a single custom bottom panel (p=10) with applicationsmenu + 3 launchers + tasklist; stock Xubuntu has a top panel and a bottom dock. Recover the stock xfce4-panel.xml from the image and restore the default arrangement.
-acceptance_criteria: An independent RFB frame shows the stock top panel and bottom dock/taskbar; xwininfo lists both panel windows at their stock positions.
-owner: 355e5752-dc96-459f-9557-4a2a6330d91b
-status: pending
