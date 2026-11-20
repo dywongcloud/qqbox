@@ -1,0 +1,7 @@
+id: backend-linux-seccomp
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Port the Linux memfd/seccomp/hop guest backend to Rust
+description: 'Implement the Linux native guest-execution backend in Rust: memfd channel, inherited fds, seccomp text-range RET_TRAP, host-op thread, signal/SIGSYS dispatch, PROT_R hop alias, ptrace register save/restore, and the ~200-syscall data plane. Must be real code, no mocks.'
+acceptance_criteria: Live witness shows a real Linux ELF executing under the Rust backend with its syscalls served by the Rust supervisor; cargo build/test/clippy pass.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

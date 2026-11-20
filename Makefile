@@ -76,6 +76,7 @@ witness: build
 	$(CARGO) run -q -p qqbox-cli -- version
 	$(CARGO) run -q -p qqbox-cli -- invariants
 	$(CARGO) run -q -p qqbox-cli -- abi
+	$(CARGO) run -q -p qqbox-cli -- backend capabilities
 	$(CARGO) run -q -p qqbox-cli -- ports-check 127.0.0.1:8080:80/tcp 3000-3002:3000-3002/udp 53
 	$(CARGO) run -q -p qqbox-cli -- config-validate examples/oci-config.json
 	$(CARGO) run -q -p qqbox-cli -- oci-inspect examples/oci-config.json
@@ -90,6 +91,14 @@ witness: build
 	$(CARGO) run -q -p qqboxd -- --routes
 	$(CARGO) run -q -p qqbox-runtime -- features
 	$(CARGO) run -q -p qqbox-mcp -- --help >/dev/null
+
+# Live Linux backend witness. Requires a real Linux kernel reachable via
+# `podman machine ssh` with the repository visible through virtiofs. This is a
+# real seccomp trap, not a mock. Cross-compiled with rust-lld for static musl.
+backend-witness: build
+	RUSTFLAGS='-C linker=rust-lld' $(CARGO) build --offline -p qqbox-cli --target aarch64-unknown-linux-musl
+	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend capabilities
+	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend witness
 
 clean:
 	$(CARGO) clean

@@ -1,0 +1,7 @@
+id: backend-macos-mach
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Port the macOS Mach/Seatbelt/HVF guest backend to Rust
+description: 'Implement the macOS native guest-execution backend in Rust: Mach task/thread/exception ports, Seatbelt, MAP_JIT W^X, chanPage wiring, and (if required) HVF VMM. Must be real code, no mocks.'
+acceptance_criteria: Live witness on this macOS arm64 host shows a guest executing under the Rust backend.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

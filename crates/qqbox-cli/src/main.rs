@@ -19,6 +19,10 @@ enum Commands {
     Version,
     Invariants,
     Abi,
+    Backend {
+        #[command(subcommand)]
+        action: BackendAction,
+    },
     AddressSpace,
     Run {
         program: String,
@@ -147,6 +151,14 @@ enum MigrateAction {
 }
 
 #[derive(Subcommand)]
+enum BackendAction {
+    Capabilities,
+    Witness,
+    Install,
+    Dispatch { syscall: u64, args: Vec<u64> },
+}
+
+#[derive(Subcommand)]
 enum RuntimeAction {
     Validate {
         file: PathBuf,
@@ -185,6 +197,54 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::Abi => {
             qqbox::zig::validate_abi().map_err(|e| e.to_string())?;
             println!("{}", qqbox::zig::abi_layout());
+        }
+        Commands::Backend { action } => {
+            let platform = qqbox::backend::current();
+            match action {
+                BackendAction::Capabilities => {
+                    let caps = platform.capabilities().map_err(|e| e.to_string())?;
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&caps).unwrap_or_default()
+                    );
+                }
+                BackendAction::Install => {
+                    platform.install_backstop().map_err(|e| e.to_string())?;
+                    println!("backend={} backstop_installed=true", platform.name());
+                }
+                BackendAction::Witness => {
+                    let report = platform.witness().map_err(|e| e.to_string())?;
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&report).unwrap_or_default()
+                    );
+                    if !report.match_ok {
+                        return Err(
+                            "backend witness failed: guest result did not match supervisor".into(),
+                        );
+                    }
+                }
+                BackendAction::Dispatch { syscall, args } => {
+                    let mut padded = [0u64; 6];
+                    for (i, v) in args.iter().take(6).enumerate() {
+                        padded[i] = *v;
+                    }
+                    #[cfg(target_os = "linux")]
+                    let (nr, ret) = {
+                        qqbox::backend::linux::dispatch_witness(syscall, padded)
+                            .map_err(|e| e.to_string())?
+                    };
+                    #[cfg(not(target_os = "linux"))]
+                    let (nr, ret) = (syscall, -38i64);
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "syscall": nr, "args": padded, "result": ret,
+                            "host": platform.name(),
+                        })
+                    );
+                }
+            }
         }
         Commands::AddressSpace => {
             println!("decision: one address space per sandbox instance");

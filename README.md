@@ -105,6 +105,15 @@ native guest backends are not ported to Rust. See
 [docs/LIVE_MIGRATION.md](docs/LIVE_MIGRATION.md) (Traditional Chinese:
 [zh-hant/docs/LIVE_MIGRATION.zh-Hant.md](zh-hant/docs/LIVE_MIGRATION.zh-Hant.md)).
 
+**Native guest backend:** the Linux trap-to-supervisor path is now real Rust —
+a memfd chanPage, a seccomp-BPF `RET_TRAP` filter, a `SIGSYS` register
+save/restore and a Rust host-op dispatcher, live-witnessed on a real Linux
+aarch64 kernel. ELF mapping, trampolines, the ~205-syscall table and the
+macOS/Windows launch contracts are not ported, so `qqbox run` still returns
+`Error::UnsupportedPlatform`. See
+[docs/NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md) (Traditional Chinese:
+[zh-hant/docs/NATIVE_BACKEND.zh-Hant.md](zh-hant/docs/NATIVE_BACKEND.zh-Hant.md)).
+
 ## Get started
 
 ### Run an image with the CLI

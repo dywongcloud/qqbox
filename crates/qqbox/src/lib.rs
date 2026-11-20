@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod compose;
 pub mod config;
 pub mod daemon;

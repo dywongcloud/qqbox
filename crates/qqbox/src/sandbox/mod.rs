@@ -211,10 +211,8 @@ pub fn backstop_filter() -> Vec<SockFilter> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn install(_filters: &[SockFilter]) -> Result<()> {
-    Err(Error::UnsupportedPlatform(
-        "native seccomp install is gated behind the host-op backend".into(),
-    ))
+pub fn install(filters: &[SockFilter]) -> Result<()> {
+    crate::backend::filter::install(filters)
 }
 
 #[derive(Debug, Clone, Default)]

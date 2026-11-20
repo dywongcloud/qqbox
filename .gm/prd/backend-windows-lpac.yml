@@ -1,0 +1,7 @@
+id: backend-windows-lpac
+SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
+subject: Port the Windows LPAC guest backend to Rust
+description: 'Implement the Windows native guest-execution backend in Rust: NtCreateSection/NtMapViewOfSection/NtCreateThreadEx, VEH + instrumentation callback, LPAC. Must be real code, no mocks.'
+acceptance_criteria: Cross-compilation for Windows target succeeds; live witness requires a Windows host.
+owner: 355e5752-dc96-459f-9557-4a2a6330d91b
+status: pending

@@ -169,7 +169,18 @@ hard-coded to `$HOME`.
 
 ## Not done — the remaining work
 
-The low-level, per-host **native guest execution backend** is not ported. On Linux the
+PARTIALLY PORTED (see [docs/NATIVE_BACKEND.md](NATIVE_BACKEND.md)). The Linux
+trap-to-supervisor path is now real Rust (`crates/qqbox/src/backend/`): a memfd
+chanPage, a seccomp-BPF `RET_TRAP` filter, a `SIGSYS` handler that saves aarch64
+registers, and a Rust host-op dispatcher, all live-witnessed on a real Linux
+6.17.7 aarch64 kernel. An untrapped control `getppid` returns the kernel's pid
+51848 while the trapped one returns the Rust supervisor's sentinel 1364279887
+with `trap_hits=1`. `sandbox::install()` on Linux is now real. A full guest
+runtime — ELF mapping, trampolines, the ~205-syscall table, hop alias — is still
+not ported, and macOS/Windows guest launch is not ported. `go-removal` stays
+pending.
+
+The low-level, per-host **native guest execution backend** is not fully ported. On Linux the
 Go engine creates a memfd channel, execs the ET_EXEC/ET_DYN stub with inherited fds
 3/4/5, installs the seccomp text-range trap, runs the host-op thread and serves ~200
 emulated syscalls. On macOS it drives a Mach task / Seatbelt / Hypervisor.framework
