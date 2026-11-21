@@ -36,8 +36,12 @@ run commands, and `FIXES.json` for claim-by-claim evidence.
 The reproducible successor image: real Debian Chromium 150 (not NetSurf),
 working `ping`, apt/apk registry installs, external DNS, a bottom dock,
 audio, `root@qbox`, and the toolchain (python3/pip, node/npm, git, gh, Claude
-Code). Build with `qqbox build -net -t qqbox-xubuntu:final -f Dockerfile .`
-after running `fetch-chromium.sh` to assemble the Chromium payload.
+Code). Build with the off-repo pre-removal Go runtime binary preserved for this
+desktop: `QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime; "$QQBOX_RUNTIME" build
+-net -t qqbox-xubuntu:26 -f Dockerfile -o qqbox-xubuntu26.tar .` after running
+`fetch-chromium.sh` and `fetch-extras.sh`. The Rust `qqbox` CLI has no `build`
+subcommand (`qqbox build --help` returns rc=2); see
+[qqbox/README.md](qqbox/README.md).
 
 ## Traditional Chinese
 

@@ -222,9 +222,10 @@ backends pass the historical regression corpus on their own hosts.
 The recon census measured the removed Go tree: 445 Go files / 85,620 lines, of which
 `internal/sandbox` alone was 322 files / 69,277 lines (81%). That package is the real
 porting unit; `oci`, `vfs`, `rewrite`, `build` and the four `cmd/*` modules were thin
-layers above it. That is why the Rust workspace covers the control plane and the
-OCI/Compose surface, and leaves the syscall-emulation engine to a dedicated `Platform`
-trait pass.
+layers above it. The Rust workspace covers the control plane and OCI/Compose surface,
+and the `Platform` trait now exists. The Linux memfd/seccomp/`SIGSYS`
+trap-to-supervisor path is ported and witnessed (see docs/NATIVE_BACKEND.md); the
+macOS and Windows launch contracts and the full ~205-syscall table remain unported.
 
 The fork is `dywongcloud/literbox`, rebranded **Tencent qqbox**. All Rust crates,
 README, `AGENTS.md`, `llms.txt`, `Makefile`, CI and `.goreleaser.yaml` use `qqbox`.
@@ -243,6 +244,31 @@ historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
 - Linux backstop is TRAP-to-supervisor, macOS/Windows kill. README, AGENTS.md and
   llms.txt claimed kill-on-miss for all three; that drift is corrected here and in
   the rewritten docs.
+
+## Residual limitations (disclosed, not claimed as done)
+
+- `go-removal`, `migration-guest-memory`, `backend-macos-mach`,
+  `backend-windows-lpac` and `backend-linux-seccomp` PRD rows stay **pending**.
+  The Linux backend runs a real unmodified static aarch64 ET_EXEC under the Rust
+  supervisor; PIE/ET_DYN, trampoline islands, `PROT_R` hop, signal frames and the
+  full syscall table are not ported. macOS Mach/Seatbelt/HVF and Windows LPAC
+  launch contracts do not exist in Rust.
+- Guest physical memory, vCPU registers and dirty-page bitmaps are NOT capturable:
+  qqbox has no VMM and no guest-RAM API. `qqbox migrate` transfers only supervisor
+  control-plane state.
+- `cargo check --target x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu` and
+  `x86_64-unknown-linux-musl` return rc=101 on this macOS host: `ring`'s C build
+  needs a cross C compiler and sysroot that are not installed. `aarch64-apple-darwin`
+  and `aarch64-unknown-linux-musl` pass check + clippy -D warnings.
+- `serde_yaml 0.9.34+deprecated` is still the YAML parser for Compose and the OCI
+  runtime spec. It builds and parses correctly offline; no maintained fork is
+  available in the local registry cache. Replacing it would require a network
+  fetch and a fresh witness pass.
+- The live Xubuntu 26 desktop on VNC 5905 still boots with the pre-removal Go
+  runtime binary preserved off-repo; the Rust `qqbox run` path is not the desktop
+  launcher. Chromium keeps `--no-sandbox --single-process --no-zygote` because all
+  42 live sandbox variants failed; the launcher drops root to uid 911 via
+  `setpriv` instead, and the unsupported-flag banner is deliberately not hidden.
 - Zig 0.16.0 is installed; the 43 Zig sources were authored against 0.13.0. The build
   scripts now prefer `ZIG` then PATH and warn on a version mismatch; migrating all
   sources and rebuilding the eight committed blobs is a separate, gated change.

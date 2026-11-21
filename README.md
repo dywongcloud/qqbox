@@ -189,7 +189,7 @@ curl -X POST -H 'Authorization: Bearer my-secret' -H 'Content-Type: application/
 ```
 
 Unauthenticated requests return HTTP 401. There is no unauthenticated default.
-The token is generated and printed at startup when `--token` is omitted. The 48
+The token is generated and printed at startup when `--token` is omitted. The 54
 routes are listed by `qqboxd --routes` and
 `GET /qqbox/v1/routes`; the enforced invariants are at
 `GET /qqbox/v1/invariants`.

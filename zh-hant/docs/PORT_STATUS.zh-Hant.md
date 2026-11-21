@@ -44,6 +44,27 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
 - 控制平面不能證明：宿主檔案讀取被阻擋、RWX 記憶體對應被拒、記憶體上限在來賓內生效、或對外連線在真實來賓中被限制。這些都需要完整執行時期；`qqbox backend exec-elf` 目前只見證靜態 aarch64 ELF 的小型系統呼叫集合。
 - 常見誤解：`daemon-probe` 之類的診斷是行程內的檢查，用來印出 HTTP 狀態，不是網路授權的端對端測試；`make witness` 是控制平面見證，`make backend-witness` 與 `make backend-exec-elf` 才是 Linux 後端見證。
 - 修正原則：不得以 `sleep`、timeout 或週期性重查當作正確性的修正；同步問題請修正同步本身。程式庫吃選項不吃環境，這條在移植過程中沒有讓步。
+
+## 剩餘限制（如實揭露，不宣稱已完成）
+
+- `go-removal`、`migration-guest-memory`、`backend-macos-mach`、
+  `backend-windows-lpac`、`backend-linux-seccomp` 這五列 PRD **維持待辦**。
+  Linux 後端已能讓真實未修改的靜態 aarch64 ET_EXEC 在 Rust 監督器下執行；
+  PIE／ET_DYN、trampoline island、`PROT_R` hop、訊號框架與完整系統呼叫表
+  尚未移植。macOS Mach／Seatbelt／HVF 與 Windows LPAC 啟動契約在 Rust 中並不存在。
+- 來賓實體記憶體、vCPU 暫存器與髒頁點陣圖**不可擷取**：qqbox 沒有 VMM，也沒有
+  來賓 RAM API。`qqbox migrate` 只傳送監督器持有的控制平面狀態。
+- 在本 macOS 宿主上 `cargo check --target x86_64-pc-windows-msvc`、
+  `x86_64-unknown-linux-gnu`、`x86_64-unknown-linux-musl` 皆回傳 rc=101：`ring`
+  的 C 組建需要未安裝的跨平台 C 編譯器與 sysroot。`aarch64-apple-darwin` 與
+  `aarch64-unknown-linux-musl` 通過 check 與 clippy -D warnings。
+- Compose 與 OCI runtime spec 仍使用 `serde_yaml 0.9.34+deprecated`。它可在離線
+  環境正確建置與解析；本機 registry 快取沒有已維護的替代品，更換需要網路抓取與
+  新一輪即時見證。
+- VNC 5905 上的即時 Xubuntu 26 桌面仍由存放在版本庫之外的移除前 Go 執行期二進位檔
+  啟動；Rust 的 `qqbox run` 不是桌面啟動器。Chromium 保留
+  `--no-sandbox --single-process --no-zygote`，因為 42 種即時沙箱變體全數失敗；
+  啟動器改以 `setpriv` 降至 uid 911，且刻意不隱藏不支援旗標的橫幅。
 - 網路限制照實陳述：ICMP echo 只走宿主未特權的 `SOCK_DGRAM`／`IPPROTO_ICMP` 使用者空間路徑；`SOCK_RAW`、`AF_PACKET`、`TUN`、來賓核心內 ICMP、802.11、`nl80211`、`wpa_supplicant`、`NetworkManager` 都不在契約內。
 
 ## 接下來要做的事

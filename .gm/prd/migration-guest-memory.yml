@@ -1,7 +1,7 @@
 id: migration-guest-memory
 SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
 subject: 'HONEST LIMITATION: guest CPU/memory/dirty-page capture is unavailable'
-description: Firecracker-style live migration needs guest physical memory, vCPU registers and dirty-page tracking from a VMM. qqbox has no hypervisor and the three native guest backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF, Windows LPAC) are NOT ported to Rust (inherited go-removal row remains pending). Do NOT fabricate this state. Record the boundary explicitly in docs and keep this row pending until a real backend exists.
+description: Firecracker-style live migration needs guest physical memory, vCPU registers and dirty-page tracking from a VMM. qqbox has no hypervisor and never had one: it rewrites syscalls in a host process, so there is no guest-RAM API to capture. The Linux trap-to-supervisor backend IS ported; macOS/Windows launch contracts are not. This is a structural boundary, not a TODO. Do NOT fabricate guest memory state. Keep this row pending. Superseding corrections are appended (append-only) in .gm/prd-log.jsonl: backend-boundary-correction-2026-11-20 and migration-boundary-and-correction-schema-2026-11-20.
 acceptance_criteria: Documented boundary plus a PRD row that stays pending; no code claims to capture guest memory.
 owner: 355e5752-dc96-459f-9557-4a2a6330d91b
 status: pending

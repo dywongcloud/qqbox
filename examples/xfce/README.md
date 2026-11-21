@@ -12,14 +12,18 @@ Chromium opens a public page, not the console.
 For a **stock Xubuntu/XFCE** desktop (`linuxserver/webtop:ubuntu-xfce`), see
 [`examples/xubuntu/`](../xubuntu/README.md).
 
-This uses the **Go native runtime**: the Rust port on `feat/rust-port` implements
-the control plane but cannot execute guests yet (see `docs/PORT_STATUS.md`).
+This is a **historical Go-era example**. It used the pre-removal Go native runtime;
+the Rust `qqbox` CLI has no `build` subcommand or `-image` flag (`qqbox build
+--help` returns rc=2). A from-source Rust build prepares the control plane but
+cannot execute guests; the Linux trap-to-supervisor backend runs only unmodified
+static aarch64 ET_EXEC guests via `qqbox backend exec-elf`. See
+`docs/PORT_STATUS.md` and `examples/qqbox/README.md` for the current 26.04 desktop.
 
 ## Build
 
 ```sh
-cargo build --workspace
-qqbox build -net -t qqbox-xfce:fixed \
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
+"$QQBOX_RUNTIME" build -net -t qqbox-xfce:fixed \
   -f examples/xfce/Dockerfile -o /tmp/qqbox-xfce.tar examples/xfce
 ```
 
@@ -30,12 +34,18 @@ Chromium 131, fonts, X diagnostics and an opt-in PTY-free command console.
 ## Run
 
 ```sh
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
 mkdir -p /tmp/qqbox-xfce-out
-./qqbox -image qqbox-xfce:fixed -net \
+"$QQBOX_RUNTIME" -image qqbox-xfce:fixed -net \
   -e VNC_PORT=5905 -mount /tmp/qqbox-xfce-out:/out \
   sh /usr/local/bin/start-xfce.sh
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
+
+`-image` and `-net` are commands of the off-repo pre-removal Go runtime binary.
+The Rust `qqbox` CLI has no `-image` flag and no `build` subcommand; a from-source
+Rust build cannot boot this image. See `examples/qqbox/README.md` for the current
+26.04 desktop example.
 
 `-mount HOST:GUEST` is a real read-write bind, so the guest writes evidence into
 the host directory. The startup script starts `x11vnc` immediately after Xvfb
@@ -50,12 +60,18 @@ the host directory. The startup script starts `x11vnc` immediately after Xvfb
 **Root cause (found by the adversarial swarm):** PTYs work in qqbox —
 `pty.openpty()` and `pty.fork()` both succeed, `/dev/ptmx` and a `devpts` mount
 exist. The failure is one unhandled ioctl: Linux `TIOCPKT` (`0x5420`) was missing
-from `internal/sandbox/lx_termios.go` and from the `ttyIoctl`/`ptmxIoctl`
-switches, so it fell through to `sErr(lxENOTTY)` — exactly VTE's "Not a tty".
+from the removed Go engine's `internal/sandbox/lx_termios.go` and from the
+`ttyIoctl`/`ptmxIoctl` switches, so it fell through to `sErr(lxENOTTY)` — exactly
+VTE's "Not a tty". The Go engine no longer exists in this repository; the Go-era
+file paths below are historical provenance from the pre-removal tree, not live
+citations. The current Rust tree (`crates/qqbox/src/net/` and `crates/qqbox/src/oci/`)
+carries the typed control plane; the native PTY emulator that consumed `TIOCPKT`
+is part of the unported guest-execution backend, so this example is historical and
+cannot be reproduced from a from-source Rust build.
 
-The repo now carries that fix:
+Historical Go-era fix (pre-removal tree, retained only as provenance):
 
-| file | change |
+| file (removed) | change |
 | --- | --- |
 | `internal/sandbox/lx_termios.go:35` | `lxTIOCPKT = 0x5420` |
 | `internal/sandbox/pty_unix.go` | `case lxTIOCPKT` in `ptmxIoctl` forwards packet mode to the host pty master via `unix.IoctlSetPointerInt` |
