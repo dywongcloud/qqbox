@@ -285,7 +285,7 @@ rootfs、bind 掛載、overlay，以及合成的 `/proc`、`/sys`、`/dev` 都�
 被終止：重寫漏掉只是較慢，仍然正確。macOS Seatbelt 與 Windows x86-64
 instrumentation callback 則會終止；Windows arm64 沒有 callback 後盾。在 Linux
 上，映射記憶體、持有描述項與 fork 屬於另一條永不執行來賓程式碼的 host-op
-執行緒。[AGENTS.zh-Hant.md](../AGENTS.zh-Hant.md) 與
+執行緒。[AGENTS.zh-Hant.md](AGENTS.zh-Hant.md) 與
 [docs/NATIVE_BACKEND.zh-Hant.md](docs/NATIVE_BACKEND.zh-Hant.md) 定義這些邊界。
 
 ### 安全預設

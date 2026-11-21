@@ -35,13 +35,21 @@ the Xubuntu *distribution* (its `/etc/os-release` says `ID=ubuntu`). There is no
 `xubuntu` tag in `linuxserver/webtop` and xubuntu.org publishes no OCI image.
 This is the exact image the user linked.
 
-## Build
+## Build (historical 24.04 image)
 
 ```sh
-cargo build --workspace
-./target/debug/qqbox build -net -t qqbox-xubuntu:stock \
+QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
+"$QQBOX_RUNTIME" build -net -t qqbox-xubuntu:stock \
   -f examples/xubuntu/Dockerfile -o qqbox-xubuntu.tar examples/xubuntu
 ```
+
+`build` and `-image` here are commands of the **pre-removal Go runtime binary**,
+preserved off-repo. The Rust `qqbox` CLI in this tree has neither a `build`
+subcommand nor an `-image` flag: `qqbox build --help` returns rc=2 with
+`error: unrecognized subcommand 'build'` (live-witnessed on this build). The
+Rust workspace is built with `cargo build --workspace`; it prepares and validates
+the control plane but does not boot this image. See `examples/qqbox/README.md`
+for the current 26.04 image and its build procedure.
 
 `FROM` is the pinned arm64 digest. `-net` is required for the `RUN apt-get` step.
 The Dockerfile neutralizes a crashing `ldconfig.real` dpkg trigger and repairs
@@ -54,7 +62,7 @@ Xubuntu theme, Firefox, Thunar and `xfce4-terminal` remain the image's own.
 
 ```sh
 mkdir -p /tmp/qqbox-xubuntu-out
-./target/debug/qqbox -image qqbox-xubuntu:stock -net \
+"$QQBOX_RUNTIME" -image qqbox-xubuntu:stock -net \
   -e VNC_PORT=5905 -mount /tmp/qqbox-xubuntu-out:/out
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```

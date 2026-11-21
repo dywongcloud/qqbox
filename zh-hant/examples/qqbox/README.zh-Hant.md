@@ -3,7 +3,7 @@
 本目錄是 [`../xubuntu/README.zh-Hant.md`](../xubuntu/README.zh-Hant.md) 的後繼版本，
 以 **Ubuntu 26.04.1 LTS「Resolute Raccoon」** 為基底，搭配 Xubuntu 26.04.1 的
 設定、主題與桌布，在 qqbox 原生來賓執行環境中透過 VNC TCP 5905 提供桌面。
-英文版完整說明見 [`README.md`](README.md)。
+英文版完整說明見 [`README.md`](../../../examples/qqbox/README.md)。
 
 基底固定為 `linuxserver/webtop:ubuntu-xfce-ce206d66-ls292` 的 `linux/arm64`
 資訊清單 `sha256:4721b798561ebabc9bfee60d3220f8c5d57b17fb78ab83168c94628e07e55e99`。
@@ -271,4 +271,4 @@ vncviewer 127.0.0.1:5905
 Chromium 的真實沙箱在 qqbox 下不可啟用（27 種組態實測 rc=1／134），
 並非效能開關而是安全邊界；`/dev/dri` 不存在，SwiftShader 軟體 WebGL 1.0 可用。
 PulseAudio null sink 可用，但沒有 `/dev/snd`，聲音不會傳到宿主喇叭。
-詳見 [`README.md`](README.md) 與 [`../../docs/PORT_STATUS.zh-Hant.md`](../../docs/PORT_STATUS.zh-Hant.md)。
+詳見 [`README.md`](../../../examples/qqbox/README.md) 與 [`../../docs/PORT_STATUS.zh-Hant.md`](../../docs/PORT_STATUS.zh-Hant.md)。
