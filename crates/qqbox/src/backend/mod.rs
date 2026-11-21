@@ -23,6 +23,8 @@ pub mod channel;
 pub mod filter;
 
 #[cfg(target_os = "linux")]
+pub mod guest;
+#[cfg(target_os = "linux")]
 pub mod hostop;
 #[cfg(target_os = "linux")]
 pub mod linux;

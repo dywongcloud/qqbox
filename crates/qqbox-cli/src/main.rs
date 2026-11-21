@@ -156,6 +156,7 @@ enum BackendAction {
     Witness,
     Install,
     Dispatch { syscall: u64, args: Vec<u64> },
+    ExecElf { guest: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -222,6 +223,30 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                         return Err(
                             "backend witness failed: guest result did not match supervisor".into(),
                         );
+                    }
+                }
+                BackendAction::ExecElf { guest } => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        let report = qqbox::backend::guest::run_elf(
+                            &guest,
+                            &qqbox::backend::guest::GuestOptions::default(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&report).unwrap_or_default()
+                        );
+                        if !report.match_ok {
+                            return Err(
+                                "real ELF guest did not exit with the supervisor sentinel".into()
+                            );
+                        }
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        let _ = guest;
+                        return Err("exec-elf requires a Linux aarch64 host".into());
                     }
                 }
                 BackendAction::Dispatch { syscall, args } => {
