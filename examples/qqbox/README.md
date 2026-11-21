@@ -21,7 +21,7 @@ default. This is the exact Ubuntu 26 base carrying Xubuntu 26 artwork.
 | --- | --- |
 | Xubuntu 26 | Ubuntu 26.04.1 LTS + Xubuntu 26.04.1 settings/artwork/wallpapers, witnessed in `/etc/os-release`. |
 | wallpaper / backgrounds | Real Xubuntu 26 backdrop renders via `xwallpaper --zoom /usr/share/xfce4/backdrops/xubuntu-wallpaper.png`. 26.04's glycin/gdk-pixbuf loaders need `bwrap`, which fails under qqbox, so xfdesktop alone paints a solid root; `xwallpaper` uses libpng directly. Live 26.04 screenshot: 17,855 distinct colors. xfconf still records `monitorscreen/workspace0/last-image` with `image-show=false` so xfdesktop doesn't repaint over it. |
-| bottom dock/taskbar | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759` on an 800px screen, applications menu, three launchers, tasklist. |
+| bottom dock/taskbar | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759` on an 800px screen: showdesktop, four launchers, directorymenu. |
 | vi / vim | `vim 9.1`, `vim-tiny` (the `vi` binary). Both witnessed editing a file with rc=0 and verified contents. |
 | GNU userland | ~70 common packages: coreutils, findutils, grep, gawk, sed, diffutils, patch, make/gcc/g++/binutils/build-essential, autoconf/automake/libtool/pkg-config/cmake/ninja/gdb, tar/gzip/bzip2/xz/zip/unzip/cpio, procps/psmisc/util-linux, net-tools/iproute2/dnsutils/traceroute, wget/curl/rsync/openssh-client, less/man-db/nano/tree/file/which, jq/htop/bc/time/strace/lsof/tmux/screen, gnupg, locales/gettext, socat/netcat/telnet/xxd, pciutils/usbutils/parted/e2fsprogs, perl, fastfetch. |
 | apt / package registries | Works repeatedly after the DBus fix (`fastfetch`/`tree`/`htop` rc=0). `neofetch` was removed from the 26.04 archive: `apt-get install -y neofetch` returns rc=100 `E: Unable to locate package neofetch` even after `apt-get update`; `fastfetch` 2.57.1 is the shipped substitute. `npm` is likewise unavailable from apt on 26.04 — npm 9.2.0 comes from the Node 18 payload. |
@@ -227,7 +227,8 @@ The `actions` plugin was removed after it crashed without a session manager.
 
 Witness (live 5905): independent RFB 3.8 frame `qbox:99` 1280x800, 7,593
 distinct colors, showing the top header with Whisker menu, tasklist, desktop
-switcher, clock and volume, plus the bottom dock with five launchers;
+switcher, clock and volume, plus the bottom dock with four launchers and the
+directory menu;
 `menu_plugin=whiskermenu whisker=yes`; no missing-plugin or crash messages.
 
 ### Chromium sandbox: why it stays off, and what changed instead
@@ -277,11 +278,15 @@ restart mechanism.
 Fix: **remove `xfce4-session` entirely**. Own one persistent session bus
 (`dbus-daemon --session --fork`) plus `xfconfd`, and supervise `xfwm4`,
 `xfce4-panel`, `xfdesktop`, the terminal and Chromium with an event-driven
-`wait $pid` loop per component. `wait` blocks on child exit: no sleep, no
-timeout, no periodic recheck (gm standing rule). A circuit breaker stops a
-component that exits immediately six times. Chromium restarts with its
-singleton locks cleared. This keeps exactly one panel and one xfconfd, so the
-earlier duplicate-manager regressions do not return.
+`wait -n -p` loop over the whole group. `wait` blocks on child exit: no
+sleep, no timeout, no periodic recheck (gm standing rule). Boot readiness is
+also event-driven: Xvfb publishes its display number on `-displayfd` to a
+FIFO, x11vnc publishes its listening line to its log, `xdotool search --sync`
+blocks on the panel window being mapped, and a synchronous X round-trip drains
+the root pixmap before capture. No fixed delays remain in `start-xubuntu.sh`.
+A circuit breaker stops a component that exits immediately six times. Chromium
+restarts with its singleton locks cleared. This keeps exactly one panel and one
+xfconfd, so the earlier duplicate-manager regressions do not return.
 
 Witnessed: deliberate `pkill -x xfce4-panel` rc=0 → `panel exited rc=0 →
 restarting` and the window back at `1280x41+0+0 +0+759`. After cutover an
@@ -424,10 +429,11 @@ blockers were witnessed live:
 The fix that works: set `XDG_CONFIG_DIRS=/etc/xdg/xdg-xubuntu:/etc/xdg`, write
 `$XDG_CONFIG_HOME/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml` with
 `monitorscreen/workspace0/last-image`, `image-style=5`, `color-style=0` and
-`image-show=false`; start `xfce4-session` under `dbus-run-session` (session bus
-for `xfconfd`), `xfwm4 --compositor=off`, `xfce4-panel`, then
+`image-show=false`; the group supervisor owns one persistent session bus and
+starts `xfwm4 --compositor=off`, `xfce4-panel`, then
 `xfdesktop --disable-wm-check` (without that flag xfdesktop exits with `No
-window manager registered on screen 0`). Finally **paint the root pixmap with
+window manager registered on screen 0`). `xfce4-session` is NOT used: it owned
+the bus and was a single point of failure. Finally **paint the root pixmap with
 `xwallpaper --zoom "$WALL"`**, which uses libpng directly and bypasses glycin.
 
 Live 26.04 witness: `xwallpaper_rc=0`, 1280x800 PNG with **17,855 distinct

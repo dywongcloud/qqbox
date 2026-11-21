@@ -147,6 +147,33 @@ fn framed_digest(kind: Kind, payload: &[u8]) -> [u8; 32] {
     d
 }
 
+/// HMAC-SHA-256 over the frame header and payload, keyed by the migration
+/// capability. An unkeyed SHA-256 over a public frame is forgeable: any peer
+/// that can write bytes can recompute the digest. Binding the capability to
+/// EVERY frame makes the wire authenticated, not merely integrity-checked.
+/// Local checkpoint files still use `framed_digest` (no secret is stored with
+/// them); the two-process session uses this keyed form exclusively.
+fn keyed_digest(kind: Kind, payload: &[u8], cap: &Capability) -> [u8; 32] {
+    let mut ipad = [0x36u8; 64];
+    let mut opad = [0x5cu8; 64];
+    for (i, byte) in cap.digest.iter().enumerate() {
+        ipad[i] ^= *byte;
+        opad[i] ^= *byte;
+    }
+    let mut inner = Sha256::new();
+    inner.update(ipad);
+    inner.update(header(kind, payload.len() as u32));
+    inner.update(payload);
+    let ih = inner.finalize();
+    let mut outer = Sha256::new();
+    outer.update(opad);
+    outer.update(ih);
+    let out = outer.finalize();
+    let mut d = [0u8; 32];
+    d.copy_from_slice(&out);
+    d
+}
+
 /// Write one frame. `w` is an explicit parameter; no implicit IO.
 pub fn write_frame<W: Write>(w: &mut W, kind: Kind, payload: &[u8]) -> Result<(), MigrationError> {
     let len = u32::try_from(payload.len())
@@ -166,6 +193,98 @@ pub fn write_frame<W: Write>(w: &mut W, kind: Kind, payload: &[u8]) -> Result<()
         .map_err(|e| MigrationError::Wire(format!("digest write: {e}")))?;
     w.flush()
         .map_err(|e| MigrationError::Wire(format!("flush: {e}")))
+}
+
+/// Write one capability-authenticated frame. Used on the wire only.
+pub fn write_frame_keyed<W: Write>(
+    w: &mut W,
+    kind: Kind,
+    payload: &[u8],
+    cap: &Capability,
+) -> Result<(), MigrationError> {
+    let len = u32::try_from(payload.len())
+        .map_err(|_| MigrationError::Wire("payload exceeds u32".to_owned()))?;
+    if len > MAX_FRAME {
+        return Err(MigrationError::Wire(format!(
+            "frame {len} exceeds MAX_FRAME {MAX_FRAME}"
+        )));
+    }
+    let h = header(kind, len);
+    let digest = keyed_digest(kind, payload, cap);
+    w.write_all(&h)
+        .map_err(|e| MigrationError::Wire(format!("header write: {e}")))?;
+    w.write_all(payload)
+        .map_err(|e| MigrationError::Wire(format!("payload write: {e}")))?;
+    w.write_all(&digest)
+        .map_err(|e| MigrationError::Wire(format!("digest write: {e}")))?;
+    w.flush()
+        .map_err(|e| MigrationError::Wire(format!("flush: {e}")))
+}
+
+/// Read one capability-authenticated frame. `limit` is the negotiated frame
+/// bound from Hello, so `max_frame` is a real negotiation field rather than a
+/// value that is transmitted and then ignored.
+pub fn read_frame_keyed<R: Read>(
+    r: &mut R,
+    cap: &Capability,
+    limit: u32,
+) -> Result<Frame, MigrationError> {
+    let mut h = [0u8; HEADER_LEN];
+    r.read_exact(&mut h)
+        .map_err(|e| MigrationError::Wire(format!("header read: {e}")))?;
+    if h[..4] != MAGIC {
+        return Err(MigrationError::Wire("bad magic".to_owned()));
+    }
+    if h[4] != WIRE_VERSION {
+        return Err(MigrationError::Wire(format!(
+            "unsupported wire version {}",
+            h[4]
+        )));
+    }
+    let kind = Kind::from_byte(h[5])
+        .ok_or_else(|| MigrationError::Wire(format!("unknown frame kind {}", h[5])))?;
+    let mut len_bytes = [0u8; 4];
+    len_bytes.copy_from_slice(&h[6..10]);
+    let len = u32::from_be_bytes(len_bytes);
+    if len > MAX_FRAME {
+        return Err(MigrationError::Wire(format!(
+            "frame {len} exceeds MAX_FRAME {MAX_FRAME}"
+        )));
+    }
+    if len > limit {
+        return Err(MigrationError::Wire(format!(
+            "frame {len} exceeds negotiated limit {limit}"
+        )));
+    }
+    let mut payload = vec![0u8; len as usize];
+    r.read_exact(&mut payload)
+        .map_err(|e| MigrationError::Wire(format!("payload read: {e}")))?;
+    let mut got = [0u8; DIGEST_LEN];
+    r.read_exact(&mut got)
+        .map_err(|e| MigrationError::Wire(format!("digest read: {e}")))?;
+    let expected = keyed_digest(kind, &payload, cap);
+    if !constant_time_eq(&got, &expected) {
+        return Err(MigrationError::Wire(
+            "authentication digest mismatch".to_owned(),
+        ));
+    }
+    Ok(Frame { kind, payload })
+}
+
+pub fn read_expect_keyed<R: Read>(
+    r: &mut R,
+    expected: Kind,
+    cap: &Capability,
+    limit: u32,
+) -> Result<Vec<u8>, MigrationError> {
+    let frame = read_frame_keyed(r, cap, limit)?;
+    if frame.kind != expected {
+        return Err(MigrationError::Wire(format!(
+            "expected {:?} frame, got {:?}",
+            expected, frame.kind
+        )));
+    }
+    Ok(frame.payload)
 }
 
 /// Read one frame. Length is validated before allocation; every error is typed.

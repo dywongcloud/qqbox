@@ -471,10 +471,10 @@ pub fn apply(spec: &RuntimeSpec) -> Result<(Config, Vec<String>)> {
             rejected.push("linux.cgroupsPath".to_string());
         }
         if linux.seccomp.is_some() {
-            cfg.seccomp_profile = SeccompProfile::Json(
-                serde_json::to_string(linux.seccomp.as_ref().unwrap_or(&serde_json::Value::Null))
-                    .unwrap_or_default(),
-            );
+            // The Rust control plane can carry a typed profile but cannot
+            // install an arbitrary BPF program; report it as rejected rather
+            // than claiming an OCI seccomp policy was enforced.
+            rejected.push("linux.seccomp".to_string());
         }
         if !linux.sysctl.is_empty() {
             rejected.push("linux.sysctl".to_string());

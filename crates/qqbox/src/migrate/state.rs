@@ -1,8 +1,11 @@
 //! Live-migration state algebra.
 //!
 //! `MigrationState` is an ADT of four **disjoint** partitions of the state the
-//! Rust supervisor actually owns. `capture` and `apply` are pure morphisms:
-//! `capture(apply(s)) == s` for every well-formed `s`, and neither reads
+//! Rust supervisor actually owns. `capture` and `apply` are pure morphisms.
+//! `capture` starts from a live `Config`/`GuestState`/`Namespace`, so it cannot
+//! know a state's session identity (generation, chanPage geometry, boundary);
+//! `recapture` restores exactly those fields from the source state, and the
+//! witnessed law is `recapture(apply(s), s) == normalize(s)`. Neither reads
 //! ambient state. There is no guest memory, register file or vCPU state here:
 //! qqbox has no VMM (see `migration-guest-memory` and docs/LIVE_MIGRATION.md).
 //!
@@ -140,7 +143,8 @@ pub struct Boundary {
 pub enum GuestExecution {
     /// Guest physical memory, vCPU registers and dirty-page bitmaps require a
     /// VMM. qqbox rewrites syscalls in a host process; there is no VMM to
-    /// suspend, and the native guest backends are not ported to Rust yet.
+    /// suspend and no guest-RAM API, even though the Linux trap-to-supervisor
+    /// backend is ported. This is a structural boundary, not a TODO.
     NotCapturable,
 }
 
@@ -428,6 +432,17 @@ impl MigrationState {
             guest,
             namespace: ns,
         })
+    }
+
+    /// Rebuild a state from `apply`'s output, restoring the session identity
+    /// that a live `capture` cannot know. This is the right-hand side of the
+    /// round-trip law; callers must not hand-patch individual fields.
+    pub fn recapture(applied: &Applied, source: &MigrationState) -> MigrationState {
+        let mut out = Self::capture(&applied.config, &applied.guest, &applied.namespace);
+        out.generation = source.generation;
+        out.chan = source.chan.clone();
+        out.boundary = source.boundary.clone();
+        out
     }
 
     /// Canonical form. Applying this twice is the same as applying it once:

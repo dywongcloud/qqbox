@@ -70,6 +70,16 @@ for link, target in [
     if os.path.exists(os.path.join(extra, target)) and not os.path.lexists(p):
         os.symlink(target, p)
         print('linked', link, '->', target)
-print('CHROMIUM_PAYLOAD_READY; add chromium-wrapper.sh to the payload dir before building.')
+# The Dockerfile COPYs chromium/ into /opt/chromium and chmods the wrapper
+# inside that directory. Copy the committed wrapper into the generated payload
+# so a clean checkout builds without a manual step; fail loudly if it is absent.
+import shutil
+wrapper = os.path.join(os.path.dirname(out) or '.', 'chromium-wrapper.sh')
+if not os.path.isfile(wrapper):
+    raise SystemExit('MISSING: chromium-wrapper.sh next to fetch-chromium.sh')
+shutil.copyfile(wrapper, os.path.join(out, 'chromium-wrapper.sh'))
+os.chmod(os.path.join(out, 'chromium-wrapper.sh'), 0o755)
+print('wrote chromium/chromium-wrapper.sh (from committed wrapper)')
+print('CHROMIUM_PAYLOAD_READY')
 PY
 sh -n "$0"

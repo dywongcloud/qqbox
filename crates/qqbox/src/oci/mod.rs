@@ -235,11 +235,45 @@ pub struct ImageRef {
     pub digest: Option<String>,
 }
 
+fn valid_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= 128
+        && tag
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+        && tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+}
+
+/// OCI digest grammar: algorithm ":" encoded-hex, e.g. `sha256:<64 hex>`.
+fn valid_digest(digest: &str) -> bool {
+    let Some((algorithm, encoded)) = digest.split_once(':') else {
+        return false;
+    };
+    !algorithm.is_empty()
+        && algorithm.len() <= 32
+        && algorithm.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'+' | b'.' | b'_' | b'-')
+        })
+        && encoded.len() >= 32
+        && encoded.len() <= 128
+        && encoded.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn valid_registry(registry: &str) -> bool {
-    let host = registry
-        .rsplit_once(':')
-        .map(|(h, _)| h)
-        .unwrap_or(registry);
+    let (host, port) = match registry.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (registry, None),
+    };
+    if let Some(p) = port {
+        // `alpine:../etc` must not be reinterpreted as a registry with a
+        // non-numeric "port". A port is digits only.
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) || p.len() > 5 {
+            return false;
+        }
+    }
     !host.is_empty()
         && !host.contains("..")
         && !host.starts_with('.')
@@ -247,6 +281,23 @@ fn valid_registry(registry: &str) -> bool {
         && host
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+}
+
+fn valid_repository(repository: &str) -> bool {
+    !repository.is_empty()
+        && !repository.starts_with('/')
+        && !repository.ends_with('/')
+        && repository.split('/').all(|component| {
+            !component.is_empty()
+                && component != "."
+                && component != ".."
+                && !component.starts_with('.')
+                && component.bytes().all(|b| {
+                    b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || matches!(b, b'_' | b'-' | b'.' | b'+')
+                })
+        })
 }
 
 impl ImageRef {
@@ -278,8 +329,18 @@ impl ImageRef {
                 format!("library/{first}"),
             ),
         };
-        if repository.is_empty() || repository.contains("..") || !valid_registry(&registry) {
+        if !valid_registry(&registry) || !valid_repository(&repository) {
             return Err(Error::BadRef(s.to_string()));
+        }
+        if let Some(t) = &tag {
+            if !valid_tag(t) {
+                return Err(Error::BadRef(format!("invalid tag in {s}")));
+            }
+        }
+        if let Some(d) = &digest {
+            if !valid_digest(d) {
+                return Err(Error::BadRef(format!("invalid digest in {s}")));
+            }
         }
         Ok(ImageRef {
             registry,
@@ -321,10 +382,13 @@ impl ImageRef {
     }
 }
 
+/// Libraries take options, not the environment. A cache root is a required
+/// caller-supplied option; the deterministic fallback is a fixed path, never
+/// `TMPDIR`/`std::env::temp_dir()`.
 pub fn cache_dir(o: &PullOptions) -> PathBuf {
     o.cache_dir
         .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("qqbox/images"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/qqbox/images"))
 }
 
 fn ref_key(r: &ImageRef, arch: Arch) -> String {

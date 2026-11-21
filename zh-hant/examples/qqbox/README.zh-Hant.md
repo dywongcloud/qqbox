@@ -20,7 +20,7 @@
 | 需求 | 狀態 |
 | --- | --- |
 | 桌布／背景 | `xwallpaper --zoom /usr/share/xfce4/backdrops/xubuntu-wallpaper.png` 畫出真正的 Xubuntu 26 桌布，實測 17,855 種顏色。 |
-| 底部工作列 | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759`。 |
+| 底部工作列 | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759`：顯示桌面、四個啟動器、目錄選單。 |
 | vi／vim | `vim 9.1` 與 `vim-tiny`（`vi`），兩者編輯檔案皆 rc=0。 |
 | GNU 工具鏈 | 約 70 個套件，見英文版 README。 |
 | 套件安裝 | `apt-get install` 可重複執行且 rc=0（`fastfetch`／`tree`／`htop` 皆為 rc=0）；`GDBus … Spawn.PermissionsInvalid` 已修復。26.04 已移除 `neofetch`，即使 `apt-get update` 成功，`apt-get install -y neofetch` 仍回傳 rc=100 `E: Unable to locate package neofetch`；改以 `fastfetch` 2.57.1 取代。`npm` 同樣無法由 apt 安裝，9.2.0 來自 Node 18 payload。 |
@@ -35,9 +35,10 @@ Ubuntu 26.04 的 gdk-pixbuf 影像載入器改用 glycin，必須透過 `bwrap` 
 Xubuntu 26.04 自帶的 `xfce4-desktop.xml` 完全沒有 backdrop 設定，而
 XFCE 4.20 使用 `monitorscreen/workspaceN/last-image`，不是 24.04 的
 `monitor0/image-path`。`xwallpaper` 直接使用 libpng，繞過 glycin，因此可行：
-寫入 xfconf 並設 `image-show=false`，啟動 `xfce4-session`（提供 `xfconfd`
-所需的 session bus）、`xfwm4 --compositor=off`、`xfce4-panel`、
-`xfdesktop --disable-wm-check`，最後以 `xwallpaper --zoom` 畫上根視窗。
+寫入 xfconf 並設 `image-show=false`；群組監督器自行持有一條永久性 session
+bus（不使用 `xfce4-session`，它是單點故障），並啟動 `xfwm4 --compositor=off`、
+`xfce4-panel`、`xfdesktop --disable-wm-check`，最後以 `xwallpaper --zoom`
+畫上根視窗。
 對照組 `00-before.png` 只有 1 種顏色，修復後 `01-after.png` 有 17,855 種。
 24.04 只靠 `xfdesktop` 即可（9,049 種顏色）；該做法無法套用到 26.04，
 這是對抗式驗證找出並如實記錄的結果。
@@ -108,7 +109,7 @@ dock 11-18）。保留四個原廠啟動器 `.desktop` 名稱，但 `Exec` 指�
 
 見證（live 5905）：獨立 RFB 3.8 幀 `qbox:99` 1280x800、7,593 種顏色，可見
 頂部標題列的 Whisker 選單、工作列、桌面切換器、時鐘與音量，以及底部 dock 的
-五個啟動器；`menu_plugin=whiskermenu whisker=yes`；沒有缺少 plugin 或崩潰訊息。
+四個啟動器與目錄選單；`menu_plugin=whiskermenu whisker=yes`；沒有缺少 plugin 或崩潰訊息。
 
 ### Chromium sandbox：為何仍關閉，以及實際改了什麼
 
@@ -155,7 +156,7 @@ Chromium 在 qqbox 下會卡住（已見證）。wrapper 會把 `chromium_uid=91
 修復：**完全移除 `xfce4-session`**。自行持有永久性 session bus
 （`dbus-daemon --session --fork`）與 `xfconfd`，並以事件驅動的 `wait $pid`
 迴圈分別監督 `xfwm4`、`xfce4-panel`、`xfdesktop`、終端機與 Chromium。
-`wait` 會在子行程結束時才返回：沒有 sleep、timeout 或週期性重查（符合 gm
+`wait -n -p` 會在子行程結束時才返回：沒有 sleep、timeout 或週期性重查（符合 gm
 鐵律）。熔斷器會在元件連續六次立即結束時停止重啟。Chromium 重啟前清除
 singleton lock。此設計維持恰好一個面板與一個 xfconfd，不會重演先前的重複管理
 員錯誤。
@@ -218,11 +219,11 @@ FIFO 讀取阻塞於 bus 位址，`wait -n -p` 阻塞於第一個子行程結束
 | 每個互動式子 PTY 出現 `x27: command not found` | Dockerfile 的 `printf` 使用 `\x27`，dash 不解譯 `\x`，使字面 `\x27` 寫入 `/root/.bashrc` | 改用八進位 `\047`，啟動腳本就地移除殘留 `\x27` 行 |
 | `bash: initialize job control: no job control in background: Bad file descriptor` | bash 工作控制初始化呼叫 qqbox 無法完整模擬的 `tcsetpgrp` | 終端機子行程 wrapper 匯出 `SHELLOPTS=`（關閉 monitor）；實測乾淨的 `root@qbox:/out#` 與 RFB 打字回顯 |
 | `bash: cannot set terminal process group (1)` | 證據腳本在無 PTY 下執行 `bash -i -c` | 改為 `grep -F 'PS1='`；真正的終端機由 RFB 打字見證 |
-| `Another Window Manager … is already running`、`Another desktop manager …` | 啟動腳本同時啟動 `xfwm4`／`xfce4-panel`／`xfdesktop`，而 `xfce4-session` 又各自 autostart 一份（兩個面板、兩個 xfconfd） | 由 `xfce4-session` 擁有各一份，移除手動重複啟動 |
-| `Failed to run gnome-keyring-daemon: Failed to execute child process` | `xfce4-session` 的 `compat/LaunchGNOME=true` | `xfce4-session.xml` 設 `LaunchGNOME=false`，並安裝 `gnome-keyring` |
+| `Another Window Manager … is already running`、`Another desktop manager …` | 舊版啟動腳本同時啟動 `xfwm4`／`xfce4-panel`／`xfdesktop`，而 `xfce4-session` 又各自 autostart 一份（兩個面板、兩個 xfconfd） | 完全移除 `xfce4-session`，由群組監督器各持一份 |
+| `Failed to run gnome-keyring-daemon: Failed to execute child process` | 舊版 `xfce4-session` 的 `compat/LaunchGNOME=true` | 移除 `xfce4-session`，停用 keyring 的 autostart 並安裝 `gnome-keyring` |
 | `FileNotFoundError: 'xdg-user-dir'` Python traceback | 缺少 `xdg-user-dirs` | 已安裝 |
 | `xfdesktop_regular_file_icon_new … assertion` 與 `thunarx` GLib CRITICAL | vfs-only 根目錄上的桌面圖示外掛 | `desktop-icons/style=0`，桌布仍由 `xwallpaper` 繪製 |
-| `SESSION_MANAGER environment variable not defined` | 終端機在 session 之外啟動 | 改由 `autostart/qqbox-terminal.desktop` 讓 `xfce4-session` 啟動 |
+| `SESSION_MANAGER environment variable not defined` | 舊版終端機在 session 之外啟動 | 由群組監督器直接啟動終端機，不再依賴 session manager |
 | 從工作列點擊 Chromium 時 `/usr/bin/chromium … Segmentation fault` | 原廠 `chromium.desktop` → `wrapped-chromium` → Ubuntu snap stub | `.desktop` 的 Exec 覆寫為 `/usr/local/bin/chromium`，`wrapped-chromium` 指向 Debian wrapper |
 
 其餘日誌為資訊性質而非錯誤：一則 `libxfce4util-WARNING: Failed to get a

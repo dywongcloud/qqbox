@@ -33,6 +33,8 @@ if ! dpkg-divert --list 2>/dev/null | grep -q '^local diversion of /usr/bin/bwra
   # Put the real ELF in place so --rename moves the ELF, not the shim.
   if is_elf /usr/bin/bwrap.qqbox-orig; then
     cp -f /usr/bin/bwrap.qqbox-orig /usr/bin/bwrap
+  else
+    echo 'qqbox: pre-hardened image has no real bwrap ELF; cannot install diversion' >&2
   fi
   dpkg-divert --local --divert /usr/bin/bwrap.distrib --rename --add /usr/bin/bwrap >/out/bwrap-divert.log 2>&1
   echo "divert_add_rc=$?" >> /out/bwrap-divert.log
@@ -47,9 +49,16 @@ for a in "$@"; do
   esac
   i=$((i+1))
 done
+# Recursion guard: on a pre-hardened image BOTH fallbacks can be shims. Only
+# exec a real ELF (magic 7f454c46); otherwise fail loudly instead of exec'ing
+# this shim again until the kernel kills the desktop.
 for r in /usr/bin/bwrap.distrib /usr/bin/bwrap.qqbox-orig; do
-  [ -x "$r" ] && exec "$r" "$@"
+  [ -x "$r" ] || continue
+  magic=$(head -c4 "$r" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+  [ "$magic" = 7f454c46 ] || continue
+  exec "$r" "$@"
 done
+echo 'qqbox: no real bwrap ELF available; refusing to recurse' >&2
 exit 1
 SHIM
 chmod 755 /usr/bin/bwrap
@@ -69,9 +78,13 @@ fi
 PANEL_PLUGIN_DIR=/usr/lib/aarch64-linux-gnu/xfce4/panel/plugins
 if [ ! -f "$PANEL_PLUGIN_DIR/libwhiskermenu.so" ]; then
   timeout 200 apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=25 >/out/panel-plugins-update.log 2>&1 || true
-  timeout 250 apt-get install -y --no-install-recommends \
-    xfce4-whiskermenu-plugin >/out/panel-plugins-install.log 2>&1 || true
-  echo "panel_plugins_rc=$?" >> /out/panel-plugins-install.log
+  if timeout 250 apt-get install -y --no-install-recommends \
+      xfce4-whiskermenu-plugin >/out/panel-plugins-install.log 2>&1; then
+    PANEL_RC=0
+  else
+    PANEL_RC=$?
+  fi
+  echo "panel_plugins_rc=$PANEL_RC" >> /out/panel-plugins-install.log
 fi
 if [ -f "$PANEL_PLUGIN_DIR/libwhiskermenu.so" ]; then
   MENU_PLUGIN=whiskermenu
@@ -90,12 +103,19 @@ echo "chromium_override_rc=$? exec=$(grep '^Exec=' /usr/share/applications/chrom
 # Live guests mount the build context at /boot; rebuilt images bake the same
 # wrapper. Prefer the mounted copy so a running desktop picks up wrapper
 # hardening (uid drop, sandbox rationale) without rebuilding the image.
-if [ -f /boot/chromium/chromium-wrapper.sh ]; then
-  cat /boot/chromium/chromium-wrapper.sh > /opt/chromium/chromium-wrapper.sh
+# Never overwrite the baked launcher with an unverified /boot file: a bad
+# override would break Chromium for the whole session. Validate syntax and
+# the required setpriv uid drop before installing it.
+BOOT_WRAPPER=/boot/chromium/chromium-wrapper.sh
+if [ -f "$BOOT_WRAPPER" ] \
+   && sh -n "$BOOT_WRAPPER" 2>>/out/hygiene.txt \
+   && grep -q '^#!/' "$BOOT_WRAPPER" \
+   && grep -q setpriv "$BOOT_WRAPPER"; then
+  cat "$BOOT_WRAPPER" > /opt/chromium/chromium-wrapper.sh
   chmod 755 /opt/chromium/chromium-wrapper.sh
   echo "chromium_wrapper_source=/boot chromium_wrapper_setpriv=$(grep -c setpriv /opt/chromium/chromium-wrapper.sh)" >> /out/hygiene.txt
 else
-  echo "chromium_wrapper_source=baked" >> /out/hygiene.txt
+  echo "chromium_wrapper_source=baked boot_override_rejected=$([ -f "$BOOT_WRAPPER" ] && echo invalid || echo absent)" >> /out/hygiene.txt
 fi
 
 # 20packagekit's gdbus hook and PackageKit's system-service file ask the bus
@@ -384,11 +404,24 @@ for f in /etc/xdg/autostart/gnome-keyring-*.desktop; do
 done
 
 # ---- X server + VNC ----
-Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac > /out/xvfb.log 2>&1 &
-sleep 4
+# Event-driven readiness, no fixed delays. Xvfb publishes its display number
+# on -displayfd only once it can accept connections; the blocking FIFO read is
+# the barrier. x11vnc publishes its listening line to its log; the blocking
+# grep -m1 read is the barrier. A fixed sleep would be a guess about timing.
+rm -f /out/xvfb-ready.fifo /out/vnc-ready.fifo
+mkfifo /out/xvfb-ready.fifo /out/vnc-ready.fifo
+Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -ac -displayfd 3 \
+  3>/out/xvfb-ready.fifo > /out/xvfb.log 2>&1 &
+XVFB_PID=$!
+read -r XVDISPLAY < /out/xvfb-ready.fifo
+echo "xvfb_display=$XVDISPLAY pid=$XVFB_PID" > /out/xvfb-ready.txt
+( grep -m1 -F 'Listening for VNC connections' \
+    < <(tail -n +1 -F /out/x11vnc.log 2>/dev/null) > /out/vnc-ready.fifo ) &
+VNC_WAIT_PID=$!
 x11vnc -display :99 -nopw -forever -shared -rfbport "$VNC_PORT" \
   -o /out/x11vnc.log > /out/x11vnc.stdout 2>&1 &
-sleep 3
+read -r VNC_LINE < /out/vnc-ready.fifo
+echo "vnc_ready=$VNC_LINE" > /out/vnc-ready.txt
 stage "vnc_alive"
 
 # ---- terminal launcher, started BY the session (no SM warning) ----
@@ -516,9 +549,14 @@ desktop_group & GROUP_PID=$!
 echo "$GROUP_PID" > /out/desktop.supervisor.pid
 read -r MAIN_BUS < /out/bus-ready.fifo
 export DBUS_SESSION_BUS_ADDRESS="$MAIN_BUS"
-sleep 18
+# --sync blocks on X window-map events until the panel is actually visible;
+# this is the real condition the wallpaper and first screenshot depend on.
+xdotool search --sync --onlyvisible --class xfce4-panel > /out/panel-window.txt 2>&1
+echo "panel_sync_rc=$?" > /out/panel-sync-rc.txt
 xwallpaper --zoom "$WALL" > /out/xwallpaper.log 2>&1; echo "xwallpaper_rc=$?" > /out/xwallpaper-rc.txt
-sleep 3
+# A synchronous X round-trip drains the server's pending requests, so the root
+# pixmap is committed before the capture instead of hoping 3 seconds suffices.
+xdotool getdisplaygeometry > /out/x-geometry.txt 2>&1
 scrot -o /out/01-wallpaper.png 2>/dev/null || true
 stage "supervised_desktop_started wallpaper=$(cat /out/xwallpaper-rc.txt)"
 stage "native_terminal_started_by_supervisor"
@@ -591,7 +629,7 @@ xwininfo -root -tree > /out/windows.txt 2>&1 || true
 # Repaint after every window is mapped: Xvfb does not always flush the root
 # pixmap on the first paint, so capture a deterministic final frame.
 xwallpaper --zoom "$WALL" >/out/xwallpaper-final.log 2>&1; echo "xwallpaper_final_rc=$?" > /out/xwallpaper-final-rc.txt
-sleep 3
+xdotool getdisplaygeometry > /out/x-geometry-final.txt 2>&1
 scrot -o /out/01-wallpaper-final.png 2>/dev/null || true
 scrot -o /out/qqbox-desktop.png 2>/out/scrot.log || true
 echo QQBOX_BOOT_READY > /out/result.txt

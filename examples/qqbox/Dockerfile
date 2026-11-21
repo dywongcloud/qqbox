@@ -95,6 +95,9 @@ RUN chmod 755 /opt/qqbox-node/usr/bin/node && \
     npm --version >> /etc/qqbox-node.txt
 
 COPY chromium /opt/chromium
+# Always bake the committed wrapper: fetch-chromium.sh also places it in the
+# payload, but a prebuilt payload may lack it. The last COPY wins.
+COPY chromium-wrapper.sh /opt/chromium/chromium-wrapper.sh
 RUN chmod +x /opt/chromium/chromium /opt/chromium/chromium-wrapper.sh && \
     ln -sf /opt/chromium/chromium-wrapper.sh /usr/local/bin/chromium && \
     mkdir -p /tmp/crash && chmod 1777 /tmp/crash && \

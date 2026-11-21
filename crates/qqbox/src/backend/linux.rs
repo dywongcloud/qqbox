@@ -122,7 +122,7 @@ impl Platform for LinuxBackend {
                 }
             })
             .map_err(|e| Error::Message(format!("spawn host-op thread: {e}")))?;
-        filter::install(&filter::trap_one(nr::GETPPID as u32)?)
+        crate::sandbox::install(&filter::trap_one(nr::GETPPID as u32)?)
     }
 
     /// Live end-to-end witness: fork a guest thread, install a real seccomp

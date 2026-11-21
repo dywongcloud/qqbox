@@ -10,7 +10,7 @@ Rust workspace (`cargo build --workspace`) is the only build entry point.
 | --- | --- |
 | `oci-config.json` | image config parsed by `qqbox oci-inspect` |
 | `runtime-spec.json` | full OCI runtime-spec, advisory validation (`runtime-spec validate --advisory`) |
-| `runtime-spec-minimal.json` | minimal spec, strict validation |
+| `runtime-spec-minimal.json` | minimal spec carrying an unenforceable `linux.seccomp` profile; `--advisory` inspects it, strict validation rejects it (`make witness` asserts both) |
 | `container-create.json` | `qqbox daemon-probe /containers/create --method POST --body ...` |
 | `compose.yaml` | `qqbox compose-plan` / `qqbox compose-validate` / `qqbox network-plan` |
 

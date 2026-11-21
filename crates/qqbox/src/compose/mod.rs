@@ -374,7 +374,8 @@ fn healthcheck(v: &serde_json::Value) -> Option<Healthcheck> {
         test,
         interval_ns: get("interval"),
         timeout_ns: get("timeout"),
-        retries: map.get("retries").and_then(|x| x.as_u64()).unwrap_or(3) as u32,
+        retries: u32::try_from(map.get("retries").and_then(|x| x.as_u64()).unwrap_or(3))
+            .unwrap_or(u32::MAX),
         start_period_ns: get("start_period"),
     })
 }
@@ -415,7 +416,8 @@ fn service_config(name: &str, s: &Service) -> Result<Config> {
         cfg.stop_signal = s.stop_signal.clone();
     }
     if !s.stop_grace_period.is_empty() {
-        cfg.stop_timeout = (duration_ns(&s.stop_grace_period) / 1_000_000_000) as u32;
+        cfg.stop_timeout =
+            u32::try_from(duration_ns(&s.stop_grace_period) / 1_000_000_000).unwrap_or(u32::MAX);
     }
     cfg.dns = as_string_vec(&s.dns);
     cfg.dns_search = s.dns_search.clone();

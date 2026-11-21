@@ -552,11 +552,16 @@ impl Options {
             config.max_bytes = self.max_bytes;
         }
 
-        config.network_mode = self.network_mode;
-        let no_net = self.no_net || self.network_mode == NetworkMode::None;
-        let net = (self.net || self.network_mode == NetworkMode::Host) && !no_net;
-        config.net = net;
-        config.no_net = no_net;
+        // `Options::default()` has net=false, no_net=false and network_mode
+        // Bridge. Applying those defaults must not silently reset a base
+        // Config that came from an image or an OCI runtime spec. Only override
+        // the network triple when the caller actually set one of them.
+        if self.net || self.no_net || self.network_mode != NetworkMode::default() {
+            config.network_mode = self.network_mode;
+            let no_net = self.no_net || self.network_mode == NetworkMode::None;
+            config.no_net = no_net;
+            config.net = (self.net || self.network_mode == NetworkMode::Host) && !no_net;
+        }
 
         config
             .allow_domains

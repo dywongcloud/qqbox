@@ -173,11 +173,18 @@ No ambient state, no env reads, no global mutable counters, no hidden mutation.
 ## 4. Wire protocol
 
 ```
-MAGIC "QQBM" | wire_version u8 | kind u8 | length u32 BE | payload | SHA-256
+MAGIC "QQBM" | wire_version u8 | kind u8 | length u32 BE | payload | HMAC-SHA-256
 ```
 
 - `length` is checked against `MAX_FRAME` (16 MiB) **before** allocation.
-- The digest covers header + payload and is compared in constant time.
+- Two forms exist. Local checkpoint frames use an unkeyed SHA-256 over header
+  + payload (integrity only; no secret is stored with the file). Frames on the
+  two-process TCP session use HMAC-SHA-256 keyed by the migration capability,
+  so every frame is authenticated, not merely checksummed. Both are compared
+  in constant time and both failures are typed `MigrationError::Wire`.
+- `Hello.max_frame` is a real negotiation: the receiver uses
+  `min(peer, MAX_FRAME)` as the bound for every subsequent frame, rejecting a
+  peer whose advertised bound is below the minimum frame size.
 - `read_exact` everywhere; every failure is a typed `MigrationError::Wire`.
 - Kinds: `Hello`, `State`, `Delta`, `Commit`, `Ack`, `Reject`.
 - `read_expect(kind)` refuses type-confused frames before decoding.
@@ -226,12 +233,12 @@ and `/Users/dylanwong/.gm-work/qqbox/migration-daemon-witness-driver.sh`.
 | check | result |
 | --- | --- |
 | four algebraic laws | `capture_apply_identity=true`, `normalize_idempotent=true`, `digest_canonical=true`, `delta_idempotent=true` |
-| corrupted frame | rejected, `integrity digest mismatch` |
+| corrupted local frame | rejected, `integrity digest mismatch` |
 | truncated frame | rejected, `digest read: failed to fill whole buffer` |
 | oversized length | rejected, `frame 16777217 exceeds MAX_FRAME 16777216` |
 | two real processes + real TCP socket | `send_rounds=1`, source digest == destination digest |
 | state parity after pre-copy | `source_final_equals_dest=True`, `original_differs_after_delta=True` |
-| wrong capability over TCP | receiver `migration capability rejected`, sender rc=1 |
+| wrong capability over TCP | receiver `authentication digest mismatch`, sender rc=1; Hello mismatch is `migration capability rejected` |
 | daemon without bearer token | 401 |
 | daemon state before checkpoint | 404 |
 | daemon checkpoint → state | 200, digests match |

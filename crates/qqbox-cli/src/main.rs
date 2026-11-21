@@ -714,9 +714,7 @@ fn dispatch_migrate(action: MigrateAction) -> Result<(), String> {
         MigrateAction::Restore { input, out } => {
             let state = decode_state_file(&input)?;
             let applied = state.apply().map_err(|e| e.to_string())?;
-            let mut recaptured =
-                m::MigrationState::capture(&applied.config, &applied.guest, &applied.namespace);
-            recaptured.generation = state.generation;
+            let recaptured = m::MigrationState::recapture(&applied, &state);
             let ok = recaptured.normalize() == state.normalize();
             let d = state.digest().map_err(|e| e.to_string())?;
             let mut file = std::fs::File::create(&out).map_err(|e| e.to_string())?;
@@ -742,9 +740,7 @@ fn dispatch_migrate(action: MigrateAction) -> Result<(), String> {
             let frame = m::read_frame(&mut cursor).map_err(|e| e.to_string())?;
             let state = m::decode_state(&frame.payload).map_err(|e| e.to_string())?;
             let applied = state.apply().map_err(|e| e.to_string())?;
-            let mut recaptured =
-                m::MigrationState::capture(&applied.config, &applied.guest, &applied.namespace);
-            recaptured.generation = state.generation;
+            let recaptured = m::MigrationState::recapture(&applied, &state);
             let laws = [
                 (
                     "capture_apply_identity",

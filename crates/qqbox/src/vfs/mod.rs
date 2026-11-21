@@ -128,13 +128,20 @@ fn normalize_guest(guest: &str) -> Result<String> {
 }
 
 fn symlink_safe(path: &Path, base: &Path) -> Result<()> {
-    let mut current = base.to_path_buf();
-    for component in path.strip_prefix(base).unwrap_or(path).components() {
+    let base = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+    let mut current = base.clone();
+    for component in path.strip_prefix(&base).unwrap_or(path).components() {
         let Component::Normal(name) = component else {
             continue;
         };
         current.push(name);
-        if let Ok(target) = std::fs::read_link(&current) {
+        // Canonicalizing each prefix catches chained relative symlinks that
+        // have no literal "..": a literal read_link check misses a -> b -> /etc.
+        if let Ok(resolved) = std::fs::canonicalize(&current) {
+            if !resolved.starts_with(&base) {
+                return Err(Error::PathEscape(current.display().to_string()));
+            }
+        } else if let Ok(target) = std::fs::read_link(&current) {
             if target.is_absolute() || target.components().any(|c| c == Component::ParentDir) {
                 return Err(Error::PathEscape(current.display().to_string()));
             }
@@ -305,8 +312,10 @@ impl Namespace {
         }
     }
 
-    /// Total inverse of `snapshot`. Rejects a path that escapes confinement
-    /// rather than constructing an unsafe Namespace.
+    /// Inverse of `snapshot` for well-formed values. It is deliberately
+    /// partial: host paths containing `..`, absolute symlinks or symlink
+    /// chains that escape the root, and empty guest paths are rejected rather
+    /// than constructing an unsafe Namespace.
     pub fn from_snapshot(snap: &NamespaceSnapshot) -> Result<Self> {
         let root = if snap.root.is_empty() {
             PathBuf::from("/")

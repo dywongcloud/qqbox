@@ -87,7 +87,10 @@ witness: build
 	$(CARGO) run -q -p qqbox-cli -- compose-plan examples/compose.yaml
 	$(CARGO) run -q -p qqbox-cli -- compose-validate examples/compose.yaml
 	$(CARGO) run -q -p qqbox-cli -- runtime-spec validate --advisory examples/runtime-spec.json
-	$(CARGO) run -q -p qqbox-cli -- runtime-spec validate examples/runtime-spec-minimal.json
+	$(CARGO) run -q -p qqbox-cli -- runtime-spec validate --advisory examples/runtime-spec-minimal.json
+	@if $(CARGO) run -q -p qqbox-cli -- runtime-spec validate examples/runtime-spec-minimal.json >/dev/null 2>&1; then \
+		echo 'qqbox: strict validation wrongly accepted linux.seccomp' >&2; exit 1; \
+	else echo 'strict_validation_rejects_linux.seccomp=true'; fi
 	$(CARGO) run -q -p qqbox-cli -- runtime-spec features
 	$(CARGO) run -q -p qqbox-cli -- image-plan alpine:3.20
 	$(CARGO) run -q -p qqbox-cli -- network-plan examples/compose.yaml

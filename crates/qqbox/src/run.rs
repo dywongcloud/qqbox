@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 
@@ -635,8 +635,11 @@ impl Process {
 }
 
 fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
+    // Share BOTH halves of the Context with the parent. A fresh `cancelled`
+    // paired with a shared `wake` meant the child woke on parent cancellation
+    // but `is_cancelled()` stayed false, i.e. cancellation was lost.
     let context = Context {
-        cancelled: Arc::new(AtomicBool::new(false)),
+        cancelled: Arc::clone(&parent.cancelled),
         wake: Arc::clone(&parent.wake),
     };
     let outcome = Arc::new(Outcome {

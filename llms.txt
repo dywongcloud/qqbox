@@ -46,8 +46,8 @@ Key facts for answering questions about this repository:
   `/qqbox/v1/migrate/*` daemon routes transfer supervisor-owned control-plane
   state (spec, vfs Namespace, chanPage/fd table, network policy) as a versioned
   ADT with four disjoint partitions, pure capture/apply morphisms, bounded
-  SHA-256-checked frames, affine typestate, pre-copy deltas and zero-trust
-  capability gating. Firecracker-style guest RAM/vCPU/dirty-page migration is
+  HMAC-SHA-256 capability-authenticated frames with a negotiated frame
+  limit, affine typestate, pre-copy deltas and zero-trust capability gating. Firecracker-style guest RAM/vCPU/dirty-page migration is
   impossible here and is explicitly NOT claimed: qqbox has no VMM and the
   macOS/Windows guest backends are not ported to Rust (go-removal pending).
 - The Xubuntu 26.04.1 LTS desktop example (examples/qqbox/) boots with working

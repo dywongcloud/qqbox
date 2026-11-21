@@ -211,10 +211,10 @@ qqbox migrate send        --secret S --endpoint 127.0.0.1:P --input src.frame \
 | 檢查 | 結果 |
 | --- | --- |
 | 四條代數定律 | `capture_apply_identity=true`、`normalize_idempotent=true`、`digest_canonical=true`、`delta_idempotent=true` |
-| 損毀訊框 | 拒絕，`integrity digest mismatch` |
+| 損毀的本機訊框 | 拒絕，`integrity digest mismatch` |
 | 截斷訊框 | 拒絕，`digest read: failed to fill whole buffer` |
 | 超長長度 | 拒絕，`frame 16777217 exceeds MAX_FRAME 16777216` |
-| 兩個真實行程 + 真實 TCP socket | `send_rounds=1`，來源摘要 == 目的摘要 |
+| 兩個真實行程 + 真實 TCP socket | `send_rounds=1`，來源摘要 == 目的摘要；每個訊框以 capability 金鑰做 HMAC-SHA-256 驗證，`Hello.max_frame` 為實際協商上限 |
 | pre-copy 後的狀態一致性 | `source_final_equals_dest=True`、`original_differs_after_delta=True` |
 | TCP 上錯誤 capability | 接收端 `migration capability rejected`，傳送端 rc=1 |
 | daemon 無 bearer token | 401 |

@@ -11,8 +11,8 @@ use std::marker::PhantomData;
 use crate::migrate::state::{Delta, MigrationError, MigrationState};
 use crate::migrate::wire::{
     ack_payload, decode_ack, decode_delta, decode_hello, decode_state, default_hello,
-    delta_payload, hello_payload, read_expect, state_payload, write_frame, Ack, Capability, Kind,
-    MAX_FRAME,
+    delta_payload, hello_payload, read_expect_keyed, read_frame_keyed, state_payload,
+    write_frame_keyed, Ack, Capability, Kind, HEADER_LEN, MAX_FRAME,
 };
 
 pub trait Phase {
@@ -135,16 +135,18 @@ impl Session<Streaming> {
         d: &Delta,
     ) -> Result<Session<Streaming>, MigrationError> {
         require(cap, &self.capability)?;
-        write_frame(w, Kind::Delta, &delta_payload(d)?)?;
-        self.read_ack(r, "streaming")
+        write_frame_keyed(w, Kind::Delta, &delta_payload(d)?, cap)?;
+        self.read_ack(r, cap, MAX_FRAME, "streaming")
     }
 
     fn read_ack<R: Read>(
         mut self,
         r: &mut R,
+        cap: &Capability,
+        limit: u32,
         phase: &'static str,
     ) -> Result<Session<Streaming>, MigrationError> {
-        let bytes = read_expect(r, Kind::Ack)?;
+        let bytes = read_expect_keyed(r, Kind::Ack, cap, limit)?;
         let ack: Ack = decode_ack(&bytes)?;
         if ack.phase != phase {
             return Err(MigrationError::Phase {
@@ -222,8 +224,13 @@ pub fn send<R: Read, W: Write>(
         .prepare(cap)?
         .begin(cap)?;
 
-    write_frame(w, Kind::Hello, &hello_payload(&default_hello(cap.clone()))?)?;
-    write_frame(w, Kind::State, &state_payload(&session.state)?)?;
+    write_frame_keyed(
+        w,
+        Kind::Hello,
+        &hello_payload(&default_hello(cap.clone()))?,
+        cap,
+    )?;
+    write_frame_keyed(w, Kind::State, &state_payload(&session.state)?, cap)?;
 
     let mut streaming = session;
     for newer in deltas {
@@ -231,8 +238,8 @@ pub fn send<R: Read, W: Write>(
         streaming = next.send_delta(cap, r, w, &d)?;
     }
 
-    write_frame(w, Kind::Commit, &[])?;
-    let bytes = read_expect(r, Kind::Ack)?;
+    write_frame_keyed(w, Kind::Commit, &[], cap)?;
+    let bytes = read_expect_keyed(r, Kind::Ack, cap, MAX_FRAME)?;
     let ack: Ack = decode_ack(&bytes)?;
     if ack.phase != Committed::NAME {
         return Err(MigrationError::Phase {
@@ -251,7 +258,7 @@ pub fn receive<R: Read, W: Write>(
     w: &mut W,
     cap: &Capability,
 ) -> Result<Session<Restored>, MigrationError> {
-    let hello_bytes = read_expect(r, Kind::Hello)?;
+    let hello_bytes = read_expect_keyed(r, Kind::Hello, cap, MAX_FRAME)?;
     let hello = decode_hello(&hello_bytes)?;
     if hello.wire_version != super::wire::WIRE_VERSION
         || hello.state_version != super::state::STATE_VERSION
@@ -269,15 +276,21 @@ pub fn receive<R: Read, W: Write>(
             "peer max_frame exceeds bound".to_owned(),
         ));
     }
-
-    let state_bytes = read_expect(r, Kind::State)?;
+    // The smaller of the two peers' bounds governs every subsequent frame.
+    let limit = hello.max_frame.min(MAX_FRAME);
+    if limit < HEADER_LEN as u32 + 1 {
+        return Err(MigrationError::Wire(format!(
+            "peer max_frame {limit} is below the minimum frame size"
+        )));
+    }
+    let state_bytes = read_expect_keyed(r, Kind::State, cap, limit)?;
     let state = decode_state(&state_bytes)?;
     let mut session = Session::<Idle>::open(state, cap.clone())?
         .prepare(cap)?
         .begin(cap)?;
 
     loop {
-        let frame = super::wire::read_frame(r)?;
+        let frame = read_frame_keyed(r, cap, limit)?;
         match frame.kind {
             Kind::Delta => {
                 let d = decode_delta(&frame.payload)?;
@@ -289,7 +302,7 @@ pub fn receive<R: Read, W: Write>(
                     digest: session.digest,
                     phase: Streaming::NAME.to_string(),
                 };
-                write_frame(w, Kind::Ack, &ack_payload(&ack)?)?;
+                write_frame_keyed(w, Kind::Ack, &ack_payload(&ack)?, cap)?;
             }
             Kind::Commit => break,
             other => {
@@ -303,9 +316,7 @@ pub fn receive<R: Read, W: Write>(
     // `apply` is the real restore morphism: it must succeed on the received
     // canonical state before we acknowledge the cutover.
     let applied = session.state.apply()?;
-    let mut recaptured =
-        MigrationState::capture(&applied.config, &applied.guest, &applied.namespace);
-    recaptured.generation = session.state.generation;
+    let recaptured = MigrationState::recapture(&applied, &session.state);
     if recaptured.normalize() != session.state.normalize() {
         return Err(MigrationError::Wire(
             "capture(apply(state)) != state".to_owned(),
@@ -317,7 +328,7 @@ pub fn receive<R: Read, W: Write>(
         digest: session.digest,
         phase: Committed::NAME.to_string(),
     };
-    write_frame(w, Kind::Ack, &ack_payload(&ack)?)?;
+    write_frame_keyed(w, Kind::Ack, &ack_payload(&ack)?, cap)?;
 
     let digest = session.digest;
     let mut committed = session.commit(cap)?;
