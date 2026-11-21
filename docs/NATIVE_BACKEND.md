@@ -1,7 +1,8 @@
 # Native guest-execution backend (Rust port status)
 
 **Status: the Linux trap-to-supervisor path is ported and live-witnessed on a
-real Linux 6.17.7 aarch64 kernel. A full guest runtime is NOT ported.**
+real Linux 6.17.7 aarch64 kernel, and an unmodified static aarch64 ELF now
+executes under it from the Rust build. A full guest runtime is NOT ported.**
 `go-removal` stays pending.
 
 ## What "the backend" is
@@ -31,13 +32,14 @@ files / ~69,300 lines. Reproducing it fully is not a one-session job.
 | `trap.rs` | real `sigaction(SIGSYS, SA_SIGINFO)` handler; reads `siginfo_t` (`si_code == SYS_SECCOMP`, `si_errno == 0x5ca1`), saves aarch64 `x0..x5`/`x8`/`pc` from `ucontext_t`, publishes the request, blocks on a futex, and writes the supervisor's result into `x0` so the guest resumes |
 | `hostop.rs` | Rust host-op dispatcher over the vfs Namespace: process identity, brk, clock, stdio read/write, openat via `Namespace::resolve`, close, fd table; unimplemented syscalls return `-ENOSYS` rather than pretending |
 | `linux.rs` | `LinuxBackend` implementing `Platform`; `witness()` forks a guest thread, installs the filter + handler, executes a real `getppid`, serves it through the chanPage and resumes |
+| `guest.rs` | maps a real unmodified static aarch64 ET_EXEC ELF (PT_LOAD W^X, `/proc/self/maps` collision check, cache flush, fresh stack), forks, installs a parameterized seccomp filter, jumps to the ELF entry, and serves the guest's trapped syscalls over the chanPage in an event-driven loop |
 | `macos.rs` | real Mach probe (`mach_task_self`, `vm_page_size`) via mach2; honest `UnsupportedPlatform` for guest launch |
 | `windows.rs` | contract recorded, cross-compiled; no Windows host available |
 
 `crates/qqbox/src/sandbox/mod.rs:install()` on Linux now calls
 `backend::filter::install()` instead of returning `UnsupportedPlatform`.
 
-CLI: `qqbox backend capabilities | witness | install | dispatch <nr> <args…>`.
+CLI: `qqbox backend capabilities | witness | install | dispatch <nr> <args…> | exec-elf <path>`.
 
 ## Live witness (this session)
 
@@ -75,6 +77,27 @@ unknown `999 -> -38` (ENOSYS, not a fake success).
 `qqbox backend capabilities` on Linux reports `memfd_channel=true`,
 `seccomp_trap=true`, `sigsys_handler=true`, `implemented_syscalls=16`.
 
+### Real unmodified ELF guest (this session)
+
+`qqbox backend exec-elf <guest>` maps and runs a real static aarch64 ET_EXEC
+ELF; no rewriting, no trampolines, no second kernel. Witness guest assembly:
+`write(1,"QQBOX\n",6)`, `getpid()`, `exit_group(42)` where the exit code 42 is
+reached **only if `getpid` returns the Rust supervisor's sentinel
+0x5151424f**.
+
+| run | result |
+| --- | --- |
+| kernel directly (no supervisor) | `QQBOX`, exit 1 — `getpid` is a real pid |
+| `qqbox backend exec-elf guest` | `QQBOX`, `guest_exit_code=42`, `served=[64,172]`, `trap_hits=2`, `match_ok=true`, rc=0 |
+
+The control is the falsification: the kernel-only baseline exits 1; the same
+unmodified ELF under the Rust supervisor exits 42 because `write` was served
+with `process_vm_readv` and `getpid` returned the supervisor's sentinel. This
+is a real guest, a real seccomp trap, a real chanPage request, a real Rust
+data-plane dispatch and a real guest resume. Scope: ET_EXEC static aarch64
+only; the trapped syscall set is parameterized; PIE/ET_DYN, signal frames,
+Landlock, PROT_R hop alias and the ~205-syscall table remain unported.
+
 Cross-target: `cargo check` and `cargo clippy -- -D warnings` pass for
 `aarch64-apple-darwin` and `aarch64-unknown-linux-musl`. `x86_64-unknown-linux-gnu`
 and `x86_64-pc-windows-msvc` could not be checked: `ring`'s C build needs a
@@ -83,7 +106,7 @@ gap, not a backend code failure, and is not claimed as verified.
 
 ## What is NOT ported (honest boundary)
 
-- ELF segment mapping, `lc_syscall_entry` trampoline islands and symbol
+- PIE/ET_DYN, `lc_syscall_entry` trampoline islands and symbol
   resolution, `StubWindow` adoption, `REP_START`, the 79 MiB memfd geometry,
   `PROT_R` hop alias / hop thread / `HOP_FORK`.
 - The ~205 real syscall handlers (fs, net, procfs, signal, SysV IPC, ptrace).
@@ -96,10 +119,11 @@ gap, not a backend code failure, and is not claimed as verified.
   `com.apple.security.hypervisor` entitlement).
 - Windows: LPAC AppContainer creation, VEH + instrumentation callback,
   `RtlCloneUserProcess`, `NtCreateSection`, event pair handshake.
-- Consequently `qqbox::run` still returns `Error::UnsupportedPlatform` after
-  preparing the control plane. No unmodified guest ELF is executed by a
-  from-source Rust build. The live desktop on VNC 5905 still boots with the
-  preserved pre-removal Go binary off-repo.
+- Consequently `qqbox::run` still returns `Error::UnsupportedPlatform` for
+  the **general** case; only `qqbox backend exec-elf` executes a real unmodified
+  ELF, and only static aarch64 ET_EXEC with a small trapped syscall set. The
+  live desktop on VNC 5905 still boots with the preserved pre-removal Go binary
+  off-repo.
 
 `go-removal` remains pending until all three backends pass the historical
 regression corpus on each host.

@@ -110,7 +110,9 @@ a memfd chanPage, a seccomp-BPF `RET_TRAP` filter, a `SIGSYS` register
 save/restore and a Rust host-op dispatcher, live-witnessed on a real Linux
 aarch64 kernel. ELF mapping, trampolines, the ~205-syscall table and the
 macOS/Windows launch contracts are not ported, so `qqbox run` still returns
-`Error::UnsupportedPlatform`. See
+`Error::UnsupportedPlatform` for the general case. `qqbox backend exec-elf` now
+executes a real unmodified static aarch64 ELF under the Rust supervisor,
+live-witnessed on Linux. See
 [docs/NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md) (Traditional Chinese:
 [zh-hant/docs/NATIVE_BACKEND.zh-Hant.md](zh-hant/docs/NATIVE_BACKEND.zh-Hant.md)).
 

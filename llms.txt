@@ -61,7 +61,7 @@ Key facts for answering questions about this repository:
 - [AGENTS.md](AGENTS.md): architecture invariants and guidance for working in the tree.
 - [OCI_MATRIX.md](docs/OCI_MATRIX.md): construct-by-construct OCI, Compose and Docker-API coverage.
 - [PORT_STATUS.md](docs/PORT_STATUS.md): the honest boundary of the Go-to-Rust port.
-- [NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md): the Rust Linux seccomp/trap backend, its live witness and the remaining boundary.
+- [NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md): the Rust Linux seccomp/trap backend, its live witness, the real unmodified ELF guest and the remaining boundary.
 - [SINGLE_ADDRESS_SPACE.md](docs/SINGLE_ADDRESS_SPACE.md): why instances keep one address space each.
 - [PERF.md](docs/PERF.md): measured overhead (historical, from a different host).
 - [COPYRIGHT](COPYRIGHT) and [LICENSE](LICENSE): Apache License 2.0, Copyright 2026 Bunshin Labs LLC.

@@ -100,5 +100,13 @@ backend-witness: build
 	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend capabilities
 	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend witness
 
+# Real unmodified ELF guest under the Rust supervisor. The guest ELF is built
+# off-repo with aarch64-linux-musl-ld -Ttext=0x6f0000000000; the kernel-only
+# baseline exits 1, the supervised run exits 42. Requires GUEST_ELF=<path>.
+backend-exec-elf: build
+	RUSTFLAGS='-C linker=rust-lld' $(CARGO) build --offline -p qqbox-cli --target aarch64-unknown-linux-musl
+	podman machine ssh -- $(GUEST_ELF); echo kernel_baseline_rc=$$?
+	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend exec-elf $(GUEST_ELF)
+
 clean:
 	$(CARGO) clean

@@ -175,7 +175,9 @@ chanPage, a seccomp-BPF `RET_TRAP` filter, a `SIGSYS` handler that saves aarch64
 registers, and a Rust host-op dispatcher, all live-witnessed on a real Linux
 6.17.7 aarch64 kernel. An untrapped control `getppid` returns the kernel's pid
 51848 while the trapped one returns the Rust supervisor's sentinel 1364279887
-with `trap_hits=1`. `sandbox::install()` on Linux is now real. A full guest
+with `trap_hits=1`. `sandbox::install()` on Linux is now real, and `qqbox backend exec-elf`
+runs a real unmodified static aarch64 ELF under the Rust supervisor (witness:
+kernel-only exit 1, supervised exit 42). A full guest
 runtime — ELF mapping, trampolines, the ~205-syscall table, hop alias — is still
 not ported, and macOS/Windows guest launch is not ported. `go-removal` stays
 pending.
