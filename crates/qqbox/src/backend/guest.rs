@@ -22,8 +22,6 @@ const ST_REP: u32 = STATE_REPLY;
 const TAG: u32 = SECCOMP_TRAP_TAG;
 const SCRATCH: usize = crate::zig::abi::SCRATCH_OFF;
 const SENTINEL: u64 = 0x5151_424f;
-const NR_FUTEX: u32 = 98;
-const NR_RT_SIGRETURN: u32 = 139;
 
 static CHAN_BASE: AtomicUsize = AtomicUsize::new(0);
 static TRAP_HITS: AtomicU32 = AtomicU32::new(0);
@@ -331,61 +329,11 @@ fn map_guest(_bytes: &[u8], _stack_bytes: usize) -> Result<MappedGuest> {
     ))
 }
 
-/// Build a BPF filter that TRAPs `trapped` syscall numbers and allows the rest.
-/// Allowed syscalls include `futex` and `rt_sigreturn`, which the trap handler
-/// itself needs; trapping those would deadlock the handshake.
+/// Build the broker filter from the single shared, statically verified
+/// builder. No duplicate BPF arithmetic: the same program shape and the same
+/// bounds checks as `filter::trap_one`.
 fn broker_filter(trapped: &[u32]) -> Result<Vec<crate::sandbox::SockFilter>> {
-    if trapped.is_empty() || trapped.len() > 64 {
-        return Err(Error::Message("trapped syscall set must be 1..64".into()));
-    }
-    if trapped.contains(&NR_FUTEX) {
-        return Err(Error::Message(
-            "cannot trap futex: the handshake needs it".into(),
-        ));
-    }
-    if trapped.contains(&NR_RT_SIGRETURN) {
-        return Err(Error::Message(
-            "cannot trap rt_sigreturn: the handler needs it".into(),
-        ));
-    }
-    let ld = crate::sandbox::SockFilter {
-        code: 0x20,
-        jt: 0,
-        jf: 0,
-        k: 0,
-    };
-    let allow = crate::sandbox::SockFilter {
-        code: 0x06,
-        jt: 0,
-        jf: 0,
-        k: filter::SECCOMP_RET_ALLOW,
-    };
-    let trap = crate::sandbox::SockFilter {
-        code: 0x06,
-        jt: 0,
-        jf: 0,
-        k: filter::SECCOMP_RET_TRAP | TAG,
-    };
-    let n = trapped.len();
-    // Layout: [LD nr], n x [JEQ nr -> trap], (n+1) x [RET ALLOW], [RET TRAP].
-    // For JEQ at index 1+i, jt jumps to the final TRAP at index 2*n+2.
-    let trap_index = (2 * n + 2) as u8;
-    let mut out = Vec::with_capacity(2 * n + 3);
-    out.push(ld);
-    for (i, nr) in trapped.iter().enumerate() {
-        let jt = trap_index - (2 + i as u8);
-        out.push(crate::sandbox::SockFilter {
-            code: 0x15,
-            jt,
-            jf: 0,
-            k: *nr,
-        });
-    }
-    for _ in 0..(n + 1) {
-        out.push(allow);
-    }
-    out.push(trap);
-    Ok(out)
+    filter::trap_syscalls(trapped)
 }
 
 /// Execute a real unmodified guest ELF under the Rust supervisor.

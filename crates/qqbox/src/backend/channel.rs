@@ -22,6 +22,29 @@ pub const STATE_REQUEST: u32 = 1;
 pub const STATE_REPLY: u32 = 2;
 pub const STATE_DONE: u32 = 3;
 
+/// Publish a request into a chanPage WITHOUT touching the futex state word.
+/// The 4 bytes at OFF_STATE are owned by the futex handshake (AtomicU32 used
+/// by FUTEX_WAIT/WAKE). Writing all 128 bytes of `ChannelRequest` with a
+/// non-atomic volatile store clobbers that word to 0 and races the atomic
+/// accesses. Skip exactly those 4 bytes. Byte-wise volatile stores are used
+/// so this is safe in a signal handler: no allocation, no locks, no std I/O.
+///
+/// # Safety
+/// `base` must point to a mapped, writable chanPage of at least `CHAN_SIZE`
+/// bytes. The caller owns the handshake state word exclusion.
+pub unsafe fn publish_request(base: *mut u8, req: &ChannelRequest) {
+    let src = (req as *const ChannelRequest).cast::<u8>();
+    for off in 0..CHAN_SIZE {
+        if (STATE_OFF..STATE_OFF + 4).contains(&off) {
+            continue;
+        }
+        unsafe {
+            let byte = std::ptr::read_volatile(src.add(off));
+            std::ptr::write_volatile(base.add(off), byte);
+        }
+    }
+}
+
 /// A shared-memory channel. `base` is page-aligned and `SLOT_BYTES` long.
 pub struct Channel {
     base: *mut u8,
@@ -113,7 +136,7 @@ impl Channel {
     }
 
     pub fn state(&self) -> &AtomicU32 {
-        // The state word is 4-byte aligned: SCRATCH_OFF is 128.
+        // The state word is 4-byte aligned: OFF_STATE is 8.
         unsafe { &*self.base.add(STATE_OFF).cast::<AtomicU32>() }
     }
 
@@ -125,9 +148,7 @@ impl Channel {
     /// Write a request into the shared page. Only called by the trap handler or
     /// the launcher, never concurrently with a reply.
     pub fn publish(&self, req: &ChannelRequest) {
-        unsafe {
-            std::ptr::write_volatile(self.base.cast::<ChannelRequest>(), *req);
-        }
+        unsafe { publish_request(self.base, req) };
     }
 
     /// Read the request currently in the shared page.
@@ -153,8 +174,13 @@ impl Channel {
     }
 
     pub fn reset(&self) {
+        for off in 0..CHAN_SIZE {
+            if (STATE_OFF..STATE_OFF + 4).contains(&off) {
+                continue;
+            }
+            unsafe { std::ptr::write_volatile(self.base.add(off), 0u8) };
+        }
         self.state().store(STATE_IDLE, Ordering::SeqCst);
-        unsafe { std::ptr::write_bytes(self.base, 0, CHAN_SIZE) };
     }
 }
 
@@ -170,9 +196,7 @@ impl ChannelView {
     }
 
     pub fn publish(&self, req: &ChannelRequest) {
-        unsafe {
-            std::ptr::write_volatile(self.base.cast::<ChannelRequest>(), *req);
-        }
+        unsafe { publish_request(self.base, req) };
     }
 
     pub fn state_ptr(&self) -> *mut AtomicU32 {

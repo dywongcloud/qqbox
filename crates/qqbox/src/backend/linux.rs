@@ -53,7 +53,7 @@ impl Platform for LinuxBackend {
         // The text-range prefix needs the real stub text bounds. With no Zig
         // stub mapped, use a filter that TRAPs a single syscall; the launcher
         // replaces it with the full text-range program once a stub is mapped.
-        filter::install(&filter::trap_one(nr::GETPPID as u32))
+        filter::install(&filter::trap_one(nr::GETPPID as u32)?)
     }
 
     /// Live end-to-end witness: fork a guest thread, install a real seccomp
@@ -92,7 +92,10 @@ impl Platform for LinuxBackend {
                     control,
                 );
             }
-            let rc = filter::install(&filter::trap_one(nr::GETPPID as u32));
+            let rc = match filter::trap_one(nr::GETPPID as u32) {
+                Ok(f) => filter::install(&f),
+                Err(e) => Err(e),
+            };
             if let Err(e) = rc {
                 eprintln!("guest: install filter failed: {e}");
                 unsafe { libc::_exit(70) };
@@ -164,7 +167,7 @@ impl Platform for LinuxBackend {
             arch: std::env::consts::ARCH,
             channel_fd: ch.fd(),
             channel_bytes: crate::zig::abi::SLOT_SIZE,
-            filter_instructions: filter::trap_one(nr::GETPPID as u32).len(),
+            filter_instructions: filter::trap_one(nr::GETPPID as u32)?.len(),
             trapped_syscall: served_nr,
             supervisor_result: served_ret,
             guest_observed_result: observed,
