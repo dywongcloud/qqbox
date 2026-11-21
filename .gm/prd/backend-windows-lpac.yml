@@ -2,6 +2,6 @@ id: backend-windows-lpac
 SESSION_ID: 355e5752-dc96-459f-9557-4a2a6330d91b
 subject: Port the Windows LPAC guest backend to Rust
 description: 'Implement the Windows native guest-execution backend in Rust: NtCreateSection/NtMapViewOfSection/NtCreateThreadEx, VEH + instrumentation callback, LPAC. Must be real code, no mocks.'
-acceptance_criteria: Cross-compilation for Windows target succeeds (currently BLOCKED on this macOS host: ring's C build needs an x86_64 Windows C cross-compiler/sysroot, cargo check --target x86_64-pc-windows-msvc returns rc=101); a live witness additionally requires a Windows host. Both are disclosed in docs/NATIVE_BACKEND.md and its zh-Hant mirror.
+acceptance_criteria: 'Cross-compilation for Windows target succeeds (currently BLOCKED on this macOS host: ring''s C build needs an x86_64 Windows C cross-compiler/sysroot, cargo check --target x86_64-pc-windows-msvc returns rc=101); a live witness additionally requires a Windows host. Both are disclosed in docs/NATIVE_BACKEND.md and its zh-Hant mirror.'
 owner: 355e5752-dc96-459f-9557-4a2a6330d91b
 status: pending
