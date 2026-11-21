@@ -582,21 +582,31 @@ impl State {
     }
 }
 
-fn generated_token() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ (nanos as u64) ^ (std::process::id() as u64);
-    let mut out = String::with_capacity(32);
-    for _ in 0..4 {
-        h ^= h << 13;
-        h ^= h >> 7;
-        h ^= h << 17;
-        out.push_str(&format!("{h:016x}"));
+/// CSPRNG-backed token. Uses `getrandom`-equivalent OS entropy via
+/// `/dev/urandom` on Unix; on other hosts the caller must supply --token
+/// (fail closed rather than emit a predictable secret). No time/PID seed.
+fn generated_token() -> Result<String> {
+    let mut bytes = [0u8; 32];
+    let mut f = std::fs::File::open("/dev/urandom")
+        .map_err(|e| Error::Message(format!("cannot open entropy source: {e}")))?;
+    use std::io::Read;
+    f.read_exact(&mut bytes)
+        .map_err(|e| Error::Message(format!("cannot read entropy: {e}")))?;
+    Ok(hex::encode(bytes))
+}
+
+/// Constant-time equality for secret material: no length early-exit, no
+/// data-dependent branch. Compares fixed-size SHA-256 digests of the full
+/// header strings, so a wrong prefix leaks only "not equal".
+fn secure_eq(a: &[u8], b: &[u8]) -> bool {
+    use sha2::{Digest, Sha256};
+    let da = Sha256::digest(a);
+    let db = Sha256::digest(b);
+    let mut diff = 0u8;
+    for (x, y) in da.iter().zip(db.iter()) {
+        diff |= x ^ y;
     }
-    out.truncate(32);
-    out
+    diff == 0
 }
 
 #[derive(Debug)]
@@ -609,14 +619,26 @@ pub struct Daemon {
 }
 
 impl Daemon {
-    pub fn new(token: Option<String>) -> Self {
-        let token = Some(token.unwrap_or_else(generated_token));
-        let migration_capability = Capability::derive(token.as_deref().unwrap_or("").as_bytes());
-        Daemon {
+    /// Fail closed: an absent token must come from OS entropy, never from a
+    /// predictable time/PID seed. Callers that need a stable token pass one.
+    pub fn new(token: Option<String>) -> Result<Self> {
+        let token = match token {
+            Some(t) => {
+                if t.is_empty() || t.trim() != t {
+                    return Err(Error::Message(
+                        "--token must be a non-empty value without surrounding whitespace".into(),
+                    ));
+                }
+                t
+            }
+            None => generated_token()?,
+        };
+        let migration_capability = Capability::derive(token.as_bytes());
+        Ok(Daemon {
             state: Mutex::new(State::new()),
-            token,
+            token: Some(token),
             migration_capability,
-        }
+        })
     }
 
     pub fn token(&self) -> Option<&str> {
@@ -683,11 +705,13 @@ impl Daemon {
     }
 
     fn authorized(&self, auth: Option<&str>) -> bool {
-        match &self.token {
-            None => true,
-            Some(expected) => auth
-                .map(|given| given.trim() == format!("Bearer {expected}"))
-                .unwrap_or(false),
+        match (&self.token, auth) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(expected), Some(given)) => {
+                let want = format!("Bearer {expected}");
+                secure_eq(given.as_bytes(), want.as_bytes())
+            }
         }
     }
 

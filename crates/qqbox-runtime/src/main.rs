@@ -41,19 +41,36 @@ enum Commands {
     Features,
 }
 
-fn state_path(root: &Path, id: &str) -> PathBuf {
-    root.join(format!("{id}.json"))
+/// Validate an OCI container id before it is used in any path. Called by EVERY
+/// verb, not just `create`: otherwise `state`/`start`/`kill`/`delete` allow
+/// `../` traversal to arbitrary JSON files.
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        && id != "."
+        && id != ".."
+        && !id.contains("..")
+}
+
+fn state_path(root: &Path, id: &str) -> Result<PathBuf, String> {
+    if !valid_id(id) {
+        return Err(format!("invalid container id: {id:?}"));
+    }
+    Ok(root.join(format!("{id}.json")))
 }
 
 fn read_state(root: &Path, id: &str) -> Result<serde_json::Value, String> {
-    let p = state_path(root, id);
+    let p = state_path(root, id)?;
     let bytes = std::fs::read(&p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
     serde_json::from_slice(&bytes).map_err(|e| format!("bad state {}: {e}", p.display()))
 }
 
 fn write_state(root: &Path, id: &str, value: &serde_json::Value) -> Result<(), String> {
+    let p = state_path(root, id)?;
     std::fs::create_dir_all(root).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
-    let p = state_path(root, id);
     std::fs::write(&p, serde_json::to_vec(value).map_err(|e| e.to_string())?)
         .map_err(|e| format!("cannot write {}: {e}", p.display()))
 }
@@ -78,7 +95,7 @@ fn run(cli: Cli) -> ExitCode {
             ExitCode::SUCCESS
         }
         Commands::Create { id, bundle } => {
-            if id.is_empty() || id.contains('/') || id.contains("..") {
+            if !valid_id(&id) {
                 return fail("invalid container id");
             }
             let config = bundle.join("config.json");
@@ -153,7 +170,10 @@ fn run(cli: Cli) -> ExitCode {
             }
         }
         Commands::Delete { id } => {
-            let p = state_path(root, &id);
+            let p = match state_path(root, &id) {
+                Ok(p) => p,
+                Err(e) => return fail(e),
+            };
             match std::fs::remove_file(&p) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => fail(format!("cannot remove {}: {e}", p.display())),

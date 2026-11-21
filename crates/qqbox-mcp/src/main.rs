@@ -20,6 +20,10 @@ struct Cli {
     /// Streamable HTTP bind address instead of stdio, for example 127.0.0.1:8080.
     #[arg(long)]
     http: Option<String>,
+    /// Bearer token REQUIRED when --http is used. Stdio mode needs no token
+    /// because the transport is the calling process's private pipe.
+    #[arg(long)]
+    token: Option<String>,
     /// Allow the `run` tool to request guest networking.
     #[arg(long)]
     allow_net: bool,
@@ -277,9 +281,40 @@ fn stdio(cli: &Cli) -> io::Result<()> {
 }
 
 fn http(cli: &Cli, addr: &str) -> io::Result<()> {
+    let token = cli.token.as_deref().ok_or_else(|| {
+        io::Error::other(
+            "MCP HTTP mode requires --token (zero-trust: no anonymous HTTP). Failing closed.",
+        )
+    })?;
+    if token.is_empty() || token.trim() != token {
+        return Err(io::Error::other(
+            "MCP --token must be non-empty without surrounding whitespace",
+        ));
+    }
+    let want = format!("Bearer {token}").into_bytes();
     let server = tiny_http::Server::http(addr).map_err(|e| io::Error::other(e.to_string()))?;
-    eprintln!("qqbox-mcp listening on http://{addr}/");
+    eprintln!("qqbox-mcp listening on http://{addr}/ (bearer auth required)");
     for mut req in server.incoming_requests() {
+        let auth = req
+            .headers()
+            .iter()
+            .find(|h| {
+                h.field
+                    .as_str()
+                    .as_str()
+                    .eq_ignore_ascii_case("authorization")
+            })
+            .map(|h| h.value.as_str().as_bytes().to_vec());
+        let ok = auth
+            .as_deref()
+            .map(|a| a == want.as_slice())
+            .unwrap_or(false);
+        if !ok {
+            let denied = tiny_http::Response::from_string(r#"{"error":"unauthorized"}"#)
+                .with_status_code(tiny_http::StatusCode(401));
+            let _ = req.respond(denied);
+            continue;
+        }
         let mut body = String::new();
         let _ = req.as_reader().read_to_string(&mut body);
         let parsed: Result<Value, _> = serde_json::from_str(&body);
@@ -299,12 +334,11 @@ fn http(cli: &Cli, addr: &str) -> io::Result<()> {
         } else {
             payload
         };
+        let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+            .map_err(|_| io::Error::other("malformed static Content-Type header"))?;
         let response = tiny_http::Response::from_string(data)
             .with_status_code(tiny_http::StatusCode(status))
-            .with_header(
-                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .expect("static header"),
-            );
+            .with_header(header);
         let _ = req.respond(response);
     }
     Ok(())

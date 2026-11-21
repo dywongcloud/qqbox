@@ -25,7 +25,10 @@ fn main() {
         }
         return;
     }
-    let daemon = qqbox::daemon::Daemon::new(cli.token.clone());
+    let daemon = qqbox::daemon::Daemon::new(cli.token.clone()).unwrap_or_else(|e| {
+        eprintln!("qqboxd: {e}");
+        std::process::exit(1)
+    });
     println!(
         "qqboxd {} project={} listening on {}",
         env!("CARGO_PKG_VERSION"),

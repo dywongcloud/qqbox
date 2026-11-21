@@ -574,7 +574,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             token,
             auth,
         } => {
-            let daemon = qqbox::daemon::Daemon::new(token);
+            let daemon = qqbox::daemon::Daemon::new(token).map_err(|e| e.to_string())?;
             let effective_auth = auth.or_else(|| daemon.token().map(|t| format!("Bearer {t}")));
             let bytes = match body {
                 Some(p) => read(&p)?,
@@ -592,7 +592,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             println!("{}", String::from_utf8_lossy(&response.body));
         }
         Commands::Daemon { listen, token } => {
-            let daemon = qqbox::daemon::Daemon::new(token);
+            let daemon = qqbox::daemon::Daemon::new(token).map_err(|e| e.to_string())?;
             println!("qqboxd listening on {listen}");
             println!("bearer token: {}", daemon.token().unwrap_or_default());
             daemon.serve(&listen).map_err(|e| e.to_string())?;
