@@ -345,15 +345,17 @@ panel window `1280x41+0+0 +0+759`, shim `#!/bin/sh` size 250, divert present,
 `QQBOX_BOOT_READY`. This removes the earlier residual where live 5905 still ran
 the pre-hardening script.
 
-## Clean session and child PTY (no random XFCE errors)
+## Clean session and child PTY
 
 The first 26.04 boots emitted a stream of errors from duplicate processes and
-startup scripts. All are fixed and witnessed in a fresh live boot:
+startup scripts. Duplicate-process, D-Bus, PTY-payload and window-manager errors
+are fixed and witnessed in a fresh live boot. One diagnostic remains: see the
+job-control row below and [docs/PORT_STATUS.md](../../docs/PORT_STATUS.md).
 
 | error | root cause | fix |
 | --- | --- | --- |
 | `x27: command not found` in EVERY interactive child PTY | the Dockerfile wrote `PS1=\x27…\x27` with `printf`; dash does not interpret `\x`, so the literal `\x27` landed in `/root/.bashrc` | Dockerfile uses octal `\047`; startup script removes any stale `\x27` lines in place |
-| `bash: initialize job control: no job control in background: Bad file descriptor` | bash's job-control init calls `tcsetpgrp` on a PTY qqbox cannot fully emulate | terminal child wrapper exports `SHELLOPTS=` (monitor off); witnessed clean `root@qbox:/out#` with typed input echoed |
+| `bash: initialize job control: no job control in background: Bad file descriptor` | the off-repo pre-removal Go runtime's PTY emulation does not implement `TIOCSPGRP`; `tcsetpgrp` returns `EBADF` during job-control init, which runs before any rcfile | **NOT fixed.** `SHELLOPTS=` is shipped; `set +m` in the rcfile and `setsid --ctty` were witnessed in a real guest PTY, and `setsid --ctty` was also typed into the live VNC 5905 terminal. None removes the line. The shell is fully usable (`root@qbox:/out#`, typed commands echoed and executed). Earlier text claimed this was fixed; that claim is retracted. Disclosed as a residual in [docs/PORT_STATUS.md](../../docs/PORT_STATUS.md). |
 | `bash: cannot set terminal process group (1): Inappropriate ioctl for device` | the evidence script ran `bash -i -c` with no PTY | replaced with a plain `grep -F 'PS1='` check; the real terminal is witnessed by typed RFB input |
 | `Another Window Manager (Xfwm4) is already running` / `Could not find a screen to manage` / `Another desktop manager is already running` | the startup script started `xfwm4`, `xfce4-panel`, `xfdesktop` **and** `xfce4-session`, which autostarts its own copies (two panels, two xfconfd) | `xfce4-session` owns exactly one of each; manual duplicates removed |
 | `Failed to run gnome-keyring-daemon: Failed to execute child process` (No such file) | `xfce4-session` compat `LaunchGNOME=true` | `xfce4-session.xml` sets `compat/LaunchGNOME=false`; `gnome-keyring` also installed |

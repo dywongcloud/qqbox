@@ -269,6 +269,15 @@ historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
   launcher. Chromium keeps `--no-sandbox --single-process --no-zygote` because all
   42 live sandbox variants failed; the launcher drops root to uid 911 via
   `setpriv` instead, and the unsupported-flag banner is deliberately not hidden.
+- The live Xubuntu 26 desktop's native XFCE terminal still prints
+  `bash: initialize job control: no job control in background: Bad file
+  descriptor` on every interactive shell start. The off-repo pre-removal Go
+  runtime's PTY emulation does not implement `TIOCSPGRP`, so `tcsetpgrp`
+  returns `EBADF`. Job control is initialized before any rcfile: `SHELLOPTS=`,
+  `set +m` in the rcfile and `setsid --ctty` were witnessed in a real guest
+  PTY, and `setsid --ctty` was additionally typed into the live VNC 5905
+  terminal. Each leaves the line in place. The shell is fully usable. Earlier documentation claimed this
+  error was fixed; that claim is retracted here.
 - Zig 0.16.0 is installed; the 43 Zig sources were authored against 0.13.0. The build
   scripts now prefer `ZIG` then PATH and warn on a version mismatch; migrating all
   sources and rebuilding the eight committed blobs is a separate, gated change.

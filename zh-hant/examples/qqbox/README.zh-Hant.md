@@ -210,14 +210,14 @@ FIFO 讀取阻塞於 bus 位址，`wait -n -p` 阻塞於第一個子行程結束
 `1280x41+0+0 +0+759`、shim `#!/bin/sh` size 250、divert 存在、
 `QQBOX_BOOT_READY`。這消除了先前 live 5905 仍執行強化前指令稿的殘留問題。
 
-## 清除隨機 XFCE 錯誤與子 PTY 錯誤
+## XFCE 錯誤與子 PTY 錯誤的處理
 
-早期 26.04 開機流程會產生一連串錯誤，皆已修復並實測：
+早期 26.04 開機流程會產生一連串錯誤。重複行程、D-Bus、PTY 載荷與視窗管理員錯誤皆已修復並實測；仍有一則診斷訊息，詳見下表與 [PORT_STATUS.zh-Hant.md](../../docs/PORT_STATUS.zh-Hant.md)。
 
 | 錯誤 | 成因 | 修復 |
 | --- | --- | --- |
 | 每個互動式子 PTY 出現 `x27: command not found` | Dockerfile 的 `printf` 使用 `\x27`，dash 不解譯 `\x`，使字面 `\x27` 寫入 `/root/.bashrc` | 改用八進位 `\047`，啟動腳本就地移除殘留 `\x27` 行 |
-| `bash: initialize job control: no job control in background: Bad file descriptor` | bash 工作控制初始化呼叫 qqbox 無法完整模擬的 `tcsetpgrp` | 終端機子行程 wrapper 匯出 `SHELLOPTS=`（關閉 monitor）；實測乾淨的 `root@qbox:/out#` 與 RFB 打字回顯 |
+| `bash: initialize job control: no job control in background: Bad file descriptor` | 離庫保留的移除前 Go 執行時期之 PTY 模擬未實作 `TIOCSPGRP`，`tcsetpgrp` 在讀取任何 rcfile 之前的工作控制初始化階段即回傳 `EBADF` | **尚未修復。** `SHELLOPTS=` 已隨附；rcfile 內的 `set +m` 與 `setsid --ctty` 在真實來賓 PTY 逐一實測，`setsid --ctty` 另在即時 VNC 5905 終端機打字實測，皆無法消除該列；終端機本身完整可用（`root@qbox:/out#`、RFB 打字回顯並執行）。先前宣稱已修復的敘述在此撤回；詳見 [PORT_STATUS.zh-Hant.md](../../docs/PORT_STATUS.zh-Hant.md) 的剩餘限制 |
 | `bash: cannot set terminal process group (1)` | 證據腳本在無 PTY 下執行 `bash -i -c` | 改為 `grep -F 'PS1='`；真正的終端機由 RFB 打字見證 |
 | `Another Window Manager … is already running`、`Another desktop manager …` | 舊版啟動腳本同時啟動 `xfwm4`／`xfce4-panel`／`xfdesktop`，而 `xfce4-session` 又各自 autostart 一份（兩個面板、兩個 xfconfd） | 完全移除 `xfce4-session`，由群組監督器各持一份 |
 | `Failed to run gnome-keyring-daemon: Failed to execute child process` | 舊版 `xfce4-session` 的 `compat/LaunchGNOME=true` | 移除 `xfce4-session`，停用 keyring 的 autostart 並安裝 `gnome-keyring` |

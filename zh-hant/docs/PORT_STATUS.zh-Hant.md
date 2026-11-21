@@ -65,6 +65,14 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
   啟動；Rust 的 `qqbox run` 不是桌面啟動器。Chromium 保留
   `--no-sandbox --single-process --no-zygote`，因為 42 種即時沙箱變體全數失敗；
   啟動器改以 `setpriv` 降至 uid 911，且刻意不隱藏不支援旗標的橫幅。
+- 即時 Xubuntu 26 桌面的原生 XFCE 終端機，在每次啟動互動式殼層時仍會印出
+  `bash: initialize job control: no job control in background: Bad file
+  descriptor`。離庫保留的移除前 Go 執行時期，其 PTY 模擬未實作 `TIOCSPGRP`，
+  `tcsetpgrp` 因此回傳 `EBADF`。工作控制在讀取任何 rcfile 之前即初始化：
+  `SHELLOPTS=`、rcfile 內的 `set +m` 與 `setsid --ctty` 在真實來賓 PTY
+  逐一實測，`setsid --ctty` 另在即時 VNC 5905 終端機打字實測，都無法消除
+  該列。殼層本身完整可用。
+  先前宣稱此錯誤已修復的敘述在此撤回。
 - 網路限制照實陳述：ICMP echo 只走宿主未特權的 `SOCK_DGRAM`／`IPPROTO_ICMP` 使用者空間路徑；`SOCK_RAW`、`AF_PACKET`、`TUN`、來賓核心內 ICMP、802.11、`nl80211`、`wpa_supplicant`、`NetworkManager` 都不在契約內。
 
 ## 接下來要做的事

@@ -150,10 +150,14 @@ lines = [l for l in open(p) if '\\x27' not in l]
 open(p, 'w').writelines(lines)
 PY
 fi
-# A child bash inherits SHELLOPTS from the wrapper below. Setting it empty
-# disables `monitor` before bash's job-control init, so it never calls
-# tcsetpgrp on a PTY qqbox cannot fully emulate ("no job control in background:
-# Bad file descriptor").
+# The off-repo pre-removal Go runtime's PTY emulation does not implement
+# TIOCSPGRP, so bash's job-control init fails tcsetpgrp with EBADF and prints
+# "initialize job control: no job control in background: Bad file descriptor".
+# Job control is initialized BEFORE any rcfile is read: a live RFB witness on
+# VNC 5905 confirmed that neither an empty SHELLOPTS, `set +m` in the rcfile,
+# nor `setsid --ctty` (VTE already owns the controlling terminal) removes the
+# line. The shell itself is fully usable. This is a guest-runtime residual,
+# disclosed in docs/PORT_STATUS.md and examples/qqbox/README.md, not a fix.
 
 cat > /out/qbox-bashrc <<'RC'
 [ -f /root/.bashrc ] && . /root/.bashrc
