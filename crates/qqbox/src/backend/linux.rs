@@ -7,13 +7,46 @@ use crate::backend::trap;
 use crate::backend::{Capabilities, Platform, WitnessReport};
 use crate::error::{Error, Result};
 use crate::vfs::Namespace;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 
-pub struct LinuxBackend;
+/// Holds the chanPage alive for as long as the backstop filter is installed.
+/// A filter that TRAPs without a channel and a serving supervisor would hang
+/// the caller, so `install_backstop` owns both.
+pub struct LinuxBackend {
+    backstop: Mutex<Option<Arc<Channel>>>,
+}
+
+/// SIGCHLD interrupts FUTEX_WAIT: a child that exited before publishing a
+/// request must not leave the supervisor blocked forever.
+static CHILD_GONE: AtomicU32 = AtomicU32::new(0);
+
+unsafe extern "C" fn on_child(_sig: i32) {
+    CHILD_GONE.store(1, Ordering::SeqCst);
+    hostop::GUEST_GONE.store(1, Ordering::SeqCst);
+}
 
 impl LinuxBackend {
     pub fn new() -> Self {
-        Self
+        Self {
+            backstop: Mutex::new(None),
+        }
+    }
+
+    fn install_sigchld() -> Result<()> {
+        let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
+        sa.sa_sigaction = on_child as *const () as usize;
+        sa.sa_flags = 0; // no SA_RESTART: SIGCHLD must interrupt FUTEX_WAIT.
+        unsafe {
+            libc::sigemptyset(&mut sa.sa_mask);
+            if libc::sigaction(libc::SIGCHLD, &sa, std::ptr::null_mut()) != 0 {
+                return Err(Error::Message(format!(
+                    "sigaction(SIGCHLD): {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -44,15 +77,51 @@ impl Platform for LinuxBackend {
             appcontainer_lpac: false,
             instrumentation_callback: false,
             chan_page_bytes: crate::zig::abi::CHAN_SIZE,
-            implemented_syscalls: 16,
-            note: "Real memfd chanPage, seccomp-BPF RET_TRAP filter, SIGSYS register save/restore and Rust host-op dispatcher. ELF mapping, trampoline islands, PROT_R hop and the ~200-syscall table are not ported.".into(),
+            implemented_syscalls: hostop::IMPLEMENTED.len(),
+            note: format!(
+                "Real memfd chanPage, seccomp-BPF RET_TRAP filter, SIGSYS register save/restore and Rust host-op dispatcher; {} syscalls have real effects, the rest return -ENOSYS. PIE/ET_DYN, trampoline islands, PROT_R hop and the ~205-syscall table are not ported.",
+                hostop::IMPLEMENTED.len()
+            ),
         })
     }
 
     fn install_backstop(&self) -> Result<()> {
-        // The text-range prefix needs the real stub text bounds. With no Zig
-        // stub mapped, use a filter that TRAPs a single syscall; the launcher
-        // replaces it with the full text-range program once a stub is mapped.
+        // A TRAP filter without a chanPage, a SIGSYS handler AND a supervisor
+        // that actually serves requests would hang or kill the caller. Install
+        // all three together. The text-range prefix needs the real stub text
+        // bounds, so with no Zig stub mapped we TRAP a single syscall.
+        let mut slot = match self.backstop.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if slot.is_none() {
+            *slot = Some(Arc::new(Channel::create()?));
+        }
+        let Some(ch) = slot.as_ref() else {
+            return Err(Error::Message("backstop chanPage unavailable".into()));
+        };
+        ch.reset();
+        trap::set_channel(ch);
+        trap::install_handler()?;
+        Self::install_sigchld()?;
+
+        let serving = Arc::clone(ch);
+        let ns = Namespace::new(std::path::Path::new("/"))?;
+        std::thread::Builder::new()
+            .name("qqbox-hostop".to_owned())
+            .spawn(move || {
+                let mut ops =
+                    HostOps::new(ns, std::process::id()).with_guest_pid(std::process::id() as i32);
+                loop {
+                    if hostop::serve_one(&serving, &mut ops).is_ok() {
+                        hostop::ack(&serving);
+                    }
+                    if CHILD_GONE.load(Ordering::SeqCst) != 0 {
+                        hostop::GUEST_GONE.store(0, Ordering::SeqCst);
+                    }
+                }
+            })
+            .map_err(|e| Error::Message(format!("spawn host-op thread: {e}")))?;
         filter::install(&filter::trap_one(nr::GETPPID as u32)?)
     }
 
@@ -68,8 +137,10 @@ impl Platform for LinuxBackend {
         filter::reset_counters();
 
         let ns = Namespace::new(std::path::Path::new("/"))?;
-        let mut ops = HostOps::new(ns, std::process::id());
-
+        let ops = HostOps::new(ns, std::process::id());
+        CHILD_GONE.store(0, Ordering::SeqCst);
+        hostop::GUEST_GONE.store(0, Ordering::SeqCst);
+        Self::install_sigchld()?;
         // The witness uses a forked child so the seccomp filter is confined to
         // the guest thread and the supervisor keeps full syscall access.
         let pid = unsafe { libc::fork() };
@@ -124,17 +195,23 @@ impl Platform for LinuxBackend {
         }
 
         // ---- supervisor thread ----
+        let mut ops = ops.with_guest_pid(pid);
         let (served_nr, served_ret) = hostop::serve_one(&ch, &mut ops)?;
         // Do not ack here: the guest's SIGSYS handler is still waiting for
         // STATE_REPLY. Resetting to IDLE now would race it into a spin.
 
         let mut status: i32 = 0;
-        let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
-        if waited < 0 {
-            return Err(Error::Message(format!(
-                "waitpid: {}",
-                std::io::Error::last_os_error()
-            )));
+        // SIGCHLD has no SA_RESTART (it must interrupt FUTEX_WAIT), so reap
+        // through EINTR instead of treating an interruption as a failure.
+        loop {
+            let rc = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if rc >= 0 {
+                break;
+            }
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() != Some(libc::EINTR) {
+                return Err(Error::Message(format!("waitpid: {err}")));
+            }
         }
         let exit_ok = libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0;
         let observed = unsafe {
@@ -180,6 +257,25 @@ impl Platform for LinuxBackend {
     }
 }
 
+/// Live witness for the bounded guest-memory data plane: allocate a real
+/// buffer in this process, attach it as the guest address space, and prove the
+/// supervisor writes a non-zero `timespec` and a 390-byte `utsname` into it.
+/// Returns `(clock_gettime_result, uname_result, tv_sec, sysname)`.
+pub fn memory_witness() -> Result<(i64, i64, i64, String)> {
+    let ns = Namespace::new(std::path::Path::new("/"))?;
+    let mut ops = HostOps::new(ns, std::process::id()).with_guest_pid(std::process::id() as i32);
+    let mut clock_buf = [0u8; 32];
+    let clock_ptr = clock_buf.as_mut_ptr() as u64;
+    let clock_rc = ops.dispatch(nr::CLOCK_GETTIME, [0, clock_ptr, 0, 0, 0, 0]);
+    let tv_sec = i64::from_ne_bytes(clock_buf[..8].try_into().unwrap_or([0; 8]));
+    let mut name_buf = [0u8; 390];
+    let name_ptr = name_buf.as_mut_ptr() as u64;
+    let uname_rc = ops.dispatch(nr::UNAME, [name_ptr, 0, 0, 0, 0, 0]);
+    let end = name_buf.iter().position(|b| *b == 0).unwrap_or(390);
+    let sysname = String::from_utf8_lossy(&name_buf[..end]).into_owned();
+    Ok((clock_rc, uname_rc, tv_sec, sysname))
+}
+
 /// Serve one synthetic request through the channel without a signal, for the
 /// dispatcher witness used where seccomp cannot be installed.
 pub fn dispatch_witness(nr: u64, args: [u64; 6]) -> Result<(u64, i64)> {
@@ -190,7 +286,7 @@ pub fn dispatch_witness(nr: u64, args: [u64; 6]) -> Result<(u64, i64)> {
     ch.state()
         .store(crate::backend::channel::STATE_REQUEST, Ordering::SeqCst);
     let ns = Namespace::new(std::path::Path::new("/"))?;
-    let mut ops = HostOps::new(ns, std::process::id());
+    let mut ops = HostOps::new(ns, std::process::id()).with_guest_pid(std::process::id() as i32);
     let out = hostop::serve_one(&ch, &mut ops)?;
     ch.state().store(STATE_IDLE, Ordering::SeqCst);
     Ok(out)

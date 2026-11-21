@@ -10,7 +10,7 @@
 //! Signal-handler constraints: no allocation, no locks, no Rust std I/O. Only
 //! volatile shared-memory access, atomics and raw futex syscalls.
 
-use crate::backend::channel::{Channel, STATE_REPLY, STATE_REQUEST};
+use crate::backend::channel::{Channel, STATE_IDLE, STATE_REPLY, STATE_REQUEST};
 use crate::backend::filter::{SECCOMP_TRAP_TAG, SI_CODE_SECCOMP, TRAP_HITS};
 use crate::error::{Error, Result};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -77,14 +77,19 @@ unsafe extern "C" fn on_sigsys(_sig: i32, info: *mut libc::siginfo_t, uc: *mut l
     }
 
     m.regs[0] = chan.read_ret() as u64;
+    // Release the handshake word so the next trap can publish ST_REQ. Without
+    // this reset the supervisor's FUTEX_WAIT sees a stale ST_REP forever.
+    (*state).store(STATE_IDLE, Ordering::SeqCst);
     TRAP_HITS.fetch_add(1, Ordering::SeqCst);
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
 unsafe extern "C" fn on_sigsys(_sig: i32, _info: *mut libc::siginfo_t, _uc: *mut libc::c_void) {}
 
-/// Install the SIGSYS handler for the calling process.
-#[cfg(target_os = "linux")]
+/// Install the SIGSYS handler for the calling process. Only aarch64 has a
+/// real register save/restore; other Linux arches get no handler at all and
+/// must not be reported as `sigsys_handler=true`.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 pub fn install_handler() -> Result<()> {
     let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
     sa.sa_sigaction = on_sigsys as *const () as usize;
@@ -102,9 +107,9 @@ pub fn install_handler() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
 pub fn install_handler() -> Result<()> {
     Err(Error::UnsupportedPlatform(
-        "SIGSYS/seccomp trap is Linux-only".into(),
+        "SIGSYS register save/restore is Linux aarch64-only".into(),
     ))
 }

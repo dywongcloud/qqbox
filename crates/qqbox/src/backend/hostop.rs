@@ -10,19 +10,25 @@ use crate::backend::channel::{host_request, Channel, STATE_IDLE, STATE_REPLY, ST
 use crate::error::{Error, Result};
 use crate::vfs::Namespace;
 use std::collections::BTreeMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub const ENOSYS: i64 = -38;
 pub const EBADF: i64 = -9;
+pub const EFAULT: i64 = -14;
+pub const EIO: i64 = -5;
 /// Distinctive supervisor result: proves the guest's return value came from
 /// the Rust data plane rather than from the kernel's own getppid.
 pub const SUPERVISOR_SENTINEL: i64 = 0x5151_424f;
 
-/// aarch64 Linux syscall numbers used by the implemented subset.
+/// asm-generic syscall numbers this dispatcher actually serves. `IMPLEMENTED`
+/// is the single source of truth: the capability report derives its count from
+/// it and `dispatch` refuses any number outside it, so the two cannot drift.
 pub mod nr {
-    pub const GETCWD: u64 = 17;
-    pub const FCNTL: u64 = 25;
-    pub const IOCTL: u64 = 29;
+    pub const OPENAT: u64 = 56;
+    pub const CLOSE: u64 = 57;
+    pub const READ: u64 = 63;
+    pub const WRITE: u64 = 64;
+    pub const CLOCK_GETTIME: u64 = 113;
     pub const UNAME: u64 = 160;
     pub const GETPID: u64 = 172;
     pub const GETPPID: u64 = 173;
@@ -32,117 +38,219 @@ pub mod nr {
     pub const GETEGID: u64 = 177;
     pub const GETTID: u64 = 178;
     pub const BRK: u64 = 214;
-    pub const CLOCK_GETTIME: u64 = 113;
-    pub const WRITE: u64 = 64;
-    pub const READ: u64 = 63;
-    pub const CLOSE: u64 = 57;
-    pub const OPENAT: u64 = 56;
-    pub const EXIT: u64 = 93;
-    pub const EXIT_GROUP: u64 = 94;
-    pub const SET_TID_ADDRESS: u64 = 96;
-    pub const SET_ROBUST_LIST: u64 = 99;
-    pub const RSEQ: u64 = 293;
-    pub const FUTEX: u64 = 98;
-    pub const MADVISE: u64 = 233;
-    pub const MPROTECT: u64 = 226;
-    pub const MMAP: u64 = 222;
-    pub const MUNMAP: u64 = 215;
-    pub const RT_SIGACTION: u64 = 134;
-    pub const RT_SIGPROCMASK: u64 = 135;
-    pub const SIGALTSTACK: u64 = 132;
 }
+
+pub const IMPLEMENTED: &[u64] = &[
+    nr::OPENAT,
+    nr::CLOSE,
+    nr::READ,
+    nr::WRITE,
+    nr::CLOCK_GETTIME,
+    nr::UNAME,
+    nr::GETPID,
+    nr::GETPPID,
+    nr::GETUID,
+    nr::GETEUID,
+    nr::GETGID,
+    nr::GETEGID,
+    nr::GETTID,
+    nr::BRK,
+];
+
+/// Guest buffers are bounded; a trapped syscall can never make the supervisor
+/// copy more than a chanPage slot's worth of bytes.
+pub const MAX_GUEST_IO: usize = 4096;
+/// Linux `struct utsname`: six NUL-padded 65-byte fields.
+const UTSNAME_LEN: usize = 6 * 65;
+
+/// Set when the guest exits before publishing a request. SIGCHLD interrupts
+/// FUTEX_WAIT so `serve_one` fails instead of blocking forever.
+pub static GUEST_GONE: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone, Default)]
 pub struct GuestRegs {
     pub brk: u64,
-    pub fd_table: BTreeMap<u64, String>,
-    pub next_fd: u64,
+    /// Real host descriptors opened on the guest's behalf, keyed by fd number.
+    pub fd_table: BTreeMap<i32, String>,
 }
 
 /// Supervisor state: owns the vfs Namespace (the only filesystem) and the
-/// guest's fd/brk state.
+/// guest's brk/fd state. `guest_pid` is the process whose address space holds
+/// guest pointers; `None` means there is no guest address space, so syscalls
+/// that need one return -EFAULT instead of dereferencing arbitrary integers.
 pub struct HostOps {
     pub guest: GuestRegs,
     pub namespace: Namespace,
     pub pid: u32,
+    pub guest_pid: Option<i32>,
     pub served: u64,
 }
 
 impl HostOps {
     pub fn new(namespace: Namespace, pid: u32) -> Self {
         Self {
-            guest: GuestRegs {
-                next_fd: 3,
-                ..GuestRegs::default()
-            },
+            guest: GuestRegs::default(),
             namespace,
             pid,
+            guest_pid: None,
             served: 0,
         }
     }
 
-    /// Serve one trapped syscall. Pure with respect to the wire: no ambient
-    /// state, all effects go through `self`.
+    /// Attach a guest address space. Libraries take options, never ambient
+    /// process state: the caller supplies the pid explicitly.
+    pub fn with_guest_pid(mut self, pid: i32) -> Self {
+        self.guest_pid = Some(pid);
+        self
+    }
+
+    fn read_guest(&self, addr: u64, max: usize) -> Option<Vec<u8>> {
+        let pid = self.guest_pid?;
+        if addr == 0 || max == 0 || max > MAX_GUEST_IO {
+            return None;
+        }
+        let mut buf = vec![0u8; max];
+        let local = libc::iovec {
+            iov_base: buf.as_mut_ptr().cast(),
+            iov_len: max,
+        };
+        let remote = libc::iovec {
+            iov_base: addr as *mut libc::c_void,
+            iov_len: max,
+        };
+        let n = unsafe { libc::process_vm_readv(pid, &local, 1, &remote, 1, 0) };
+        if n <= 0 {
+            return None;
+        }
+        buf.truncate(n as usize);
+        Some(buf)
+    }
+
+    fn write_guest(&self, addr: u64, data: &[u8]) -> Option<usize> {
+        let pid = self.guest_pid?;
+        if addr == 0 || data.is_empty() || data.len() > MAX_GUEST_IO {
+            return None;
+        }
+        let local = libc::iovec {
+            iov_base: data.as_ptr() as *mut libc::c_void,
+            iov_len: data.len(),
+        };
+        let remote = libc::iovec {
+            iov_base: addr as *mut libc::c_void,
+            iov_len: data.len(),
+        };
+        let n = unsafe { libc::process_vm_writev(pid, &local, 1, &remote, 1, 0) };
+        if n <= 0 {
+            None
+        } else {
+            Some(n as usize)
+        }
+    }
+
+    /// Serve one trapped syscall. Every arm has a real effect; a number outside
+    /// `IMPLEMENTED` returns -ENOSYS rather than pretending to have run.
     pub fn dispatch(&mut self, syscall: u64, args: [u64; 6]) -> i64 {
         self.served += 1;
+        if !IMPLEMENTED.contains(&syscall) {
+            return ENOSYS;
+        }
         match syscall {
             nr::GETPID | nr::GETTID => i64::from(self.pid),
             nr::GETPPID => SUPERVISOR_SENTINEL,
             nr::GETUID | nr::GETEUID | nr::GETGID | nr::GETEGID => 0,
-            nr::UNAME => 0,
-            nr::SET_TID_ADDRESS | nr::SET_ROBUST_LIST | nr::RSEQ => 0,
             nr::BRK => {
-                if args[0] == 0 {
-                    self.guest.brk as i64
-                } else {
+                if args[0] != 0 {
                     self.guest.brk = args[0];
-                    self.guest.brk as i64
+                }
+                self.guest.brk as i64
+            }
+            nr::CLOCK_GETTIME => {
+                let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+                if unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut ts) } != 0 {
+                    return EIO;
+                }
+                let bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        (&ts as *const libc::timespec).cast::<u8>(),
+                        std::mem::size_of::<libc::timespec>(),
+                    )
+                };
+                match self.write_guest(args[1], bytes) {
+                    Some(n) => n as i64,
+                    None => EFAULT,
                 }
             }
-            nr::CLOCK_GETTIME => 0,
-            nr::WRITE => {
-                // Guest buffer pointer is a host address: qqbox is a single
-                // address space, so the supervisor can read it directly.
-                let (fd, buf, len) = (args[0], args[1] as *const u8, args[2] as usize);
-                if buf.is_null() || len > (1 << 20) {
-                    return EBADF;
+            nr::UNAME => {
+                let mut out = [0u8; UTSNAME_LEN];
+                let fields = [
+                    "Linux",
+                    "qbox",
+                    "6.17.7-qqbox",
+                    "#1 qqbox",
+                    std::env::consts::ARCH,
+                    "(none)",
+                ];
+                for (i, field) in fields.iter().enumerate() {
+                    let b = field.as_bytes();
+                    let n = b.len().min(64);
+                    out[i * 65..i * 65 + n].copy_from_slice(&b[..n]);
                 }
-                let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
-                let rc = unsafe { libc::write(fd as i32, bytes.as_ptr().cast(), len) };
-                rc as i64
+                match self.write_guest(args[0], &out) {
+                    Some(n) => n as i64,
+                    None => EFAULT,
+                }
+            }
+            nr::WRITE => {
+                let len = (args[2] as usize).min(MAX_GUEST_IO);
+                let bytes = match self.read_guest(args[1], len) {
+                    Some(b) => b,
+                    None => return EFAULT,
+                };
+                unsafe { libc::write(args[0] as i32, bytes.as_ptr().cast(), bytes.len()) as i64 }
             }
             nr::READ => {
-                let (fd, buf, len) = (args[0], args[1] as *mut u8, args[2] as usize);
-                if buf.is_null() || len > (1 << 20) {
-                    return EBADF;
+                let len = (args[2] as usize).min(MAX_GUEST_IO);
+                let mut buf = vec![0u8; len];
+                let n = unsafe { libc::read(args[0] as i32, buf.as_mut_ptr().cast(), len) };
+                if n <= 0 {
+                    return n as i64;
                 }
-                let rc = unsafe { libc::read(fd as i32, buf.cast(), len) };
-                rc as i64
-            }
-            nr::CLOSE => {
-                self.guest.fd_table.remove(&args[0]);
-                0
+                match self.write_guest(args[1], &buf[..n as usize]) {
+                    Some(w) => w as i64,
+                    None => EFAULT,
+                }
             }
             nr::OPENAT => {
-                // The guest path is a pointer into the shared address space.
-                let ptr = args[1] as *const libc::c_char;
-                if ptr.is_null() {
+                let bytes = match self.read_guest(args[1], MAX_GUEST_IO) {
+                    Some(b) => b,
+                    None => return EFAULT,
+                };
+                let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+                let path = match std::str::from_utf8(&bytes[..end]) {
+                    Ok(p) if !p.is_empty() => p,
+                    _ => return EFAULT,
+                };
+                let resolved = match self.namespace.resolve(path) {
+                    Ok(r) => r,
+                    Err(_) => return EBADF,
+                };
+                let host = match std::ffi::CString::new(resolved.host.to_string_lossy().as_bytes())
+                {
+                    Ok(c) => c,
+                    Err(_) => return EBADF,
+                };
+                let fd = unsafe { libc::open(host.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+                if fd < 0 {
                     return EBADF;
                 }
-                let path = unsafe { std::ffi::CStr::from_ptr(ptr) }
-                    .to_string_lossy()
-                    .into_owned();
-                match self.namespace.resolve(&path) {
-                    Ok(_) => {
-                        let fd = self.guest.next_fd;
-                        self.guest.next_fd += 1;
-                        self.guest.fd_table.insert(fd, path);
-                        fd as i64
-                    }
-                    Err(_) => EBADF,
-                }
+                self.guest.fd_table.insert(fd, path.to_string());
+                fd as i64
             }
-            nr::EXIT | nr::EXIT_GROUP => 0,
+            nr::CLOSE => {
+                let fd = args[0] as i32;
+                self.guest.fd_table.remove(&fd);
+                unsafe { libc::close(fd) as i64 }
+            }
             _ => ENOSYS,
         }
     }
@@ -172,7 +280,15 @@ pub fn serve_one(ch: &Channel, ops: &mut HostOps) -> Result<(u64, i64)> {
         if rc < 0 {
             let e = std::io::Error::last_os_error();
             match e.raw_os_error() {
-                Some(libc::EAGAIN) | Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) => continue,
+                Some(libc::EINTR) => {
+                    if GUEST_GONE.load(Ordering::SeqCst) != 0 {
+                        return Err(Error::Message(
+                            "guest exited before publishing a chanPage request".into(),
+                        ));
+                    }
+                    continue;
+                }
                 _ => return Err(Error::Message(format!("futex wait: {e}"))),
             }
         }

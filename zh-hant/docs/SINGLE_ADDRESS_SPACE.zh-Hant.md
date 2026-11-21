@@ -34,7 +34,7 @@ Rust 監督器可以在同一個處理程序裡規劃多個執行個體：共享
 
 上述推導來自 [../AGENTS.zh-Hant.md](../AGENTS.zh-Hant.md) 的規則一與規則三、宿主端後盾的行為差異（`RET_TRAP`／`SIGSYS`、`Seatbelt`、instrumentation callback 與 `LPAC`）、共享通道的版面，以及英文版 [SINGLE_ADDRESS_SPACE.md](../../docs/SINGLE_ADDRESS_SPACE.md) 的逐項分析；逐項的 OCI 對照另見 [OCI_MATRIX.zh-Hant.md](OCI_MATRIX.zh-Hant.md)。
 
-請特別注意證據的層次：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生來賓執行後端尚未移植到 Rust，Go 原始碼已移除，儲存庫是 Rust 與 Zig。`cargo build --workspace` 只準備控制平面，`make witness` 只見證控制平面的解析、接受／拒絕與規劃；因此這裡列的是設計邊界與既有實作的證據，不是本工作區上即時來賓執行的量測。任何「已合併且無退化」的宣稱，都必須附上對抗式驗證的記錄與證據，而不是只留下口頭結論。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正；隔離的推導與同步的修正，都應該能被重現。
+請特別注意證據的層次：Linux memfd／`seccomp`／hop 已移植到 Rust 並有即時見證，macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 兩組尚未移植；Go 原始碼已移除，儲存庫是 Rust 與 Zig。`cargo build --workspace` 建置控制平面與 Linux 後端，`make witness` 見證控制平面的解析、接受／拒絕與規劃，`make backend-witness` 與 `make backend-exec-elf` 才是 Linux 後端的即時見證。因此這裡列的是設計邊界、既有實作與已見證範圍，不是完整來賓執行效能的量測。任何「已合併且無退化」的宣稱，都必須附上對抗式驗證的記錄與證據，而不是只留下口頭結論。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正；隔離的推導與同步的修正，都應該能被重現。
 
 ## 說明文件連結
 

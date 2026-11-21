@@ -12,12 +12,13 @@
 //! the request and resumes the guest with its result. macOS and Windows provide
 //! real capability probes and honest boundaries (see their modules).
 //!
-//! Not yet ported: the ~200-syscall table, ELF segment mapping + trampoline
-//! islands, the PROT_R hop alias, ptrace/Mach exception register save-restore,
-//! Seatbelt/HVF/LPAC launch contracts. `go-removal` remains pending.
+//! Not yet ported: PIE/ET_DYN, trampoline islands, the full ~205-syscall
+//! table, the PROT_R hop alias, ptrace/Mach exception register save-restore,
+//! and the Seatbelt/HVF/LPAC launch contracts. Static aarch64 ELF segment
+//! mapping IS ported in `guest.rs`. `go-removal` remains pending.
 
 use crate::error::{Error, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 pub mod channel;
 pub mod filter;
@@ -35,7 +36,7 @@ pub mod trap;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Capabilities {
     pub host: &'static str,
     pub arch: &'static str,
@@ -52,7 +53,7 @@ pub struct Capabilities {
     pub note: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WitnessReport {
     pub host: &'static str,
     pub arch: &'static str,
@@ -81,7 +82,9 @@ pub trait Platform: Send + Sync {
 }
 
 pub fn current() -> Box<dyn Platform> {
-    #[cfg(target_os = "linux")]
+    // The SIGSYS register save/restore is aarch64-only. Installing a TRAP
+    // filter on another Linux arch would kill the guest with an empty handler.
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     {
         return Box::new(linux::LinuxBackend::new());
     }

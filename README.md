@@ -45,14 +45,17 @@ Traditional Chinese: [zh-hant/README.zh-Hant.md](zh-hant/README.zh-Hant.md).
 
 > **Port boundary (read this first).** All Go source was removed at the user's
 > request; this tree is Rust + Zig only. The Rust control plane, OCI/Compose
-> typing, 48-route daemon, runtime-spec validation, MCP server and library are
-> implemented and witnessed. The three **native guest-execution backends**
-> (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF, Windows LPAC) are **not**
-> ported to Rust, so `qqbox run` and the MCP `run` tool still return a clear
-> `UnsupportedPlatform` diagnostic after preparing the run. A from-source build
-> cannot yet boot a guest. The live Xubuntu 26 desktop in
-> [examples/qqbox/](examples/qqbox/README.md) is booted with the pre-removal Go
-> runtime binary preserved off-repo. Full accounting:
+> typing, 54-route daemon, runtime-spec validation, MCP server and library are
+> implemented and witnessed. The Linux **native guest-execution backend**
+> (memfd chanPage, seccomp-BPF `RET_TRAP`, `SIGSYS` handler, Rust host-op
+> dispatcher and a real unmodified static aarch64 ELF launch) IS ported and
+> live-witnessed on a real Linux kernel. macOS Mach/Seatbelt/HVF and Windows
+> LPAC are **not** ported. `qqbox run` and the MCP `run` tool still return a
+> clear `UnsupportedPlatform` diagnostic for the general case; `qqbox backend
+> exec-elf` runs a real unmodified ELF from the from-source Rust build. The
+> live Xubuntu 26 desktop in [examples/qqbox/](examples/qqbox/README.md) is
+> booted with the pre-removal Go runtime binary preserved off-repo. Full
+> accounting: [docs/NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md) and
 > [docs/PORT_STATUS.md](docs/PORT_STATUS.md).
 
 ## Install
@@ -100,15 +103,15 @@ runtime does not remove an engine's own host-platform requirements.
 **Migration boundary.** `qqbox migrate` transfers the workload spec, the vfs
 Namespace, the chanPage/fd table and the network policy as a versioned,
 SHA-256-checked ADT with affine typestate and capability-gated commit. It does
-**not** transfer guest memory or vCPU registers: qqbox has no VMM and the three
-native guest backends are not ported to Rust. See
+**not** transfer guest memory or vCPU registers: qqbox has no VMM and the
+macOS/Windows native backends are not ported to Rust. See
 [docs/LIVE_MIGRATION.md](docs/LIVE_MIGRATION.md) (Traditional Chinese:
 [zh-hant/docs/LIVE_MIGRATION.zh-Hant.md](zh-hant/docs/LIVE_MIGRATION.zh-Hant.md)).
 
 **Native guest backend:** the Linux trap-to-supervisor path is now real Rust —
 a memfd chanPage, a seccomp-BPF `RET_TRAP` filter, a `SIGSYS` register
 save/restore and a Rust host-op dispatcher, live-witnessed on a real Linux
-aarch64 kernel. ELF mapping, trampolines, the ~205-syscall table and the
+aarch64 kernel. PIE/ET_DYN, trampolines, the ~205-syscall table and the
 macOS/Windows launch contracts are not ported, so `qqbox run` still returns
 `Error::UnsupportedPlatform` for the general case. `qqbox backend exec-elf` now
 executes a real unmodified static aarch64 ELF under the Rust supervisor,
@@ -286,7 +289,7 @@ The upstream workload set is recorded in the upstream README; those are
 exercised workloads of the Go runtime, not a promise that every Linux program or
 syscall is supported, and **not** a claim about this Rust-only tree. The Rust
 port's witnessed coverage is the typed control plane: OCI image config, runtime
-spec, Compose, ports, network, volumes, labels, the vfs Namespace, the 48 Docker
+spec, Compose, ports, network, volumes, labels, the vfs Namespace, the 54 Docker
 API routes and the security invariants — see
 [docs/OCI_MATRIX.md](docs/OCI_MATRIX.md). Guest-execution workloads are gated on
 the native backend port; see [docs/PORT_STATUS.md](docs/PORT_STATUS.md).
@@ -322,12 +325,14 @@ allowlist. Guests cannot resolve host paths directly; host files are available
 only through explicitly configured roots or mounts. This lets a run use an
 image's files while sharing only the host directories its caller chooses.
 
-**Host-OS backstop.** If a syscall escapes rewriting, the host sandbox kills the
-guest (`Error::Killed`): seccomp on Linux, Seatbelt on macOS, AppContainer on
-Windows. On Linux, mapping memory, holding descriptors, and forking belong to a
-separate host-op thread that never executes guest code. The guest thread's
-seccomp filter does not grant those operations merely because the stub needs
-them. [AGENTS.md](AGENTS.md) defines these boundaries.
+**Host-OS backstop.** The asymmetry is deliberate. On Linux a syscall that
+escapes rewriting is TRAPped to the Rust supervisor (seccomp `RET_TRAP` →
+`SIGSYS` → chanPage), not killed: a rewrite miss is correct but slower. macOS
+Seatbelt and the Windows x86-64 instrumentation callback kill; Windows arm64
+has no callback backstop. On Linux, mapping memory, holding descriptors and
+forking belong to a separate host-op thread that never executes guest code.
+[AGENTS.md](AGENTS.md) and [docs/NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md)
+define these boundaries.
 
 ### Security defaults
 

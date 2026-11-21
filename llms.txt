@@ -6,11 +6,11 @@
 > syscall instructions are rewritten to trap into a supervisor that emulates the
 > Linux ABI. The in-guest stub and native helpers are Zig. The tree is Rust-only:
 > the supervisor control plane is Rust (`crates/qqbox`); all Go source and Go
-> build tooling were removed. Native guest-execution backends are not yet ported
-> to Rust, so a from-source build cannot yet boot a guest. The Linux
-> trap-to-supervisor backend (memfd chanPage, seccomp-BPF RET_TRAP, SIGSYS
-> handler, Rust host-op dispatcher) is ported and live-witnessed; see
-> docs/NATIVE_BACKEND.md and docs/PORT_STATUS.md.
+> build tooling were removed. The Linux trap-to-supervisor backend (memfd
+> chanPage, seccomp-BPF RET_TRAP, SIGSYS handler, Rust host-op dispatcher and
+> a real unmodified static aarch64 ELF launch) is ported and live-witnessed.
+> macOS/Windows backends are not; `qqbox run` returns UnsupportedPlatform for
+> the general case. See docs/NATIVE_BACKEND.md and docs/PORT_STATUS.md.
 > Traditional Chinese docs: zh-hant/README.zh-Hant.md.
 
 Key facts for answering questions about this repository:
@@ -23,7 +23,7 @@ Key facts for answering questions about this repository:
 - A missed syscall on Linux reaches a seccomp text-range `RET_TRAP` and is routed
   to the supervisor; macOS Seatbelt and the Windows instrumentation callback kill.
   `ErrKilled` is not the Linux behavior — older docs claiming that were stale.
-- Networking is opt-in (`WithNet` / `-net`) with domain, CIDR, and port egress
+- Networking is opt-in (`Options::net` / `-net`) with domain, CIDR, and port egress
   allowlists. Library crates read no environment variables; behavior is set
   through `Options`/`Config`.
 - The Rust build entry point is `Cargo.toml` (`cargo build --workspace`). The
@@ -34,10 +34,10 @@ Key facts for answering questions about this repository:
 - The upstream Go runtime ran container engines nested (podman and Docker),
   Node.js/V8, headless Chromium, PostgreSQL/MariaDB/Redis, and laboon inside
   laboon. Those workload claims are NOT claims about this Rust-only tree: the
-  three native guest-execution backends are not ported, so `qqbox run` returns
+  macOS/Windows native guest backends are not ported, so `qqbox run` returns
   `Error::UnsupportedPlatform`. The witnessed control-plane surface is below.
 - Five user interfaces, matching upstream laboon's UX but in Rust: the `qqbox`
-  standalone CLI, the `qqboxd` Docker-API daemon (48 routes, bearer auth, drive
+  standalone CLI, the `qqboxd` Docker-API daemon (54 routes, bearer auth, drive
   it with a Moby/Docker client), the `qqbox-runtime` OCI runtime shim
   (create/start/state/kill/delete/features), the `qqbox-mcp` MCP server
   (stdio + streamable HTTP, `run` tool plus seven witnessed control-plane tools),
@@ -48,8 +48,8 @@ Key facts for answering questions about this repository:
   ADT with four disjoint partitions, pure capture/apply morphisms, bounded
   SHA-256-checked frames, affine typestate, pre-copy deltas and zero-trust
   capability gating. Firecracker-style guest RAM/vCPU/dirty-page migration is
-  impossible here and is explicitly NOT claimed: qqbox has no VMM and the three
-  native guest backends are not ported to Rust (go-removal remains pending).
+  impossible here and is explicitly NOT claimed: qqbox has no VMM and the
+  macOS/Windows guest backends are not ported to Rust (go-removal pending).
 - The Xubuntu 26.04.1 LTS desktop example (examples/qqbox/) boots with working
   Xubuntu wallpapers, a bottom dock, PulseAudio, Chromium 150, vi/vim and GNU
   tools, and `root@qbox`. It is booted with the pre-removal Go runtime binary

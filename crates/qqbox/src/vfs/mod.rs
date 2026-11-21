@@ -71,16 +71,37 @@ pub fn clean_guest(name: &str) -> Option<String> {
     }
 }
 
+/// Confine `candidate` under `root`. Callers pass either a path already
+/// joined onto root (the common case: `root.join(guest)`) or a bare relative
+/// path. Strip the root prefix first; rebuilding ALL Normal components as
+/// relative would double the prefix (root.join("tmp/root/bin/true")).
+/// A `..` that would climb above root is a path escape, not a silent pop.
 pub fn confined(root: &Path, candidate: &Path) -> Result<PathBuf> {
     let base = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let canonical = std::fs::canonicalize(candidate).ok();
+    let resolved = canonical.as_deref().unwrap_or(candidate);
+    let rest = match resolved.strip_prefix(&base) {
+        Ok(rest) => rest,
+        Err(_) if canonical.is_some() => {
+            // canonicalize succeeded and landed outside root: symlink escape.
+            return Err(Error::PathEscape(candidate.display().to_string()));
+        }
+        Err(_) => resolved,
+    };
     let mut rel = PathBuf::new();
-    for component in candidate.components() {
+    for component in rest.components() {
         match component {
             Component::Normal(s) => rel.push(s),
             Component::ParentDir => {
-                rel.pop();
+                if !rel.pop() {
+                    return Err(Error::PathEscape(candidate.display().to_string()));
+                }
+                if !base.join(&rel).starts_with(&base) {
+                    return Err(Error::PathEscape(candidate.display().to_string()));
+                }
             }
-            _ => {}
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) => {}
         }
     }
     let joined = base.join(&rel);

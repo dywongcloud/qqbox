@@ -2,8 +2,9 @@
 //! (`create`, `start`, `state`, `kill`, `delete`, `features`, `--version`)
 //! against the Rust control plane. `create` parses and validates the bundle's
 //! `config.json` and writes real state; `start` reports the honest
-//! `UnsupportedPlatform` diagnostic because the three native guest-execution
-//! backends are not ported to Rust yet. See docs/PORT_STATUS.md.
+//! `UnsupportedPlatform` diagnostic for the general `qqbox run` path. The Linux
+//! trap-to-supervisor backend IS ported (see docs/NATIVE_BACKEND.md), but the
+//! general launcher is not. `start` never mutates instance state on failure.
 
 use clap::{Parser, Subcommand};
 use qqbox::oci::runtime;
@@ -134,22 +135,22 @@ fn run(cli: Cli) -> ExitCode {
                     "root": cfg.root,
                     "args": cfg.args,
                     "unsupportedSecurityKeysRejected": rejected,
-                    "nativeBackend": "not ported to Rust; start will report UnsupportedPlatform"
+                    "nativeBackend": "Linux trap-to-supervisor backend is ported (qqbox backend exec-elf); the general qqbox run path still returns UnsupportedPlatform"
                 })
             );
             ExitCode::SUCCESS
         }
         Commands::Start { id } => {
-            let mut state = match read_state(root, &id) {
+            let state = match read_state(root, &id) {
                 Ok(s) => s,
                 Err(e) => return fail(e),
             };
             if state.get("status").and_then(|v| v.as_str()) != Some("created") {
                 return fail("instance is not in created state");
             }
-            state["status"] = json!("stopped");
-            let _ = write_state(root, &id, &state);
-            fail("unsupported platform: native guest execution backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF, Windows LPAC) are not ported to Rust; see docs/PORT_STATUS.md")
+            // State stays "created": a start that could not run must not claim
+            // the instance stopped. No mutation on the failure path.
+            fail("unsupported platform: the general qqbox run path is not ported. The Linux trap-to-supervisor backend IS ported; use `qqbox backend exec-elf` for a witnessed static aarch64 ELF. See docs/NATIVE_BACKEND.md")
         }
         Commands::State { id } => match read_state(root, &id) {
             Ok(s) => {

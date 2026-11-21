@@ -4,7 +4,13 @@ We rewrite only syscall instructions; all other guest code runs at full native
 speed (no DBT, no instrumentation). So slowdown is a function of syscall
 density plus a fixed per-process startup, not a flat multiplier.
 
-## Measured (Linux build, real workloads)
+## Historical measurements (removed Go runtime, NOT this Rust tree)
+
+The table below is quoted from the upstream Go runtime's benchmark record. It is
+**not** a measurement of this Rust-only workspace: the Rust tree cannot yet run
+those workloads end to end (the Linux seccomp/trap backend currently serves a
+small witnessed syscall subset, and macOS/Windows guest launch is unported). No
+Rust-side performance number is claimed until it is measured live.
 
 | workload                              | native  | sandbox | slowdown |
 |---------------------------------------|---------|---------|----------|

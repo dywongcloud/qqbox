@@ -118,17 +118,21 @@ delegates that to the `io.ReadWriter`); our capability gate is in the protocol.
 
 ## 2. The boundary (stated first, on purpose)
 
-The three native guest backends — Linux memfd/seccomp/hop, macOS
-Mach/Seatbelt/HVF, Windows LPAC — are **not ported to Rust** in this tree (the
-inherited `go-removal` PRD row remains pending). Verified from source:
-`sandbox::run::run` returns `Error::UnsupportedPlatform` on every host,
-`sandbox::install` does the same, and the Rust side never allocates a memfd,
-Mach port, HVF VM or shared channel page. The eight committed Zig `.bin` stubs
-are `include_bytes!` data only.
+The Linux backend (memfd chanPage + seccomp `RET_TRAP` + `SIGSYS` + Rust
+host-op dispatcher) IS ported in this tree, and `qqbox backend exec-elf`
+executes a real unmodified static aarch64 ELF under the Rust supervisor. macOS
+Mach/Seatbelt/HVF and Windows LPAC are **not ported** (inherited `go-removal`
+PRD row remains pending). `sandbox::run::run` still returns
+`Error::UnsupportedPlatform` for the general case. `sandbox::install` on Linux
+now installs a real seccomp filter. The Rust side allocates a real memfd and a
+shared chanPage; it does NOT allocate a Mach port, HVF VM, guest physical RAM
+or a vCPU register file. The eight committed Zig `.bin` stubs are
+`include_bytes!` data only. See [NATIVE_BACKEND.md](NATIVE_BACKEND.md).
 
 Consequently there is **no** guest physical memory, vCPU register file,
-dirty-page bitmap, in-flight syscall, signal frame, real OS fd or TCP
-connection state, and no VMM to suspend. `GuestState` in `sandbox/mod.rs` is a
+dirty-page bitmap or VMM to suspend. The Linux backend traps and serves
+syscalls over a chanPage, but that is control-plane/data-plane mediation,
+not guest-RAM snapshotting. `GuestState` in `sandbox/mod.rs` is a
 four-field struct created and dropped inside `prepare`. Any claim of
 Firecracker-style guest memory migration from this codebase would be fabricated.
 `MigrationState::boundary.guest_execution` records

@@ -46,7 +46,7 @@ impl Platform for WindowsBackend {
             instrumentation_callback: false,
             chan_page_bytes: crate::zig::abi::CHAN_SIZE,
             implemented_syscalls: 0,
-            note: "Contract only: CreateFileMapping chanPage, per-slot auto-reset events, LPAC AppContainer, VEH + x86-64 instrumentation callback, RtlCloneUserProcess fork. Cross-compiles but no Windows host is available for a live witness.".into(),
+            note: "Contract only: CreateFileMapping chanPage, per-slot auto-reset events, LPAC AppContainer, VEH + x86-64 instrumentation callback, RtlCloneUserProcess fork. Contract only: the x86_64-pc-windows-msvc cross-check is blocked by ring's C toolchain/sysroot gap on this macOS host; no Windows host witness exists.".into(),
         })
     }
 

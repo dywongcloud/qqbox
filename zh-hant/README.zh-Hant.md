@@ -27,14 +27,17 @@ Linux ABI 的監督器。這屬於 gVisor 一類的系統呼叫攔截設計。�
 [AI 代理與桌面沙箱](#ai-代理與桌面沙箱)
 
 > **移植邊界（請先閱讀）**：依使用者要求，所有 Go 原始碼已移除；本專案僅含
-> Rust 與 Zig。Rust 控制平面、OCI／Compose 型別、48 條 Docker API 路由、
-> runtime-spec 驗證、MCP 伺服器與程式庫皆已實作並有實測見證。但三個**原生
-> 來賓執行後端**（Linux memfd／seccomp／hop、macOS Mach／Seatbelt／HVF、
-> Windows LPAC）**尚未**移植到 Rust，因此 `qqbox run` 與 MCP 的 `run` 工具在備妥
-> 執行計畫之後，仍會回傳明確的 `UnsupportedPlatform` 診斷訊息。目前從原始碼
-> 建置尚不能啟動來賓。
+> Rust 與 Zig。Rust 控制平面、OCI／Compose 型別、54 條 Docker API 路由、
+> runtime-spec 驗證、MCP 伺服器與程式庫皆已實作並有實測見證。Linux **原生
+> 來賓執行後端**（memfd chanPage、seccomp-BPF `RET_TRAP`、`SIGSYS` 處理器、
+> Rust host-op 派發器，以及未修改靜態 aarch64 ELF 的真實啟動）**已移植**，並在
+> 真實 Linux 核心上即時見證；macOS Mach／Seatbelt／HVF 與 Windows LPAC
+> **尚未**移植。`qqbox run` 與 MCP 的 `run` 工具在一般情況仍回傳明確的
+> `UnsupportedPlatform` 診斷訊息，而 `qqbox backend exec-elf` 可從原始碼建置的
+> Rust 版本執行真實未修改的 ELF。
 > [examples/qqbox/](../examples/qqbox/README.md) 中實測運作的 Xubuntu 26 桌面，
 > 是以保存在版本庫之外的移除前 Go 執行期二進位檔啟動。完整說明見
+> [docs/NATIVE_BACKEND.zh-Hant.md](docs/NATIVE_BACKEND.zh-Hant.md) 與
 > [docs/PORT_STATUS.md](../docs/PORT_STATUS.md)。
 
 ## 安裝
@@ -79,8 +82,8 @@ bundle。選用 qqbox 作為 OCI runtime，並不會移除引擎本身對宿主�
 
 **遷移邊界。** `qqbox migrate` 以具版本、SHA-256 校驗的 ADT 傳送工作負載規格、
 vfs Namespace、chanPage／fd 表與網路政策，具備仿射型別狀態與 capability 閘控的
-commit。它**不會**傳送來賓記憶體或 vCPU 暫存器：qqbox 沒有 VMM，三個原生來賓
-後端尚未移植到 Rust。詳見
+commit。它**不會**傳送來賓記憶體或 vCPU 暫存器：qqbox 沒有 VMM，macOS／Windows
+原生來賓後端尚未移植到 Rust。詳見
 [docs/LIVE_MIGRATION.zh-Hant.md](docs/LIVE_MIGRATION.zh-Hant.md)（英文：
 [../docs/LIVE_MIGRATION.md](../docs/LIVE_MIGRATION.md)）。
 
@@ -112,10 +115,10 @@ CLI 也揭露已通過型別檢查的控制平面，以下皆以
 qqbox invariants                    已強制執行的安全不變量
 qqbox abi                           驗證 128 位元組的 Zig 通道 ABI
 qqbox address-space                 單一位址空間的決策
-qqbox run <program> [args...]       剖析、重寫並規劃來賓 ELF
+qqbox run <program> [args…]       剖析、重寫並規劃來賓 ELF
 qqbox config-validate <file>        印出每一項 OCI image-config 構造
 qqbox oci-inspect <file>            完整映像設定與構造計數
-qqbox ports-check <spec>...         剖析 publish 並印出轉送規劃
+qqbox ports-check <spec>…         剖析 publish 並印出轉送規劃
 qqbox compose-plan <compose.yaml>   把 Compose 檔降為執行個體規劃
 qqbox compose-validate <file>       驗證服務、連接埠、磁碟區、depends_on
 qqbox runtime-spec features         宣告的 OCI runtime-spec 功能
@@ -152,7 +155,7 @@ curl -X POST -H 'Authorization: Bearer my-secret' -H 'Content-Type: application/
 ```
 
 未經驗證的請求回傳 HTTP 401，沒有未驗證的預設值。省略 `--token` 時，啟動會
-產生並印出權杖。48 條路由列於 `qqboxd --routes` 與 `GET /qqbox/v1/routes`；
+產生並印出權杖。54 條路由列於 `qqboxd --routes` 與 `GET /qqbox/v1/routes`；
 已強制執行的不變量的位於 `GET /qqbox/v1/invariants`。
 
 ### 註冊為 OCI runtime
@@ -244,7 +247,7 @@ cargo run
 上游 README 記錄的工作負載屬於 **Go 執行期**的實測集合，既不保證每個 Linux
 程式或系統呼叫都受支援，也**不是**對這份僅含 Rust 的程式庫的宣稱。本 Rust
 移植已見證的範圍是具型別的控制平面：OCI image config、runtime spec、
-Compose、連接埠、網路、磁碟區、標籤、`vfs` Namespace、48 條 Docker API 路由
+Compose、連接埠、網路、磁碟區、標籤、`vfs` Namespace、54 條 Docker API 路由
 與安全不變量，詳見
 [docs/OCI_MATRIX.md](../docs/OCI_MATRIX.md)。來賓執行工作負載仍取決於原生
 後端的移植進度，見 [docs/PORT_STATUS.md](../docs/PORT_STATUS.md)。
@@ -277,11 +280,13 @@ rootfs、bind 掛載、overlay，以及合成的 `/proc`、`/sys`、`/dev` 都�
 只能經由明確設定的 root 或掛載取得。這讓一次執行能使用映像的檔案，同時只
 共享呼叫者選定的宿主目錄。
 
-**宿主作業系統後盾。** 若有系統呼叫躲過重寫，宿主沙箱會終止來賓
-（`Error::Killed`）：Linux 為 seccomp、macOS 為 Seatbelt、Windows 為
-AppContainer。在 Linux 上，映射記憶體、持有描述項與 fork 屬於另一條永不執行
-來賓程式碼的 host-op 執行緒。來賓執行緒的 seccomp 過濾器，不會因為 stub 需要
-這些操作而放行。[AGENTS.md](../AGENTS.md) 定義這些邊界。
+**宿主作業系統後盾。** 這裡的不對稱是刻意的。在 Linux 上，躲過重寫的系統呼叫
+會被 TRAP 到 Rust 監督器（seccomp `RET_TRAP` → `SIGSYS` → chanPage），而**不是**
+被終止：重寫漏掉只是較慢，仍然正確。macOS Seatbelt 與 Windows x86-64
+instrumentation callback 則會終止；Windows arm64 沒有 callback 後盾。在 Linux
+上，映射記憶體、持有描述項與 fork 屬於另一條永不執行來賓程式碼的 host-op
+執行緒。[AGENTS.zh-Hant.md](../AGENTS.zh-Hant.md) 與
+[docs/NATIVE_BACKEND.zh-Hant.md](docs/NATIVE_BACKEND.zh-Hant.md) 定義這些邊界。
 
 ### 安全預設
 
@@ -338,7 +343,8 @@ HTTP 模式。Windows 請用 `qqbox-mcp.exe`。例如呼叫 `run` 工具：
 ```
 
 上游結果包含結束碼 `0` 與標準輸出 `4\n`。在這份 Rust 程式庫中，呼叫會回傳
-`isError: true`，並在 `stderr` 帶上原生後端診斷訊息，因為後端尚未移植；它
+`isError: true`，並在 `stderr` 帶上原生後端診斷訊息，因為一般執行路徑尚未
+移植完成；它
 不會捏造一次成功的執行。只有在伺服器以 `--allow-net` 啟動且呼叫要求
 `"network": true` 時，才可使用外部網路。預設每次執行逾時為 120 秒，每條
 輸出串流上限為 1 MiB；伺服器提供 `--timeout` 與 `--max-output` 調整。

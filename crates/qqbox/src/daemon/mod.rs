@@ -3,10 +3,15 @@ use crate::error::{Error, Result};
 use crate::migrate::{Capability, MigrationState};
 use crate::types::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
 use std::sync::Mutex;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Hard ceiling on an HTTP request body. A client that streams more than this
+/// gets 413 before any JSON parsing or state mutation happens.
+pub const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Response {
     pub status: u16,
     pub content_type: &'static str,
@@ -18,7 +23,9 @@ impl Response {
         Response {
             status,
             content_type: "application/json",
-            body: serde_json::to_vec(value).unwrap_or_default(),
+            body: serde_json::to_vec(value).unwrap_or_else(|e| {
+                format!("{{\"message\":\"response serialization failed: {e}\"}}").into_bytes()
+            }),
         }
     }
 
@@ -189,6 +196,8 @@ pub struct Container {
 pub struct ImageEntry {
     pub id: Id,
     pub reference: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub labels: LabelMap,
     pub size: u64,
 }
@@ -200,6 +209,19 @@ pub struct NetworkEntry {
     pub driver: String,
     pub internal: bool,
     pub aliases: Vec<String>,
+    #[serde(default)]
+    pub containers: Vec<String>,
+}
+
+/// A real exec record created by `POST /containers/{id}/exec`. Starting it
+/// requires a native guest runtime; the record itself is control-plane state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecEntry {
+    pub id: String,
+    pub container: String,
+    pub cmd: Vec<String>,
+    pub running: bool,
+    pub exit_code: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,6 +238,7 @@ pub struct State {
     pub images: BTreeMap<Id, ImageEntry>,
     pub networks: BTreeMap<Id, NetworkEntry>,
     pub volumes: BTreeMap<String, VolumeEntry>,
+    pub execs: BTreeMap<String, ExecEntry>,
     /// Last checkpointed control-plane state. `None` until an explicit
     /// checkpoint; the daemon never invents a state.
     pub migration: Option<MigrationState>,
@@ -238,6 +261,42 @@ fn hex_id(seed: u64) -> String {
 
 fn unsupported(key: &str) -> Error {
     Error::Config(format!("unsupported HostConfig key: {key}"))
+}
+
+/// Typed 501 for an advertised route that this Rust build does not implement.
+/// A 404 would claim the route does not exist; this states the real boundary.
+fn not_implemented(feature: &str, reason: &str) -> Response {
+    Response::json(
+        501,
+        &serde_json::json!({
+            "message": format!("{feature} is not implemented in this Rust build"),
+            "feature": feature,
+            "reason": reason,
+            "status": "not implemented"
+        }),
+    )
+}
+
+/// An empty body means an empty JSON object; a malformed body is a 400, never
+/// silently `Default`. Every caller gets the same rule.
+fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> std::result::Result<T, Response> {
+    let bytes: &[u8] = if body.is_empty() { b"{}" } else { body };
+    serde_json::from_slice(bytes).map_err(|e| {
+        Response::json(
+            400,
+            &serde_json::json!({"message": format!("malformed JSON body: {e}")}),
+        )
+    })
+}
+
+fn lookup<'a, V>(
+    map: &'a BTreeMap<String, V>,
+    key: &str,
+    name: impl Fn(&V) -> bool,
+) -> Option<&'a String> {
+    map.get_key_value(key)
+        .map(|(k, _)| k)
+        .or_else(|| map.iter().find(|(_, v)| name(v)).map(|(k, _)| k))
 }
 
 impl State {
@@ -541,6 +600,7 @@ impl State {
         let entry = ImageEntry {
             id: id.clone(),
             reference: r.reference(),
+            tags: Vec::new(),
             labels: LabelMap::new(),
             size: 0,
         };
@@ -561,8 +621,25 @@ impl State {
             driver: driver.to_string(),
             internal,
             aliases: Vec::new(),
+            containers: Vec::new(),
         };
         self.networks.insert(entry.id.clone(), entry.clone());
+        Ok(entry)
+    }
+
+    pub fn create_exec(&mut self, container: &str, cmd: Vec<String>) -> Result<ExecEntry> {
+        if !self.containers.contains_key(container) {
+            return Err(Error::NotFound(container.to_string()));
+        }
+        self.next = self.next.saturating_add(1);
+        let entry = ExecEntry {
+            id: hex_id(self.next.wrapping_mul(104_729)),
+            container: container.to_string(),
+            cmd,
+            running: false,
+            exit_code: 0,
+        };
+        self.execs.insert(entry.id.clone(), entry.clone());
         Ok(entry)
     }
 
@@ -589,7 +666,6 @@ fn generated_token() -> Result<String> {
     let mut bytes = [0u8; 32];
     let mut f = std::fs::File::open("/dev/urandom")
         .map_err(|e| Error::Message(format!("cannot open entropy source: {e}")))?;
-    use std::io::Read;
     f.read_exact(&mut bytes)
         .map_err(|e| Error::Message(format!("cannot read entropy: {e}")))?;
     Ok(hex::encode(bytes))
@@ -611,17 +687,28 @@ fn secure_eq(a: &[u8], b: &[u8]) -> bool {
 
 #[derive(Debug)]
 pub struct Daemon {
-    pub state: Mutex<State>,
-    pub token: Option<String>,
-    /// Capability required for restore. Derived from the bearer token at
-    /// construction, so no secret is embedded in source.
-    pub migration_capability: Capability,
+    state: Mutex<State>,
+    token: String,
+    /// Capability required for restore. Derived from a secret INDEPENDENT of
+    /// the bearer token: holding the API token alone must not authorize state
+    /// restore. Private fields close the `Daemon { token: None }` auth bypass.
+    migration_capability: Capability,
 }
 
 impl Daemon {
     /// Fail closed: an absent token must come from OS entropy, never from a
-    /// predictable time/PID seed. Callers that need a stable token pass one.
+    /// predictable time/PID seed. The restore capability is a second,
+    /// independent CSPRNG secret printed at startup.
     pub fn new(token: Option<String>) -> Result<Self> {
+        Self::with_migration_secret(token, None)
+    }
+
+    /// Deterministic form for operators who manage the capability secret
+    /// themselves (and for live witnesses). An empty/padded secret is rejected.
+    pub fn with_migration_secret(
+        token: Option<String>,
+        migration_secret: Option<String>,
+    ) -> Result<Self> {
         let token = match token {
             Some(t) => {
                 if t.is_empty() || t.trim() != t {
@@ -633,16 +720,32 @@ impl Daemon {
             }
             None => generated_token()?,
         };
-        let migration_capability = Capability::derive(token.as_bytes());
+        let secret = match migration_secret {
+            Some(s) => {
+                if s.is_empty() || s.trim() != s {
+                    return Err(Error::Message(
+                        "--migration-secret must be non-empty without surrounding whitespace"
+                            .into(),
+                    ));
+                }
+                s
+            }
+            None => generated_token()?,
+        };
         Ok(Daemon {
             state: Mutex::new(State::new()),
-            token: Some(token),
-            migration_capability,
+            token,
+            migration_capability: Capability::derive(secret.as_bytes()),
         })
     }
 
     pub fn token(&self) -> Option<&str> {
-        self.token.as_deref()
+        Some(&self.token)
+    }
+
+    /// Hex form of the restore capability, printed once at daemon startup.
+    pub fn migration_capability(&self) -> String {
+        hex::encode(self.migration_capability.digest)
     }
 
     pub fn routes() -> &'static [&'static str] {
@@ -705,14 +808,9 @@ impl Daemon {
     }
 
     fn authorized(&self, auth: Option<&str>) -> bool {
-        match (&self.token, auth) {
-            (None, _) => true,
-            (Some(_), None) => false,
-            (Some(expected), Some(given)) => {
-                let want = format!("Bearer {expected}");
-                secure_eq(given.as_bytes(), want.as_bytes())
-            }
-        }
+        let Some(given) = auth else { return false };
+        let want = format!("Bearer {}", self.token);
+        secure_eq(given.as_bytes(), want.as_bytes())
     }
 
     pub fn handle(
@@ -865,16 +963,18 @@ impl Daemon {
                     );
                 }
             };
-            let presented = Capability {
-                digest: match hex::decode(&req.capability) {
-                    Ok(bytes) if bytes.len() == 32 => {
-                        let mut d = [0u8; 32];
-                        d.copy_from_slice(&bytes);
-                        d
-                    }
-                    _ => [0u8; 32],
-                },
+            let bytes = match hex::decode(&req.capability) {
+                Ok(b) if b.len() == 32 => b,
+                _ => {
+                    return Response::json(
+                        400,
+                        &serde_json::json!({"message": "capability must be 64 hex characters"}),
+                    );
+                }
             };
+            let mut digest = [0u8; 32];
+            digest.copy_from_slice(&bytes);
+            let presented = Capability { digest };
             if !self.migration_capability.matches(&presented) {
                 return Response::json(403, &serde_json::json!({"message": "capability rejected"}));
             }
@@ -919,7 +1019,10 @@ impl Daemon {
             return Response::json(200, &serde_json::Value::Array(value));
         }
         if path == "/containers/create" && method == "POST" {
-            let req: CreateRequest = serde_json::from_slice(body).unwrap_or_default();
+            let req: CreateRequest = match parse_body(body) {
+                Ok(r) => r,
+                Err(resp) => return resp,
+            };
             let warnings = unmodelled_host_config_keys(body);
             let name = query_param(query, "name").unwrap_or_else(|| format!("c{}", state.next + 1));
             return match state.create_container(&name, &req) {
@@ -970,6 +1073,35 @@ impl Daemon {
                 };
             }
             if method == "POST" {
+                if state.inspect(id).is_err() {
+                    return Response::json(
+                        404,
+                        &serde_json::json!({"message": format!("no such container: {id}")}),
+                    );
+                }
+                if action == "exec" {
+                    #[derive(Deserialize)]
+                    struct ExecCreate {
+                        #[serde(default, alias = "Cmd")]
+                        cmd: Vec<String>,
+                    }
+                    let req: ExecCreate = match parse_body(body) {
+                        Ok(r) => r,
+                        Err(resp) => return resp,
+                    };
+                    if req.cmd.is_empty() {
+                        return Response::json(
+                            400,
+                            &serde_json::json!({"message":"exec requires a non-empty Cmd"}),
+                        );
+                    }
+                    return match state.create_exec(id, req.cmd) {
+                        Ok(e) => Response::json(201, &serde_json::json!({"Id": e.id})),
+                        Err(e) => {
+                            Response::json(404, &serde_json::json!({"message": e.to_string()}))
+                        }
+                    };
+                }
                 let result = match action {
                     "start" => state.start(id),
                     "stop" | "kill" => state.stop(id, "SIGTERM"),
@@ -980,19 +1112,48 @@ impl Daemon {
                         }
                         Ok(())
                     }
-                    "wait" => Ok(()),
-                    "resize" | "update" | "rename" | "exec" => Ok(()),
+                    "rename" => match query_param(query, "name") {
+                        Some(name) if !name.is_empty() => {
+                            if let Some(c) = state.containers.get_mut(id) {
+                                c.name = name;
+                            }
+                            Ok(())
+                        }
+                        _ => Err(Error::Config("rename requires ?name=".into())),
+                    },
+                    "update" => {
+                        let value: serde_json::Value = match parse_body(body) {
+                            Ok(v) => v,
+                            Err(resp) => return resp,
+                        };
+                        if let (Some(memory), Some(c)) = (
+                            value.get("Memory").and_then(|v| v.as_u64()),
+                            state.containers.get_mut(id),
+                        ) {
+                            c.config.resource_limits.memory_bytes = memory;
+                            c.config.max_bytes = memory;
+                        }
+                        Ok(())
+                    }
+                    "wait" | "resize" => Ok(()),
                     _ => Err(Error::NotFound(path.to_string())),
                 };
                 return match result {
                     Ok(()) if action == "wait" => {
-                        Response::json(200, &serde_json::json!({"StatusCode":0}))
+                        let code = state.inspect(id).map(|c| c.exit_code).unwrap_or(0);
+                        Response::json(200, &serde_json::json!({"StatusCode": code}))
                     }
                     Ok(()) => Response::empty(204),
-                    Err(e) => Response::json(404, &serde_json::json!({"message":e.to_string()})),
+                    Err(e) => Response::json(404, &serde_json::json!({"message": e.to_string()})),
                 };
             }
             if method == "GET" {
+                if state.inspect(id).is_err() {
+                    return Response::json(
+                        404,
+                        &serde_json::json!({"message": format!("no such container: {id}")}),
+                    );
+                }
                 let value = match action {
                     "logs" => serde_json::json!({"logs":[]}),
                     "top" => serde_json::json!({"Titles":["PID","USER","COMMAND"],"Processes":[]}),
@@ -1007,7 +1168,7 @@ impl Daemon {
             let list: Vec<serde_json::Value> = state
                 .images
                 .values()
-                .map(|i| serde_json::json!({"Id":i.id,"RepoTags":[i.reference],"Labels":i.labels,"Size":i.size}))
+                .map(|i| serde_json::json!({"Id":i.id,"RepoTags":i.tags,"Reference":i.reference,"Labels":i.labels,"Size":i.size}))
                 .collect();
             return Response::json(200, &serde_json::Value::Array(list));
         }
@@ -1017,27 +1178,119 @@ impl Daemon {
             return match state.pull_image(&reference) {
                 Ok(i) => Response::json(
                     200,
-                    &serde_json::json!({"status":format!("pulled {}",i.reference),"id":i.id}),
+                    &serde_json::json!({
+                        "status": "reference recorded; no registry fetch performed",
+                        "id": i.id, "reference": i.reference, "registryFetch": false
+                    }),
                 ),
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
             };
         }
         if path == "/images/load" && method == "POST" {
-            return Response::json(200, &serde_json::json!({"stream":"loaded\n"}));
+            return not_implemented(
+                "POST /images/load",
+                "OCI layer unpack is not wired into the daemon; use the CLI image-plan path",
+            );
         }
-        if path.starts_with("/images/") && method == "GET" {
-            return Response::json(200, &serde_json::json!({"Id":"sha256:local","RepoTags":[]}));
+        if path == "/images/prune" && method == "POST" {
+            let used: BTreeSet<String> =
+                state.containers.values().map(|c| c.image.clone()).collect();
+            let doomed: Vec<String> = state
+                .images
+                .iter()
+                .filter(|(_, i)| {
+                    !used.contains(&i.reference)
+                        && !used.contains(&i.id)
+                        && !i.tags.iter().any(|t| used.contains(t))
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+            let mut deleted = Vec::new();
+            for key in doomed {
+                if let Some(i) = state.images.remove(&key) {
+                    deleted.push(serde_json::json!({"Deleted": i.reference}));
+                }
+            }
+            return Response::json(
+                200,
+                &serde_json::json!({"ImagesDeleted": deleted, "SpaceReclaimed": 0}),
+            );
+        }
+        if let Some(rest) = path.strip_prefix("/images/") {
+            let (name, action) = match rest.rsplit_once('/') {
+                Some((n, a)) if matches!(a, "tag" | "push" | "json") => (n, a),
+                _ => (rest, ""),
+            };
+            let key = lookup(&state.images, name, |i| {
+                i.reference == name || i.tags.iter().any(|t| t == name)
+            })
+            .cloned();
+            let Some(key) = key else {
+                return Response::json(
+                    404,
+                    &serde_json::json!({"message": format!("no such image: {name}")}),
+                );
+            };
+            return match (method, action) {
+                ("GET", "json") | ("GET", "") => {
+                    let Some(i) = state.images.get(&key) else {
+                        return Response::json(404, &serde_json::json!({"message":"not found"}));
+                    };
+                    Response::json(200, &serde_json::json!({
+                        "Id": i.id, "RepoTags": i.tags, "Reference": i.reference,
+                        "Labels": i.labels, "Size": i.size
+                    }))
+                }
+                ("POST", "tag") => {
+                    let repo = query_param(query, "repo").unwrap_or_else(|| "qqbox/local".into());
+                    let tag = query_param(query, "tag").unwrap_or_else(|| "latest".into());
+                    let value = format!("{repo}:{tag}");
+                    let Some(i) = state.images.get_mut(&key) else {
+                        return Response::json(404, &serde_json::json!({"message":"not found"}));
+                    };
+                    if !i.tags.contains(&value) {
+                        i.tags.push(value.clone());
+                    }
+                    Response::json(201, &serde_json::json!({"Id": key, "Tag": value}))
+                }
+                ("POST", "push") => not_implemented(
+                    "POST /images/{name}/push",
+                    "registry push requires an authenticated registry client, not present in this Rust control plane",
+                ),
+                ("DELETE", "") => {
+                    let in_use = match state.images.get(&key) {
+                        Some(i) => state.containers.values().any(|c| {
+                            c.image == key || c.image == i.reference || i.tags.contains(&c.image)
+                        }),
+                        None => false,
+                    };
+                    if in_use {
+                        return Response::json(
+                            409,
+                            &serde_json::json!({"message":"image is in use by a container"}),
+                        );
+                    }
+                    return match state.images.remove(&key) {
+                        Some(i) => Response::json(200, &serde_json::json!({"Deleted": [i.reference]})),
+                        None => Response::json(404, &serde_json::json!({"message":"not found"})),
+                    };
+                }
+                _ => Response::json(404, &serde_json::json!({"message":"not found"})),
+            };
         }
         if path == "/networks" {
             let list: Vec<serde_json::Value> = state
                 .networks
                 .values()
-                .map(|n| serde_json::json!({"Name":n.name,"Id":n.id,"Driver":n.driver,"Internal":n.internal}))
+                .map(|n| serde_json::json!({"Name":n.name,"Id":n.id,"Driver":n.driver,"Internal":n.internal,"Containers":n.containers}))
                 .collect();
             return Response::json(200, &serde_json::Value::Array(list));
         }
         if path == "/networks/create" && method == "POST" {
-            let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+            let value: serde_json::Value = match parse_body(body) {
+                Ok(v) => v,
+                Err(resp) => return resp,
+            };
             let name = value
                 .get("Name")
                 .and_then(|v| v.as_str())
@@ -1055,16 +1308,107 @@ impl Daemon {
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
             };
         }
+        if let Some(rest) = path.strip_prefix("/networks/") {
+            let (id, action) = match rest.rsplit_once('/') {
+                Some((n, a)) if matches!(a, "connect" | "disconnect") => (n, a),
+                _ => (rest, ""),
+            };
+            let key = lookup(&state.networks, id, |n| n.name == id || n.id == id).cloned();
+            let Some(key) = key else {
+                return Response::json(
+                    404,
+                    &serde_json::json!({"message": format!("no such network: {id}")}),
+                );
+            };
+            return match (method, action) {
+                ("GET", "") => {
+                    let Some(n) = state.networks.get(&key) else {
+                        return Response::json(404, &serde_json::json!({"message":"not found"}));
+                    };
+                    Response::json(
+                        200,
+                        &serde_json::json!({
+                            "Name": n.name, "Id": n.id, "Driver": n.driver,
+                            "Internal": n.internal, "Containers": n.containers, "Aliases": n.aliases
+                        }),
+                    )
+                }
+                ("DELETE", "") => {
+                    let in_use = state
+                        .networks
+                        .get(&key)
+                        .map(|n| !n.containers.is_empty())
+                        .unwrap_or(false);
+                    if in_use {
+                        return Response::json(
+                            409,
+                            &serde_json::json!({"message":"network has active endpoints"}),
+                        );
+                    }
+                    return match state.networks.remove(&key) {
+                        Some(_) => Response::empty(204),
+                        None => Response::json(404, &serde_json::json!({"message":"not found"})),
+                    };
+                }
+                ("POST", "connect") | ("POST", "disconnect") => {
+                    #[derive(Deserialize)]
+                    struct EndpointRequest {
+                        #[serde(default, alias = "Container")]
+                        container: String,
+                    }
+                    let req: EndpointRequest = match parse_body(body) {
+                        Ok(r) => r,
+                        Err(resp) => return resp,
+                    };
+                    if req.container.is_empty() {
+                        return Response::json(
+                            400,
+                            &serde_json::json!({"message":"network endpoint requires Container"}),
+                        );
+                    }
+                    let exists = state
+                        .containers
+                        .iter()
+                        .any(|(k, c)| k == &req.container || c.name == req.container);
+                    if !exists {
+                        return Response::json(
+                            404,
+                            &serde_json::json!({"message": format!("no such container: {}", req.container)}),
+                        );
+                    }
+                    let Some(n) = state.networks.get_mut(&key) else {
+                        return Response::json(404, &serde_json::json!({"message":"not found"}));
+                    };
+                    if action == "connect" {
+                        if !n.containers.contains(&req.container) {
+                            n.containers.push(req.container.clone());
+                        }
+                    } else {
+                        n.containers.retain(|c| c != &req.container);
+                    }
+                    Response::json(
+                        200,
+                        &serde_json::json!({
+                            "message": format!("{} {} network {}", req.container, action, n.name)
+                        }),
+                    )
+                }
+                _ => Response::json(404, &serde_json::json!({"message":"not found"})),
+            };
+        }
         if path == "/volumes" {
             let list: Vec<serde_json::Value> = state
                 .volumes
                 .values()
-                .map(|v| serde_json::json!({"Name":v.name,"Driver":v.driver}))
+                .map(|v| serde_json::json!({"Name":v.name,"Driver":v.driver,"Containers":v.containers}))
                 .collect();
             return Response::json(200, &serde_json::json!({"Volumes":list,"Warnings":[]}));
         }
         if path == "/volumes/create" && method == "POST" {
-            let value: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+            let value: serde_json::Value = match parse_body(body) {
+                Ok(v) => v,
+                Err(resp) => return resp,
+            };
             let name = value
                 .get("Name")
                 .and_then(|v| v.as_str())
@@ -1078,23 +1422,117 @@ impl Daemon {
                 Err(e) => Response::json(400, &serde_json::json!({"message":e.to_string()})),
             };
         }
-        if path.starts_with("/exec/") {
+        if path == "/volumes/prune" && method == "POST" {
+            let doomed: Vec<String> = state
+                .volumes
+                .iter()
+                .filter(|(_, v)| v.containers.is_empty())
+                .map(|(k, _)| k.clone())
+                .collect();
+            let mut deleted = Vec::new();
+            for key in doomed {
+                if state.volumes.remove(&key).is_some() {
+                    deleted.push(key);
+                }
+            }
             return Response::json(
                 200,
-                &serde_json::json!({"Id":"exec","Running":false,"ExitCode":0}),
+                &serde_json::json!({"VolumesDeleted": deleted, "SpaceReclaimed": 0}),
+            );
+        }
+        if let Some(name) = path.strip_prefix("/volumes/") {
+            let Some(key) = state.volumes.get_key_value(name).map(|(k, _)| k.clone()) else {
+                return Response::json(
+                    404,
+                    &serde_json::json!({"message": format!("no such volume: {name}")}),
+                );
+            };
+            return match method {
+                "GET" => {
+                    let Some(v) = state.volumes.get(&key) else {
+                        return Response::json(404, &serde_json::json!({"message":"not found"}));
+                    };
+                    Response::json(
+                        200,
+                        &serde_json::json!({
+                            "Name": v.name, "Driver": v.driver, "Containers": v.containers,
+                            "Mountpoint": v.source
+                        }),
+                    )
+                }
+                "DELETE" => {
+                    let in_use = state
+                        .volumes
+                        .get(&key)
+                        .map(|v| !v.containers.is_empty())
+                        .unwrap_or(false);
+                    if in_use {
+                        return Response::json(
+                            409,
+                            &serde_json::json!({"message":"volume is in use"}),
+                        );
+                    }
+                    return match state.volumes.remove(&key) {
+                        Some(_) => Response::empty(204),
+                        None => Response::json(404, &serde_json::json!({"message":"not found"})),
+                    };
+                }
+                _ => Response::json(404, &serde_json::json!({"message":"not found"})),
+            };
+        }
+        if let Some(rest) = path.strip_prefix("/exec/") {
+            let (id, action) = match rest.rsplit_once('/') {
+                Some((n, a)) => (n, a),
+                None => (rest, ""),
+            };
+            let Some(e) = state.execs.get(id).cloned() else {
+                return Response::json(
+                    404,
+                    &serde_json::json!({"message": format!("no such exec: {id}")}),
+                );
+            };
+            return match action {
+                "json" => Response::json(200, &serde_json::json!({
+                    "ID": e.id, "ContainerID": e.container, "Cmd": e.cmd,
+                    "Running": e.running, "ExitCode": e.exit_code,
+                    "GuestExecution": "UnsupportedPlatform"
+                })),
+                "start" => not_implemented(
+                    "POST /exec/{id}/start",
+                    "exec start requires a native guest runtime; the Rust tree only records exec control-plane state",
+                ),
+                "resize" => not_implemented(
+                    "POST /exec/{id}/resize",
+                    "exec resize requires a guest TTY; no TTY is allocated in this Rust control plane",
+                ),
+                _ => Response::json(404, &serde_json::json!({"message":"not found"})),
+            };
+        }
+        if path == "/build" && method == "POST" {
+            return not_implemented(
+                "POST /build",
+                "Dockerfile build requires a guest execution backend to produce layers; none is available in this Rust tree",
             );
         }
         if path == "/events" {
             return Response::json(200, &serde_json::json!({"events":[]}));
         }
         if path == "/system/df" {
+            let images_size: u64 = state.images.values().map(|i| i.size).sum();
             return Response::json(
                 200,
-                &serde_json::json!({"ImagesSize":0,"ContainersSize":0,"VolumesSize":0}),
+                &serde_json::json!({
+                    "ImagesSize": images_size, "ContainersSize": 0, "VolumesSize": 0,
+                    "Images": state.images.len(), "Containers": state.containers.len(),
+                    "Volumes": state.volumes.len()
+                }),
             );
         }
         if path == "/auth" {
-            return Response::json(200, &serde_json::json!({"Status":"ok"}));
+            return not_implemented(
+                "POST /auth",
+                "registry credential verification is not implemented; this daemon uses bearer-token authorization",
+            );
         }
         Response::json(404, &serde_json::json!({"message":"not found"}))
     }
@@ -1106,7 +1544,30 @@ impl Daemon {
             let method = request.method().as_str().to_string();
             let url = request.url().to_string();
             let mut body = Vec::new();
-            let _ = request.as_reader().read_to_end(&mut body);
+            // Bounded read: one byte past the ceiling is enough to reject.
+            let _ = request
+                .as_reader()
+                .take(MAX_BODY_BYTES as u64 + 1)
+                .read_to_end(&mut body);
+            if body.len() > MAX_BODY_BYTES {
+                let too_large = Response::json(
+                    413,
+                    &serde_json::json!({
+                        "message": "request body exceeds MAX_BODY_BYTES",
+                        "limit": MAX_BODY_BYTES
+                    }),
+                );
+                let mut built = tiny_http::Response::from_data(too_large.body)
+                    .with_status_code(tiny_http::StatusCode(413));
+                if let Ok(header) = tiny_http::Header::from_bytes(
+                    &b"Content-Type"[..],
+                    too_large.content_type.as_bytes(),
+                ) {
+                    built = built.with_header(header);
+                }
+                let _ = request.respond(built);
+                continue;
+            }
             let auth = request
                 .headers()
                 .iter()

@@ -108,15 +108,19 @@ capability 閘控在協定之內。
 
 ## 2. 邊界（刻意先說明）
 
-三個原生來賓後端 — Linux memfd/seccomp/hop、macOS Mach/Seatbelt/HVF、
-Windows LPAC — 在本程式樹中**尚未移植到 Rust**（繼承的 `go-removal` PRD 列
-仍為待辦）。由原始碼可證：`sandbox::run::run` 在所有宿主上都回傳
-`Error::UnsupportedPlatform`，`sandbox::install` 亦然；Rust 端從未配置
-memfd、Mach port、HVF VM 或共享 channel page。八個已提交的 Zig `.bin` stub
-僅為 `include_bytes!` 資料。
+Linux 後端（memfd chanPage + seccomp `RET_TRAP` + `SIGSYS` + Rust host-op
+派發器）在本程式樹中**已移植**，且 `qqbox backend exec-elf` 會執行真實未修改
+的靜態 aarch64 ELF。macOS Mach/Seatbelt/HVF 與 Windows LPAC **尚未移植**
+（繼承的 `go-removal` PRD 列仍為待辦）。`sandbox::run::run` 的一般路徑仍
+回傳 `Error::UnsupportedPlatform`；`sandbox::install` 在 Linux 上現在會安裝
+真實的 seccomp 過濾器。Rust 端會配置真實 memfd 與共享 chanPage，但**不會**
+配置 Mach port、HVF VM、來賓實體記憶體或 vCPU 暫存器。八個已提交的 Zig
+`.bin` stub 仍僅為 `include_bytes!` 資料。詳見
+[NATIVE_BACKEND.zh-Hant.md](NATIVE_BACKEND.zh-Hant.md)。
 
-因此**不存在**來賓實體記憶體、vCPU 暫存器、髒頁點陣圖、執行中的 syscall、
-訊號框架、真實 OS fd 或 TCP 連線狀態，也沒有可暫停的 VMM。
+因此**不存在**可遷移的來賓實體記憶體、vCPU 暫存器、髒頁點陣圖或可暫停的
+VMM。Linux 後端會把系統呼叫 TRAP 到 chanPage 並服務它，但那是控制平面／
+資料平面的中介，不是來賓 RAM 的快照。
 `sandbox/mod.rs` 的 `GuestState` 是在 `prepare` 內建立後即丟棄的四欄結構。
 若宣稱本程式樹能進行 Firecracker 式來賓記憶體遷移，即為捏造。
 `MigrationState::boundary.guest_execution` 記錄
@@ -222,8 +226,8 @@ qqbox migrate send        --secret S --endpoint 127.0.0.1:P --input src.frame \
 
 ## 8. 尚待完成
 
-- `go-removal`（繼承，刻意保持待辦）：把三個原生來賓後端移植到 Rust，是任何
-  來賓記憶體遷移的前置條件。
+- `go-removal`（繼承，刻意保持待辦）：把 macOS／Windows 兩個剩餘的原生來賓
+  後端與完整執行時期移植到 Rust，是任何來賓記憶體遷移的前置條件。
 - `migration-guest-memory`（本回合，刻意保持待辦）：來賓 RAM、vCPU 暫存器、
   髒頁追蹤、執行中的 syscall、真實 fd/TCP 狀態與來賓靜止。需要 VMM 或等價的
   來賓記憶體 API。

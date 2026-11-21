@@ -28,12 +28,16 @@ is process-scoped on every host:
 | macOS | Seatbelt `(deny default)` allowlist that kills an un-rewritten `svc`, bootstrap-port drop, ad-hoc codesign, `os_sync` shared channel |
 | Windows | LPAC AppContainer token plus job kill-on-close, x86-64 ProcessInstrumentationCallback `BACKSTOP_KILL`, auto-reset events, PE cache |
 
-The Linux backstop is **TRAP-to-supervisor**, not kill: `stub/zig/seccomp.zig:181-190`
-changed it so static rewriting is an optimization and a missed site is still serviced;
-`internal/sandbox/config.go:15-20` documents that `ErrKilled` fires only for a genuinely
-rejected call. macOS and Windows do kill. README/AGENTS/llms still claim kill-on-miss and
-are stale. A Rust port must preserve this three-way asymmetry or it regresses JIT-heavy
-guests (V8/Node/.NET), lazy indirect-branch site discovery and stray `0f 05` bytes in data.
+The Linux backstop is **TRAP-to-supervisor**, not kill. The Go-era paths below
+(`stub/zig/seccomp.zig`, `internal/sandbox/config.go`) refer to the removed Go
+tree and are retained only as historical provenance; the live Rust equivalent is
+`crates/qqbox/src/backend/filter.rs` (`RET_TRAP`) plus `trap.rs` (`SIGSYS`),
+both witnessed on Linux aarch64. A rewrite miss is therefore correct but slower:
+static rewriting is the optimization, the trap is the backstop. macOS Seatbelt
+and the Windows x86-64 instrumentation callback kill; Windows arm64 has no
+callback backstop. The Rust Linux backend preserves the asymmetry. A port that
+collapses it to kill-on-miss would regress JIT-heavy guests (V8/Node/.NET),
+lazy indirect-branch site discovery and stray `0f 05` bytes in data.
 Every boundary above is attached to a process, which is the load-bearing fact for this
 decision.
 

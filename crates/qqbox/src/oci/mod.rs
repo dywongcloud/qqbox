@@ -684,23 +684,10 @@ fn is_confined_link(link: &str) -> bool {
     !link.starts_with('/') && !link.split('/').any(|c| c == "..")
 }
 
+/// Delegate to the single shared confiner; the local copy previously rebuilt
+/// absolute candidates as relative and doubled the root prefix.
 fn confined(root: &Path, candidate: &Path) -> Result<PathBuf> {
-    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let mut out = PathBuf::new();
-    for component in candidate.components() {
-        match component {
-            std::path::Component::Normal(s) => out.push(s),
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            _ => {}
-        }
-    }
-    let joined = root.join(out);
-    if !joined.starts_with(&root) {
-        return Err(Error::PathEscape(candidate.display().to_string()));
-    }
-    Ok(joined)
+    crate::vfs::path::confined(root, candidate)
 }
 
 pub fn look_path(root: &Path, program: &str, env: &[String]) -> Result<PathBuf> {

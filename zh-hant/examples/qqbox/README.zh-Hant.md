@@ -23,7 +23,7 @@
 | 底部工作列 | XFCE panel `p=10;x=0;y=0` → `1280x41+0+759`。 |
 | vi／vim | `vim 9.1` 與 `vim-tiny`（`vi`），兩者編輯檔案皆 rc=0。 |
 | GNU 工具鏈 | 約 70 個套件，見英文版 README。 |
-| 套件安裝 | `apt-get install` 可重複執行且 rc=0（`fastfetch`／`tree`／`htop` 皆為 rc=0）；`GDBus ... Spawn.PermissionsInvalid` 已修復。26.04 已移除 `neofetch`，即使 `apt-get update` 成功，`apt-get install -y neofetch` 仍回傳 rc=100 `E: Unable to locate package neofetch`；改以 `fastfetch` 2.57.1 取代。`npm` 同樣無法由 apt 安裝，9.2.0 來自 Node 18 payload。 |
+| 套件安裝 | `apt-get install` 可重複執行且 rc=0（`fastfetch`／`tree`／`htop` 皆為 rc=0）；`GDBus … Spawn.PermissionsInvalid` 已修復。26.04 已移除 `neofetch`，即使 `apt-get update` 成功，`apt-get install -y neofetch` 仍回傳 rc=100 `E: Unable to locate package neofetch`；改以 `fastfetch` 2.57.1 取代。`npm` 同樣無法由 apt 安裝，9.2.0 來自 Node 18 payload。 |
 | Chromium | Debian Chromium 150.0.7871.100 `linux/arm64`，四個 bookworm SONAME 隨附。 |
 | Node／npm／Claude Code | Ubuntu 26.04 的 Node 22 在 qqbox 下因 futex 而 rc=134；改用 noble Node 18.19.1、npm 9.2.0、Claude Code 1.0.128（純 JS），皆已實測。 |
 
@@ -118,7 +118,7 @@ Chromium **自身的** sandbox 在 qqbox 下無法啟用。42 個即時變體（
 | 嘗試 | 結果 |
 | --- | --- |
 | 以 root 啟用 sandbox | `rc=1`，`Running as root without --no-sandbox is not supported`（`zygote_host_impl_linux.cc:101`） |
-| 以 uid 911（`abc`）啟用 sandbox | `rc=134/133`，`FATAL ... zygote_host_impl_linux.cc:221 Check failed: . : No such file or directory (2)` — zygote 在送出 hello 訊息前即死亡 |
+| 以 uid 911（`abc`）啟用 sandbox | `rc=134/133`，`FATAL … zygote_host_impl_linux.cc:221 Check failed: . : No such file or directory (2)` — zygote 在送出 hello 訊息前即死亡 |
 | `--disable-setuid-sandbox`、`--no-zygote`、`--single-process`、使用者命名空間 | 全部失敗；`unshare -U -r` 本身 rc=0 |
 | `--no-sandbox` | 可運作，能呈現 `https://example.com/` |
 
@@ -202,7 +202,7 @@ FIFO 讀取阻塞於 bus 位址，`wait -n -p` 阻塞於第一個子行程結束
 `/Users/dylanwong/.gm-work/qqbox/live-5905-hardened`。
 
 獨立的 RFB 3.8 見證：`qbox:99`、1280x800、4,096,000 raw bytes、6,187 種顏色，
-可見 Applications 選單、三個啟動器、含 `Example Domain - Chro...` 與
+可見 Applications 選單、三個啟動器、含 `Example Domain - Chro…` 與
 `QQBOX-TERMINAL` 的工作列、Chromium 呈現 `https://example.com/`、
 `root@qbox:/out#` 終端機與 Xubuntu 桌布，且沒有 keyring 對話框。開機證據：
 `xfce4_session_procs=0`、`xfconfd_procs=1`、`xfce4_panel_procs=1`、面板視窗
@@ -218,12 +218,12 @@ FIFO 讀取阻塞於 bus 位址，`wait -n -p` 阻塞於第一個子行程結束
 | 每個互動式子 PTY 出現 `x27: command not found` | Dockerfile 的 `printf` 使用 `\x27`，dash 不解譯 `\x`，使字面 `\x27` 寫入 `/root/.bashrc` | 改用八進位 `\047`，啟動腳本就地移除殘留 `\x27` 行 |
 | `bash: initialize job control: no job control in background: Bad file descriptor` | bash 工作控制初始化呼叫 qqbox 無法完整模擬的 `tcsetpgrp` | 終端機子行程 wrapper 匯出 `SHELLOPTS=`（關閉 monitor）；實測乾淨的 `root@qbox:/out#` 與 RFB 打字回顯 |
 | `bash: cannot set terminal process group (1)` | 證據腳本在無 PTY 下執行 `bash -i -c` | 改為 `grep -F 'PS1='`；真正的終端機由 RFB 打字見證 |
-| `Another Window Manager ... is already running`、`Another desktop manager ...` | 啟動腳本同時啟動 `xfwm4`／`xfce4-panel`／`xfdesktop`，而 `xfce4-session` 又各自 autostart 一份（兩個面板、兩個 xfconfd） | 由 `xfce4-session` 擁有各一份，移除手動重複啟動 |
+| `Another Window Manager … is already running`、`Another desktop manager …` | 啟動腳本同時啟動 `xfwm4`／`xfce4-panel`／`xfdesktop`，而 `xfce4-session` 又各自 autostart 一份（兩個面板、兩個 xfconfd） | 由 `xfce4-session` 擁有各一份，移除手動重複啟動 |
 | `Failed to run gnome-keyring-daemon: Failed to execute child process` | `xfce4-session` 的 `compat/LaunchGNOME=true` | `xfce4-session.xml` 設 `LaunchGNOME=false`，並安裝 `gnome-keyring` |
 | `FileNotFoundError: 'xdg-user-dir'` Python traceback | 缺少 `xdg-user-dirs` | 已安裝 |
-| `xfdesktop_regular_file_icon_new ... assertion` 與 `thunarx` GLib CRITICAL | vfs-only 根目錄上的桌面圖示外掛 | `desktop-icons/style=0`，桌布仍由 `xwallpaper` 繪製 |
+| `xfdesktop_regular_file_icon_new … assertion` 與 `thunarx` GLib CRITICAL | vfs-only 根目錄上的桌面圖示外掛 | `desktop-icons/style=0`，桌布仍由 `xwallpaper` 繪製 |
 | `SESSION_MANAGER environment variable not defined` | 終端機在 session 之外啟動 | 改由 `autostart/qqbox-terminal.desktop` 讓 `xfce4-session` 啟動 |
-| 從工作列點擊 Chromium 時 `/usr/bin/chromium ... Segmentation fault` | 原廠 `chromium.desktop` → `wrapped-chromium` → Ubuntu snap stub | `.desktop` 的 Exec 覆寫為 `/usr/local/bin/chromium`，`wrapped-chromium` 指向 Debian wrapper |
+| 從工作列點擊 Chromium 時 `/usr/bin/chromium … Segmentation fault` | 原廠 `chromium.desktop` → `wrapped-chromium` → Ubuntu snap stub | `.desktop` 的 Exec 覆寫為 `/usr/local/bin/chromium`，`wrapped-chromium` 指向 Debian wrapper |
 
 其餘日誌為資訊性質而非錯誤：一則 `libxfce4util-WARNING: Failed to get a
 systemd proxy`（qqbox 沒有 systemd `login1`）、xfwm4 發布屬性前的 `_NET_*`
@@ -244,7 +244,7 @@ icon-helper 斷言上中止，Applications 選單、啟動器與工作列全部�
 `No image loaders are configured`。
 
 修復（已寫入映像檔）：把 `/usr/bin/bwrap` 換成狹義相容墊片，只在參數中出現
-`/usr/libexec/glycin-loaders/...` 時直接執行**真正的** glycin 載入器並保留其
+`/usr/libexec/glycin-loaders/…` 時直接執行**真正的** glycin 載入器並保留其
 參數；其餘呼叫一律交回保存的 `/usr/bin/bwrap.qqbox-orig`。這裡只捨棄 qqbox
 無法提供的 mount 沙箱；qqbox 的 `unshare()` 本來就是「回報成功但無效果」，
 bubblewrap 在此不可能提供真正的隔離，來賓仍受 qqbox 本身限制。此取捨如實

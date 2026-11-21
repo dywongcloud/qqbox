@@ -6,14 +6,18 @@
 
 SHELL := /bin/sh
 CARGO ?= cargo
-ZIG ?= $(shell command -v zig 2>/dev/null || printf %s /tmp/zig-linux-x86_64-0.13.0/zig)
+# The committed freestanding Zig stub sources target Zig 0.13.0. Installed
+# toolchains may differ; stub/build.sh fails closed with a diagnostic rather
+# than silently compiling against an incompatible major version. Set ZIG
+# explicitly to a 0.13.0 binary when rebuilding the .bin payloads.
+ZIG ?= $(shell command -v zig 2>/dev/null)
 export ZIG
 
 .DEFAULT_GOAL := build
 
 .PHONY: build build-release check fmt clippy test stubs stubs-linux \
 	stubs-windows stubs-macos cli daemon mcp runtime run invariants version routes \
-	witness clean
+	witness backend-witness backend-exec-elf zh-hant-verify clean
 
 # ------------------------------------------------------------- rust build -----
 build:
@@ -99,6 +103,7 @@ backend-witness: build
 	RUSTFLAGS='-C linker=rust-lld' $(CARGO) build --offline -p qqbox-cli --target aarch64-unknown-linux-musl
 	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend capabilities
 	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend witness
+	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend memory
 
 # Real unmodified ELF guest under the Rust supervisor. The guest ELF is built
 # off-repo with aarch64-linux-musl-ld -Ttext=0x6f0000000000; the kernel-only
@@ -107,6 +112,19 @@ backend-exec-elf: build
 	RUSTFLAGS='-C linker=rust-lld' $(CARGO) build --offline -p qqbox-cli --target aarch64-unknown-linux-musl
 	podman machine ssh -- $(GUEST_ELF); echo kernel_baseline_rc=$$?
 	podman machine ssh -- $(CURDIR)/target/aarch64-unknown-linux-musl/debug/qqbox backend exec-elf $(GUEST_ELF)
+
+# Verify the SHIPPED Traditional Chinese deliverables, not stale off-repo
+# copies. The off-repo harness holds the blocklist; ROOT and EXPECTED are
+# overridden here so every .md/.txt under zh-hant/ is scanned.
+zh-hant-verify:
+	@python3 -c '\
+import importlib.util, pathlib, sys; \
+spec = importlib.util.spec_from_file_location("zhv", "$(HOME)/.gm-work/qqbox/zh-hant/verify_zh_hant.py"); \
+v = importlib.util.module_from_spec(spec); spec.loader.exec_module(v); \
+root = pathlib.Path("$(CURDIR)/zh-hant"); v.ROOT = root; \
+v.EXPECTED = {str(p.relative_to(root)): (400 if p.suffix == ".txt" else 600) \
+              for p in root.rglob("*") if p.is_file() and p.suffix in {".md", ".txt"}}; \
+sys.exit(v.main())'
 
 clean:
 	$(CARGO) clean

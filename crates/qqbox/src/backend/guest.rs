@@ -30,7 +30,7 @@ static CHILD_GONE: AtomicU32 = AtomicU32::new(0);
 /// Syscall numbers (asm-generic) that the launcher traps by default.
 pub const DEFAULT_TRAPPED: &[u32] = &[64, 172]; // write, getpid
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct GuestOptions {
     /// Syscall numbers to intercept and serve from Rust.
     pub trapped: Vec<u32>,
@@ -55,7 +55,7 @@ impl Default for GuestOptions {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct GuestReport {
     pub host: &'static str,
     pub arch: &'static str,

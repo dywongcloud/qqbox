@@ -152,6 +152,13 @@ pub const fn host_audit_arch() -> u32 {
 /// `jt`/`jf` are u8, so bound n before casting. `futex` and `rt_sigreturn`
 /// are refused: the SIGSYS handler needs them for the chanPage handshake.
 pub fn trap_syscalls(trapped: &[u32]) -> Result<Vec<SockFilter>> {
+    // An unknown audit arch would produce a filter that kills every syscall.
+    // Fail closed instead of installing one.
+    if host_audit_arch() == 0 {
+        return Err(Error::UnsupportedPlatform(
+            "seccomp BPF audit arch is not modelled for this CPU".into(),
+        ));
+    }
     let n = trapped.len();
     if n == 0 || n + 3 > u8::MAX as usize {
         return Err(Error::Message(format!(

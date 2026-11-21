@@ -67,6 +67,11 @@ enum Commands {
     PortsCheck {
         specs: Vec<String>,
     },
+    VfsResolve {
+        guest_path: String,
+        #[arg(long)]
+        root: String,
+    },
     ComposePlan {
         file: PathBuf,
     },
@@ -100,6 +105,10 @@ enum Commands {
         listen: String,
         #[arg(long)]
         token: Option<String>,
+        /// Independent restore capability secret. When omitted, the daemon
+        /// generates one from OS entropy and prints its hex digest at startup.
+        #[arg(long)]
+        migration_secret: Option<String>,
     },
     Migrate {
         #[command(subcommand)]
@@ -156,6 +165,7 @@ enum BackendAction {
     Witness,
     Install,
     Dispatch { syscall: u64, args: Vec<u64> },
+    Memory,
     ExecElf { guest: PathBuf },
 }
 
@@ -225,6 +235,28 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                         );
                     }
                 }
+                BackendAction::Memory => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        let (clock_rc, uname_rc, tv_sec, sysname) =
+                            qqbox::backend::linux::memory_witness().map_err(|e| e.to_string())?;
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "clock_gettime_result": clock_rc,
+                                "uname_result": uname_rc,
+                                "tv_sec": tv_sec,
+                                "sysname": sysname,
+                                "guest_memory": "bounded process_vm_writev, real buffer",
+                            })
+                        );
+                        if clock_rc != 16 || uname_rc != 390 || tv_sec == 0 || sysname != "Linux" {
+                            return Err("bounded guest-memory witness failed".into());
+                        }
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    return Err("backend memory requires a Linux host".into());
+                }
                 BackendAction::ExecElf { guest } => {
                     #[cfg(target_os = "linux")]
                     {
@@ -255,19 +287,24 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                         padded[i] = *v;
                     }
                     #[cfg(target_os = "linux")]
-                    let (nr, ret) = {
-                        qqbox::backend::linux::dispatch_witness(syscall, padded)
-                            .map_err(|e| e.to_string())?
-                    };
+                    {
+                        let (nr, ret) = qqbox::backend::linux::dispatch_witness(syscall, padded)
+                            .map_err(|e| e.to_string())?;
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "syscall": nr, "args": padded, "result": ret,
+                                "host": platform.name(),
+                            })
+                        );
+                    }
                     #[cfg(not(target_os = "linux"))]
-                    let (nr, ret) = (syscall, -38i64);
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "syscall": nr, "args": padded, "result": ret,
-                            "host": platform.name(),
-                        })
-                    );
+                    {
+                        let _ = (syscall, padded);
+                        return Err(
+                            "backend dispatch requires a Linux host; no syscall was served".into(),
+                        );
+                    }
                 }
             }
         }
@@ -426,6 +463,19 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 cfg.volumes.len(),
                 cfg.healthcheck.is_some(),
                 config.history.len()
+            );
+        }
+        Commands::VfsResolve { guest_path, root } => {
+            let ns = qqbox::vfs::Namespace::new(std::path::Path::new(&root))
+                .map_err(|e| e.to_string())?;
+            let r = ns.resolve(&guest_path).map_err(|e| e.to_string())?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "guest": r.guest, "host": r.host.to_string_lossy(),
+                    "read_only": r.read_only,
+                }))
+                .unwrap_or_default()
             );
         }
         Commands::PortsCheck { specs } => {
@@ -591,10 +641,16 @@ fn dispatch(cli: Cli) -> Result<(), String> {
             println!("content-type: {}", response.content_type);
             println!("{}", String::from_utf8_lossy(&response.body));
         }
-        Commands::Daemon { listen, token } => {
-            let daemon = qqbox::daemon::Daemon::new(token).map_err(|e| e.to_string())?;
+        Commands::Daemon {
+            listen,
+            token,
+            migration_secret,
+        } => {
+            let daemon = qqbox::daemon::Daemon::with_migration_secret(token, migration_secret)
+                .map_err(|e| e.to_string())?;
             println!("qqboxd listening on {listen}");
             println!("bearer token: {}", daemon.token().unwrap_or_default());
+            println!("migration capability: {}", daemon.migration_capability());
             daemon.serve(&listen).map_err(|e| e.to_string())?;
         }
         Commands::Migrate { action } => dispatch_migrate(action)?,

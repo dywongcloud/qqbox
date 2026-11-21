@@ -1,6 +1,6 @@
 # OCI 建構項目與支援狀態（繁體中文）
 
-> 本表是「已支援的 OCI 表面」的逐項對照。狀態欄只有三種：支援、條件式支援、以及不在契約內。判定來自控制平面的見證（`make witness`）與英文版說明文件；因為原生來賓執行後端尚未移植到 Rust，Go 原始碼已移除，下表不是來賓執行的端對端證明。
+> 本表是「已支援的 OCI 表面」的逐項對照。狀態欄只有三種：支援、條件式支援、以及不在契約內。判定來自控制平面的見證（`make witness`）與英文版說明文件；Linux 原生後端已移植並見證，macOS／Windows 後端尚未移植，Go 原始碼已移除，因此下表的 OCI 欄位仍是控制平面的接受／拒絕與規劃結果，不是完整來賓執行時期的端對端證明。
 
 ## 1. 已支援的建構項目
 
@@ -17,7 +17,7 @@
 | Compose | JSON 與 YAML、服務、連接埠、磁碟區、`depends_on` 條件 | 支援 | 轉為依依賴排序的執行個體計畫，健康條件會被讀取。 |
 | Compose | 環境、標籤、`cap_add`／`cap_drop`、`security_opt`、部署與重新啟動 | 支援 | 以 `Options`／`Config` 承接，不以環境變數偷偷改行為。 |
 | 安全 | capabilities、`seccomp`、`AppArmor`、資源限制、`no-new-privileges` | 支援／明確拒絕 | 可實作者套用；無法實作者附診斷訊息拒絕，不靜默丟棄。 |
-| Docker 相容 API | 容器、映像檔、網路、磁碟區、exec、events、build、auth、system 共 48 條路由 | 支援 | 每條路由都要求 `Authorization: Bearer <secret>`；零信任、無未驗證預設。 |
+| Docker 相容 API | 容器、映像檔、網路、磁碟區、exec、events、build、auth、system 共 54 條路由 | 支援 | 每條路由都要求 `Authorization: Bearer <secret>`；零信任、無未驗證預設。 |
 
 ## 2. 條件式支援
 
@@ -41,9 +41,9 @@
 
 ## 證據與邊界
 
-逐項的標準很單純：每個建構項目不是被實作並見證，就是被明確拒絕，絕不靜默丟棄。`make witness` 會解析本目錄與範例的映像檔設定、Compose 與常駐程式請求，印出連接埠轉送計畫、網路計畫與路由清單供核對；`cargo build --workspace` 則建置 `crates/qqbox`、`crates/qqbox-cli`、`crates/qqboxd`。請把這些輸出理解為控制平面的證據。
+逐項的標準很單純：每個建構項目不是被實作並見證，就是被明確拒絕，絕不靜默丟棄。`make witness` 會解析本目錄與範例的映像檔設定、Compose 與常駐程式請求，印出連接埠轉送計畫、網路計畫與路由清單供核對；`cargo build --workspace` 則建置五個 crate：`crates/qqbox`、`crates/qqbox-cli`、`crates/qqboxd`、`crates/qqbox-mcp` 與 `crates/qqbox-runtime`。請把這些輸出理解為控制平面的證據。
 
-必須照實說明的限制是：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生來賓執行後端尚未移植到 Rust，Go 原始碼已移除，儲存庫是 Rust 與 Zig。從原始碼建置只準備控制平面，不能執行來賓，因此「宿主檔案讀取被阻擋」「RWX 記憶體對應被拒」之類的宣稱，目前只能是控制平面的接受／拒絕結果，不是來賓執行的端對端證明。若有人宣稱某列已升級為端對端支援，請要求對抗式驗證的記錄與證據；也不得以 `sleep`、timeout 或週期性重查當作正確性的修正。
+必須照實說明的限制是：Linux memfd／`seccomp`／hop 已移植並見證，macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 兩組尚未移植到 Rust；Go 原始碼已移除，儲存庫是 Rust 與 Zig。一般 `qqbox run` 仍回傳 `UnsupportedPlatform`，`qqbox backend exec-elf` 則執行真實未修改的靜態 aarch64 ELF。因此「宿主檔案讀取被阻擋」「RWX 記憶體對應被拒」之類的宣稱，目前只能是控制平面的接受／拒絕結果，不是完整來賓執行時期的端對端證明。若有人宣稱某列已升級為端對端支援，請要求對抗式驗證的記錄與證據；也不得以 `sleep`、timeout 或週期性重查當作正確性的修正。
 
 ## 說明文件連結
 

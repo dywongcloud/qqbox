@@ -26,7 +26,7 @@ ICMP echo（`ping`）有明確的支援路徑：使用者空間 ICMP echo 客戶
 
 ## 已知限制
 
-Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生來賓執行後端尚未移植到 Rust；Go 原始碼已移除，儲存庫是 Rust 與 Zig。`cargo build --workspace` 只準備控制平面，`make witness` 只見證控制平面的解析、接受／拒絕與規劃，因此從原始碼建置目前仍無法執行來賓，本頁描述的桌面畫面來自先前的執行時期見證，不應被解讀為目前工作區已能跑起來。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正；啟動時序問題請修正同步本身。其餘已知問題請見 [../../README.zh-Hant.md](../../README.zh-Hant.md) 與 [../../docs/PORT_STATUS.zh-Hant.md](../../docs/PORT_STATUS.zh-Hant.md)。
+Linux memfd／`seccomp`／hop 已移植到 Rust 並有即時見證，macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 兩組尚未移植；Go 原始碼已移除，儲存庫是 Rust 與 Zig。一般 `qqbox run` 仍回傳 `UnsupportedPlatform`，但 `qqbox backend exec-elf` 會執行真實未修改的靜態 aarch64 ELF。本頁描述的桌面畫面來自先前的執行時期見證，不應被解讀為目前工作區已能執行完整桌面。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正；啟動時序問題請修正同步本身。其餘已知問題請見 [../../README.zh-Hant.md](../../README.zh-Hant.md) 與 [../../docs/PORT_STATUS.zh-Hant.md](../../docs/PORT_STATUS.zh-Hant.md)。
 
 ## 說明文件連結
 

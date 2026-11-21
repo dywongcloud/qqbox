@@ -12,13 +12,15 @@ instructions are redirected into a Rust supervisor that emulates the Linux ABI.
 
 All Go source and Go build tooling were removed at the user's request; the tree is
 Rust + Zig only. The Rust control plane (`crates/qqbox`) prepares runs and owns
-OCI/Compose/daemon/runtime-spec/MCP/library surfaces. The three native
-guest-execution backends (Linux memfd/seccomp/hop, macOS Mach/Seatbelt/HVF,
-Windows LPAC) are NOT ported to Rust, so `qqbox run` returns
-`Error::UnsupportedPlatform` after preparing the control plane. See
-docs/PORT_STATUS.md. The live Xubuntu 26 desktop is booted with the pre-removal
-Go runtime binary preserved off-repo. The in-guest stub and every native helper
-are Zig; stub and supervisor talk over the shared-memory channel.
+OCI/Compose/daemon/runtime-spec/MCP/library surfaces. The Linux native
+guest-execution backend (memfd/seccomp `RET_TRAP`/`SIGSYS`/Rust host-op hop) IS
+ported and live-witnessed, including a real unmodified static aarch64 ELF via
+`qqbox backend exec-elf`. macOS Mach/Seatbelt/HVF and Windows LPAC are NOT
+ported; `qqbox run` returns `Error::UnsupportedPlatform` for the general case.
+See docs/NATIVE_BACKEND.md and docs/PORT_STATUS.md. The live Xubuntu 26 desktop
+is booted with the pre-removal Go runtime binary preserved off-repo. The
+committed in-guest stubs and native helpers are Zig; stub and supervisor talk
+over the shared-memory channel.
 
 ## Rule 1: only syscall instructions are rewritten
 

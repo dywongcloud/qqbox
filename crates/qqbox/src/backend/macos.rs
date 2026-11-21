@@ -66,7 +66,7 @@ impl Platform for MacBackend {
             chan_page_bytes: crate::zig::abi::CHAN_SIZE,
             implemented_syscalls: 0,
             note: format!(
-                "Real Mach probe: mach_task_self={task}, host_page_size={page_size}. \
+                "Real Mach probe: mach_task_self={task}, vm_page_size={page_size}. \
                  Seatbelt profile compilation, MAP_JIT, the named MAP_SHARED chanPage, \
                  os_sync handshake, broker port, ad-hoc codesign and HVF guest launch \
                  are NOT ported; HVF additionally needs the com.apple.security.hypervisor \

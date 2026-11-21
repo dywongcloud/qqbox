@@ -1,9 +1,10 @@
 //! MCP server for qqbox. Implements JSON-RPC 2.0 `initialize`,
 //! `tools/list` and `tools/call` over stdio (newline-delimited JSON) or
-//! streamable HTTP. The `run` tool calls the Rust library directly; because
-//! the three native guest-execution backends are not ported yet, it returns
-//! the library's `UnsupportedPlatform` diagnostic as a tool error rather than
-//! pretending the guest ran. See docs/PORT_STATUS.md.
+//! streamable HTTP. The `run` tool calls the Rust library directly; the general
+//! `qqbox run` path still returns `UnsupportedPlatform`, so it reports the
+//! library's diagnostic as a tool error rather than pretending the guest ran.
+//! The Linux trap-to-supervisor backend IS ported (see docs/NATIVE_BACKEND.md);
+//! `qqbox backend exec-elf` is its witnessed executable path.
 
 use clap::Parser;
 use qqbox::daemon::Daemon;
@@ -39,7 +40,7 @@ fn tool_list() -> Value {
     json!([
         {
             "name": "run",
-            "description": "Run a command in a disposable sandbox created from an OCI image. Returns exit code, stdout and stderr. Currently returns the native-backend diagnostic because the Rust guest backends are not ported.",
+            "description": "Run a command in a disposable sandbox created from an OCI image. The general qqbox run path still returns UnsupportedPlatform; the Linux trap-to-supervisor backend is ported and witnessed via qqbox backend exec-elf.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -129,16 +130,29 @@ fn call_tool(name: &str, args: &Value, cli: &Cli) -> Value {
                     json!({"exitCode": code, "stdout": "", "stderr": ""}).to_string(),
                     false,
                 ),
-                Err(err) => text_result(
-                    json!({
-                        "exitCode": null,
-                        "stdout": "",
-                        "stderr": err.to_string(),
-                        "qqboxDiagnostic": "the Rust control plane prepared the run but no native guest backend is ported; see docs/PORT_STATUS.md"
-                    })
-                    .to_string(),
-                    true,
-                ),
+                Err(err) => {
+                    let platform = qqbox::backend::current();
+                    let boundary = match platform.capabilities() {
+                        Ok(c) => json!({
+                            "host": c.host, "arch": c.arch,
+                            "sigsysHandler": c.sigsys_handler,
+                            "implementedSyscalls": c.implemented_syscalls,
+                            "note": c.note
+                        }),
+                        Err(e) => json!({"host": platform.name(), "error": e.to_string()}),
+                    };
+                    text_result(
+                        json!({
+                            "exitCode": null,
+                            "stdout": "",
+                            "stderr": err.to_string(),
+                            "qqboxDiagnostic": err.to_string(),
+                            "nativeBackend": boundary
+                        })
+                        .to_string(),
+                        true,
+                    )
+                }
             }
         }
         "qqbox_invariants" => text_result(security::audit().join("\n"), false),

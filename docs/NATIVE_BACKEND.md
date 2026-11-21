@@ -39,7 +39,10 @@ files / ~69,300 lines. Reproducing it fully is not a one-session job.
 `crates/qqbox/src/sandbox/mod.rs:install()` on Linux now calls
 `backend::filter::install()` instead of returning `UnsupportedPlatform`.
 
-CLI: `qqbox backend capabilities | witness | install | dispatch <nr> <args…> | exec-elf <path>`.
+CLI: `qqbox backend capabilities | witness | install | dispatch <nr> <args…> | memory | exec-elf <path>`.
+`install` now installs the chanPage, `SIGSYS` handler, a serving host-op
+thread and the filter together; a TRAP filter without a serving supervisor
+would hang, so it is never installed alone.
 
 ## Live witness (this session)
 
@@ -53,7 +56,7 @@ Real `qqbox backend witness` output:
 {
   "host": "linux", "arch": "aarch64",
   "channel_fd": 3, "channel_bytes": 4096,
-  "filter_instructions": 4,
+  "filter_instructions": 7,
   "trapped_syscall": 173,
   "supervisor_result": 1364279887,
   "guest_observed_result": 1364279887,
@@ -70,12 +73,17 @@ filter, the same instruction returns the Rust supervisor's sentinel
 seccomp trap, a real SIGSYS register save/restore, a real chanPage request,
 a real Rust supervisor dispatch, and a real guest resume.
 
-`qqbox backend dispatch` witnesses on the same kernel:
-`getpid(172) -> 52472`, `brk(214) -> 0`, `clock_gettime(113) -> 0`,
-unknown `999 -> -38` (ENOSYS, not a fake success).
+`qqbox backend dispatch` witnesses on the same kernel (the pid varies):
+`getpid(172) -> 91676`, `brk(214) -> 0`, `clock_gettime(113) -> -14`
+(EFAULT: no guest buffer was supplied), unknown `999 -> -38` (ENOSYS).
+`qqbox backend memory` proves the bounded data plane with a real buffer:
+`clock_gettime_result=16` bytes written, `uname_result=390` bytes written,
+`tv_sec=1795229114`, `sysname=Linux`, rc=0. No syscall returns a fake success.
 
 `qqbox backend capabilities` on Linux reports `memfd_channel=true`,
-`seccomp_trap=true`, `sigsys_handler=true`, `implemented_syscalls=16`.
+`seccomp_trap=true`, `sigsys_handler=true`, `implemented_syscalls=14`.
+The count is `hostop::IMPLEMENTED.len()` — derived from the dispatch table,
+not a hand-maintained literal.
 
 ### Real unmodified ELF guest (this session)
 
@@ -110,9 +118,11 @@ gap, not a backend code failure, and is not claimed as verified.
   resolution, `StubWindow` adoption, `REP_START`, the 79 MiB memfd geometry,
   `PROT_R` hop alias / hop thread / `HOP_FORK`.
 - The ~205 real syscall handlers (fs, net, procfs, signal, SysV IPC, ptrace).
-  Rust currently implements 16; the rest return `-ENOSYS`.
-- Signal frames, `tgkill` KICK, Landlock, `process_vm_readv/writev`, `SCM_RIGHTS`
-  fd passing, `openat2` chokepoint, ptrace register emulation.
+  Rust currently serves 14 with real effects; the rest return `-ENOSYS`.
+- Signal frames, `tgkill` KICK, Landlock, `SCM_RIGHTS` fd passing, `openat2`
+  chokepoint, ptrace register emulation. `guest.rs` uses `process_vm_readv`
+  for a bounded 4096-byte `write` buffer; the full read/write data plane is
+  not ported.
 - macOS: named chanPage, `os_sync` handshake, compiled Seatbelt profile,
   MAP_JIT, Mach broker/fdlink/futex, ad-hoc codesign, `legacyX18` patch,
   `posix_spawn` special port, and the HVF VM (which needs the

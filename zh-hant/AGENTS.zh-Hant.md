@@ -4,7 +4,7 @@
 
 ## 前提：先讀懂邊界
 
-在動手之前，先把三件事記清楚。第一，宿主端後盾是 Linux `seccomp` 的 `RET_TRAP`（`SIGSYS`）、macOS `Seatbelt`、以及 Windows instrumentation callback 搭配 `LPAC`；三者的行為不對稱，不要把它們寫成同一種結果。第二，`vfs` Namespace 是唯一的檔案系統，監督器擁有檔案與網路的資料平面。第三，原生來賓執行後端尚未移植到 Rust，因此 `cargo build --workspace` 只準備控制平面、`make witness` 只見證控制平面；從原始碼建置目前仍無法執行來賓，任何說明都必須照實陳述。以下六條規則不是風格建議，而是讓邊界維持單一、可驗證的條件。
+在動手之前，先把三件事記清楚。第一，宿主端後盾是 Linux `seccomp` 的 `RET_TRAP`（`SIGSYS`）、macOS `Seatbelt`、以及 Windows instrumentation callback 搭配 `LPAC`；三者的行為不對稱，不要把它們寫成同一種結果。第二，`vfs` Namespace 是唯一的檔案系統，監督器擁有檔案與網路的資料平面。第三，Linux 原生來賓執行後端已移植到 Rust 並有即時見證（`qqbox backend exec-elf` 可執行未修改的靜態 aarch64 ELF），macOS 與 Windows 後端尚未移植，因此一般 `qqbox run` 仍回傳 `UnsupportedPlatform`；任何說明都必須照實陳述。以下六條規則不是風格建議，而是讓邊界維持單一、可驗證的條件。
 
 ## 規則一：只重寫系統呼叫指令
 
@@ -45,7 +45,7 @@
 ## 在這個儲存庫工作
 
 - 建置入口是 `cargo build --workspace`，見證是 `make witness`；兩者都屬於控制平面。工作區產生四個執行檔：`qqbox`（CLI）、`qqboxd`（Docker API daemon）、`qqbox-mcp`（MCP 伺服器）、`qqbox-runtime`（OCI runtime shim）。
-- 誠實邊界：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生後端尚未移植到 Rust，Go 原始碼已移除。從原始碼建置只能準備控制平面，不能執行來賓；不要在說明文件、註解或提交訊息裡把這件事寫成「已可執行」。
+- 誠實邊界：Linux memfd／`seccomp`／hop 已移植並有即時見證；macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 兩組尚未移植到 Rust，Go 原始碼已移除。一般 `qqbox run` 仍回傳 `UnsupportedPlatform`，但 `qqbox backend exec-elf` 會執行真實未修改的靜態 aarch64 ELF；不要在說明文件、註解或提交訊息裡把兩者混為一談。
 - 變更若影響多個宿主，先閘住該項目，再跑完整語料；不要用未經見證的宣稱填補空白。
 - 註解保持精簡，程式碼本身要能讀懂。不要在程式碼、註解或提交訊息裡標註工具或模式名稱。
 

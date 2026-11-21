@@ -6,8 +6,9 @@ plane for a complete runtime.
 
 ## Done and witnessed
 
-- A Cargo workspace (`crates/qqbox`, `crates/qqbox-cli`, `crates/qqboxd`) builds
-  cleanly with `cargo build --workspace` on darwin/arm64 with rustc 1.98.1.
+- A Cargo workspace of five crates (`qqbox`, `qqbox-cli`, `qqboxd`, `qqbox-mcp`,
+  `qqbox-runtime`) builds cleanly with `cargo build --workspace` on darwin/arm64
+  with rustc 1.98.1.
 - The full typed configuration surface: `Options` (every `With…` option), `Config`
   (55 fields), image config, runtime-spec config, compose spec, labels, ports,
   volumes, network mode, capabilities, resource limits, seccomp and AppArmor profiles,
@@ -26,7 +27,7 @@ plane for a complete runtime.
 - Docker Compose: JSON and YAML, short/long ports and volumes, list/map environment
   and labels, `depends_on` with health conditions, networks, volumes, healthchecks,
   restart, capabilities, security options, and a dependency-ordered instance plan.
-- A Docker-compatible daemon with 48 routes, real JSON, label filters, HostConfig
+- A Docker-compatible daemon with 54 routes, real JSON, label filters, HostConfig
   and NetworkingConfig, fail-closed handling of unsupported security keys, stored
   cancellation so `DELETE --force` tears down, and bearer-token authz on every route.
 - The Zig stub ABI frozen in `crates/qqbox/src/zig/abi.rs`: 128-byte `chanPage`,
@@ -178,7 +179,7 @@ registers, and a Rust host-op dispatcher, all live-witnessed on a real Linux
 with `trap_hits=1`. `sandbox::install()` on Linux is now real, and `qqbox backend exec-elf`
 runs a real unmodified static aarch64 ELF under the Rust supervisor (witness:
 kernel-only exit 1, supervised exit 42). A full guest
-runtime — ELF mapping, trampolines, the ~205-syscall table, hop alias — is still
+runtime — PIE/ET_DYN, trampolines, the ~205-syscall table, hop alias — is still
 not ported, and macOS/Windows guest launch is not ported. `go-removal` stays
 pending.
 
@@ -199,19 +200,22 @@ build entry point; `*.go`, `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `build/
 `cmd/`, `internal/` are gone. The committed freestanding Zig stubs and their build
 scripts remain and are embedded with `include_bytes!` by `crates/qqbox/src/zig/abi.rs`.
 
-**Honest consequence:** the three native guest-execution backends (Linux memfd/seccomp/hop,
-macOS Mach/Seatbelt/HVF, Windows LPAC) were never ported to Rust. Removing the Go
-sources therefore removes the only working guest runtime from the repository. This is
-a deliberate, user-ordered change, not a silent regression: a from-source Rust build
-prepares and validates the control plane but cannot execute a guest. The live desktop
-on VNC 5905 was booted with the pre-removal Go runtime binary, which is preserved
-outside the repository in `/Users/dylanwong/.gm-work/qqbox/ping-impl/laboon-pingfix`.
+**Honest consequence (updated):** the Linux seccomp/hop backend IS now ported to
+Rust (see docs/NATIVE_BACKEND.md); macOS Mach/Seatbelt/HVF and Windows LPAC are
+not. The Go sources are gone. `qqbox run` still returns
+`Error::UnsupportedPlatform` for the general case, but `qqbox backend exec-elf`
+executes a real unmodified static aarch64 ELF under the Rust supervisor from a
+from-source build. The live desktop on VNC 5905 was booted with the pre-removal
+Go runtime binary, preserved outside the repository in
+`/Users/dylanwong/.gm-work/qqbox/ping-impl/laboon-pingfix`. `go-removal` stays
+pending until all three backends pass the historical regression corpus.
 
-To finish the port: implement a Rust `Platform` trait (the LiteBox North/South split),
-keep the committed Zig stubs byte-identical, reproduce the memfd/Mach/LPAC launch
-contracts, and serve the syscall table through the 128-byte channel. Only after that
-backend passes the historical regression corpus on each host can a from-source build
-boot a guest.
+The Rust `Platform` trait now exists (`backend/mod.rs`) and the Linux
+memfd/chanPage/seccomp/`SIGSYS` launch contract is implemented and witnessed.
+Remaining work: reproduce the macOS Mach/Seatbelt/HVF and Windows LPAC launch
+contracts, port PIE/ET_DYN and trampoline islands, and serve the full ~205-syscall
+table through the 128-byte channel. `go-removal` closes only after all three
+backends pass the historical regression corpus on their own hosts.
 
 ### Sizing and fork identity
 

@@ -25,7 +25,7 @@ ICMP echo（`ping`）只在使用者空間 ICMP echo 客戶端與宿主未特權
 
 ## 建置與見證的誠實邊界
 
-`cargo build --workspace` 與 `make witness` 屬於控制平面；`make witness` 會拿本目錄的 OCI 設定、Compose 與常駐程式請求範本做解析與規劃見證，並印出結果供核對。請注意：Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生來賓執行後端尚未移植到 Rust，Go 原始碼已移除，儲存庫是 Rust 與 Zig。因此從原始碼建置只能準備控制平面，目前仍無法執行來賓；桌面範例的畫面證據來自先前的執行時期，不應被解讀為「目前的工作區可以跑起來」。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正；啟動時序的問題請修正同步本身。細節見 [../docs/PORT_STATUS.zh-Hant.md](../docs/PORT_STATUS.zh-Hant.md)。
+`cargo build --workspace` 與 `make witness` 屬於控制平面；`make witness` 會拿本目錄的 OCI 設定、Compose 與常駐程式請求範本做解析與規劃見證，並印出結果供核對。請注意：Linux memfd／`seccomp`／hop 已移植到 Rust 並有即時見證，macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 兩組尚未移植；Go 原始碼已移除，儲存庫是 Rust 與 Zig。一般 `qqbox run` 仍回傳 `UnsupportedPlatform`，但 `qqbox backend exec-elf` 會執行真實未修改的靜態 aarch64 ELF；桌面範例的畫面證據來自先前的執行時期，不應被解讀為「一般路徑已能執行完整桌面」。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正；啟動時序的問題請修正同步本身。細節見 [../docs/PORT_STATUS.zh-Hant.md](../docs/PORT_STATUS.zh-Hant.md)。
 
 ## 說明文件連結
 

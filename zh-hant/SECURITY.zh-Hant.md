@@ -10,7 +10,7 @@
 
 ## 零信任常駐程式權杖
 
-`qqboxd` 是與 Docker 相容的常駐程式，提供 48 條路由。每一條路由都要求 `Authorization: Bearer <secret>`；沒有未經驗證的預設值，也沒有「本機就放行」的例外。啟動時以 `--token <secret>` 帶入憑證，並把憑證視為不可回復的機密：不要寫入記錄檔、不要放進映像檔或 Compose 設定、不要提交到儲存庫、不要在回報問題時附上真實權杖；輪替時舊憑證應立即失效。控制平面與資料平面的授權不可混為一談：取得 API 存取權，不等於取得宿主檔案讀取權，也不等於取得來賓位址空間的寫入權。若懷疑有路由略過驗證，請把它當作隔離邊界的缺陷回報，而不是當作便利功能保留。
+`qqboxd` 是與 Docker 相容的常駐程式，提供 54 條路由。每一條路由都要求 `Authorization: Bearer <secret>`；沒有未經驗證的預設值，也沒有「本機就放行」的例外。啟動時以 `--token <secret>` 帶入憑證，並把憑證視為不可回復的機密：不要寫入記錄檔、不要放進映像檔或 Compose 設定、不要提交到儲存庫、不要在回報問題時附上真實權杖；輪替時舊憑證應立即失效。控制平面與資料平面的授權不可混為一談：取得 API 存取權，不等於取得宿主檔案讀取權，也不等於取得來賓位址空間的寫入權。若懷疑有路由略過驗證，請把它當作隔離邊界的缺陷回報，而不是當作便利功能保留。
 
 ## 對外允許清單與 `-net`
 
@@ -32,7 +32,7 @@ Debian Chromium 150 `linux/arm64` 是真實瀏覽器，不是 NetSurf。它的 s
 
 ## 誠實的驗證範圍
 
-Linux memfd／`seccomp`／hop、macOS Mach／`Seatbelt`／HVF、Windows `LPAC` 三組原生來賓執行後端尚未移植到 Rust；Go 原始碼已移除，儲存庫是 Rust 與 Zig。`cargo build --workspace` 只準備控制平面，`make witness` 只見證控制平面的接受／拒絕與規劃結果，不是來賓執行的端對端證明。因此在目前狀態下，不應宣稱「宿主檔案讀取已被阻擋」或「記憶體上限與 RWX 對應已端對端驗證」；請把這類宣示標為控制平面結果，並到 [docs/PORT_STATUS.zh-Hant.md](docs/PORT_STATUS.zh-Hant.md) 查看邊界。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正，同步問題必須修正同步本身。
+Linux memfd／`seccomp`／hop 原生來賓執行後端已移植到 Rust 並有即時見證；macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 兩組尚未移植。Go 原始碼已移除，儲存庫是 Rust 與 Zig。一般 `qqbox run` 仍回傳 `UnsupportedPlatform`，但 `qqbox backend exec-elf` 會執行真實未修改的靜態 aarch64 ELF。`make witness` 只見證控制平面的接受／拒絕與規劃結果，不是完整執行時期的端對端證明。因此在目前狀態下，不應宣稱「宿主檔案讀取已被阻擋」或「記憶體上限與 RWX 對應已端對端驗證」；請把這類宣示標為控制平面結果，並到 [docs/PORT_STATUS.zh-Hant.md](docs/PORT_STATUS.zh-Hant.md) 查看邊界。也不得以 `sleep`、timeout 或週期性重查當作正確性的修正，同步問題必須修正同步本身。
 
 ## 如何回報問題
 
