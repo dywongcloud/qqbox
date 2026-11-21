@@ -55,11 +55,12 @@ path; mapping memory, holding descriptors and forking happen only on the host-op
    frame, rewrite cache, vfs Namespace or egress policy. No existing primitive prevents
    it: `AGENTS.md:60-68` explicitly says the guest can write everything except the hop
    thread's register-held state.
-3. The channel ABI is a fixed shared-memory layout (`chanabi.go:126-146`, 128 bytes;
-   `chanwin.go`, 1 MiB slots + 16 MiB signals + 256 KiB windows). It is indexed by slot,
-   not by instance. Sharing it requires a new per-instance keying scheme, and the
-   message-kind space already collides (`repFault==repMaps==12`,
-   `repExecPrepare==repAdopt==13`), so a naive union misroutes replies.
+3. The channel ABI is a fixed shared-memory layout (128-byte `ChannelRequest`,
+   frozen in `crates/qqbox/src/zig/abi.rs`). The Rust backend's chanPage is one
+   4096-byte slot per guest process (`backend/channel.rs`); sharing it between
+   instances would require a new per-instance keying scheme. The removed Go
+   engine's `repFault==repMaps==12` / `repExecPrepare==repAdopt==13` message-kind
+   collisions are historical evidence that a naive union misroutes replies.
 4. The rewrite cache, vfs Namespace, egress allowlist and vnet registry are
    per-instance today (`VNET.md:116` says dnet is run-scoped). Sharing them without
    per-instance partitioning is cache poisoning and cross-instance file/network access.
@@ -91,12 +92,15 @@ cheap win: it removes a global collision without attempting a global SAS.
 
 ## Evidence
 
-- `internal/sandbox/chanabi.go:126-146`, `chan.go:18-195`, `chanwin.go:8-20`,
-  `hop_linux.go:20-155`, `run_linux.go:62-200`, `run_darwin.go:249-252`,
-  `run_windows.go:85-98`, `stubproc_windows.go:121-189`.
-- `stub/zig/seccomp.zig:118-216`, `stub/zig/landlock.zig:24-39`,
-  `stub/macos/stub.zig:167-223`, `stub/windows/stub.zig:1-25,51-55`.
-- `AGENTS.md:60-68`, `README.md:182-196`, `internal/sandbox/VNET.md:116`.
+- Rust ABI and backend: `crates/qqbox/src/zig/abi.rs`,
+  `crates/qqbox/src/backend/{channel,filter,trap,hostop,guest,linux,macos,windows}.rs`.
+  The Go-era files (`internal/sandbox/chanabi.go`, `chan.go`, `chanwin.go`,
+  `hop_linux.go`, `run_linux.go`, `run_darwin.go`, `run_windows.go`,
+  `stubproc_windows.go`) were removed with the Go tree; their line numbers are
+  historical provenance only, not live citations.
+- Committed freestanding Zig stubs: `stub/zig/seccomp.zig`,
+  `stub/zig/landlock.zig`, `stub/macos/stub.zig`, `stub/windows/stub.zig`.
+- `AGENTS.md`, `README.md`, `docs/OCI_MATRIX.md`. The Go-era `internal/sandbox/VNET.md:116` citation refers to the removed Go tree and is historical provenance only.
 - Adversarial recon receipts: Zig ABI slice
   `1794973959109-7-9a13e21301646890` (43 Zig sources),
   `1794974411181-253-1a6544bd5e8fa11` (no single-address-space mode exists),

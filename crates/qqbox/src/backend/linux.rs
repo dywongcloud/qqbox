@@ -70,7 +70,9 @@ impl Platform for LinuxBackend {
             arch: std::env::consts::ARCH,
             memfd_channel: true,
             seccomp_trap: seccomp,
-            sigsys_handler: true,
+            // Register save/restore is aarch64-only; do not claim a handler
+            // exists on x86_64 Linux where install_handler fails closed.
+            sigsys_handler: cfg!(target_arch = "aarch64"),
             mach_ports: false,
             seatbelt: false,
             hypervisor_framework: false,

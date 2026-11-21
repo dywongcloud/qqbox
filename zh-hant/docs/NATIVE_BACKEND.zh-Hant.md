@@ -31,7 +31,7 @@ Go 程式樹為 445 個檔案／85,620 行；`internal/sandbox` 單一目錄就�
 | `hostop.rs` | 建於 vfs Namespace 之上的 Rust host-op 分派器：行程識別、brk、clock、stdio read/write、經 `Namespace::resolve` 的 openat、close、fd 表；未實作的 syscall 回傳 `-ENOSYS`，不假裝成功。 |
 | `linux.rs` | 實作 `Platform` 的 `LinuxBackend`；`witness()` fork 來賓執行緒、安裝過濾器與處理器、執行真實 `getppid`、透過 chanPage 服務並回復。 |
 | `macos.rs` | 透過 mach2 的真實 Mach 探測（`mach_task_self`、`vm_page_size`）；來賓啟動誠實回報 `UnsupportedPlatform`。 |
-| `windows.rs` | 記錄契約並交叉編譯；本機沒有 Windows 宿主。 |
+| `windows.rs` | 記錄契約；`x86_64-pc-windows-msvc` 交叉檢查被本 macOS 宿主上 `ring` 的 C 工具鏈／sysroot 缺口擋住，也沒有 Windows 宿主可做即時見證。 |
 
 Linux 上的 `crates/qqbox/src/sandbox/mod.rs:install()` 現在呼叫
 `backend::filter::install()`，不再回傳 `UnsupportedPlatform`。

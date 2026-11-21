@@ -34,7 +34,7 @@ files / ~69,300 lines. Reproducing it fully is not a one-session job.
 | `linux.rs` | `LinuxBackend` implementing `Platform`; `witness()` forks a guest thread, installs the filter + handler, executes a real `getppid`, serves it through the chanPage and resumes |
 | `guest.rs` | maps a real unmodified static aarch64 ET_EXEC ELF (PT_LOAD W^X, `/proc/self/maps` collision check, cache flush, fresh stack), forks, installs a parameterized seccomp filter, jumps to the ELF entry, and serves the guest's trapped syscalls over the chanPage in an event-driven loop |
 | `macos.rs` | real Mach probe (`mach_task_self`, `vm_page_size`) via mach2; honest `UnsupportedPlatform` for guest launch |
-| `windows.rs` | contract recorded, cross-compiled; no Windows host available |
+| `windows.rs` | contract recorded; the `x86_64-pc-windows-msvc` cross-check is blocked by `ring`'s C toolchain/sysroot gap on this macOS host, and no Windows host exists for a live witness |
 
 `crates/qqbox/src/sandbox/mod.rs:install()` on Linux now calls
 `backend::filter::install()` instead of returning `UnsupportedPlatform`.
