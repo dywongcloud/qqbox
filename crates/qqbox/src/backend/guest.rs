@@ -168,7 +168,11 @@ unsafe extern "C" fn on_sigsys(_sig: i32, _info: *mut libc::siginfo_t, _uc: *mut
 /// mappings. `MAP_FIXED` would silently discard existing mappings, so refuse
 /// the collision instead of corrupting the supervisor.
 fn disjoint_from_self(bytes: &[u8]) -> Result<()> {
-    let eh = unsafe { &*bytes.as_ptr().cast::<Ehdr>() };
+    let eh = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<Ehdr>()) };
+    let phdr_bytes = eh.phnum as usize * eh.phentsize as usize;
+    if eh.phoff as usize + phdr_bytes > bytes.len() {
+        return Err(Error::Message("guest program headers out of bounds".into()));
+    }
     let maps = std::fs::read_to_string("/proc/self/maps")
         .map_err(|e| Error::Message(format!("read /proc/self/maps: {e}")))?;
     for line in maps.lines() {
@@ -211,7 +215,7 @@ fn map_guest(bytes: &[u8], stack_bytes: usize) -> Result<MappedGuest> {
     if bytes.len() < std::mem::size_of::<Ehdr>() {
         return Err(Error::Message("guest ELF is truncated".into()));
     }
-    let eh = unsafe { &*bytes.as_ptr().cast::<Ehdr>() };
+    let eh = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<Ehdr>()) };
     if &eh.ident[..4] != b"\x7fELF" || eh.ident[4] != 2 {
         return Err(Error::Message("guest is not a 64-bit ELF".into()));
     }
@@ -229,7 +233,7 @@ fn map_guest(bytes: &[u8], stack_bytes: usize) -> Result<MappedGuest> {
         if off + std::mem::size_of::<Phdr>() > bytes.len() {
             return Err(Error::Message("guest program header out of bounds".into()));
         }
-        let ph = unsafe { &*bytes.as_ptr().add(off).cast::<Phdr>() };
+        let ph = unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(off).cast::<Phdr>()) };
         if ph.ptype != 1 {
             continue;
         }
