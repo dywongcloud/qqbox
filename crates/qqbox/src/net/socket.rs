@@ -477,14 +477,19 @@ impl SocketTable {
                 "accept requires a listening socket".to_owned(),
             ));
         }
-        match table.pending.entry(fd).or_default().pop_front() {
-            Some(accepted_fd) => {
-                if let Some(socket) = table.sockets.get_mut(&accepted_fd) {
-                    socket.state = SocketState::Connected;
+        loop {
+            match table.pending.entry(fd).or_default().pop_front() {
+                Some(accepted_fd) => {
+                    if let Some(socket) = table.sockets.get_mut(&accepted_fd) {
+                        if socket.state != SocketState::Closed {
+                            socket.state = SocketState::Connected;
+                            return Ok(Some(accepted_fd));
+                        }
+                    }
+                    // Dead queued descriptor; keep draining.
                 }
-                Ok(Some(accepted_fd))
+                None => return Ok(None),
             }
-            None => Ok(None),
         }
     }
 
@@ -657,6 +662,14 @@ impl SocketTable {
         if let Some(peer_fd) = table.links.remove(&fd) {
             table.links.remove(&peer_fd);
         }
+        // A closed fd must not survive in another listener's accept queue:
+        // popping it there used to set it back to Connected and return a dead
+        // descriptor whose peer had been cleared. Removing it from the table
+        // also stops the monotonic `next_fd` from leaking one Socket per close.
+        for queue in table.pending.values_mut() {
+            queue.retain(|queued| *queued != fd);
+        }
+        table.sockets.remove(&fd);
         Ok(())
     }
 }

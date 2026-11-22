@@ -51,9 +51,10 @@ cargo install --path crates/qqbox-mcp
 cargo install --path crates/qqbox-runtime
 ```
 
-各平台的預先建置執行檔置於
-[最新發行版](https://github.com/dywongcloud/qqbox/releases/latest)。若要把
-qqbox 當作 Rust 程式庫嵌入，在 `Cargo.toml` 加入：
+[`release` 工作流程](../.github/workflows/release.yml)會在 `v*` 標籤上為 Linux、macOS
+與 Windows 建置發行版執行檔，並上傳為工作流程執行成果；它不會建立 GitHub
+Release，因此目前沒有 `/releases/latest` 下載頁。若要把 qqbox 當作 Rust 程式庫
+嵌入，在 `Cargo.toml` 加入：
 
 ```toml
 [dependencies]
@@ -318,7 +319,8 @@ Docker 在 Linux 上共享宿主核心；在 macOS 與 Windows 上，其 Linux V
 `echo` 12 ms 對 Docker Desktop 187 ms、Node 啟動 129 ms 對 200 ms、CPU 迴圈
 約略持平；Linux CPU 密集工作約為原生的 1.01 倍、單純攔截的系統呼叫約
 224 ns）。這些是**已記錄的量測，不是對這份 Rust 程式庫的重新驗證**，而且
-不能沿用：目前沒有原生 Rust 來賓後端，因此無法在此產生端對端量測。方法與
+不能沿用：Linux trap-to-supervisor 後端已移植並見證，但僅服務靜態 aarch64
+ET_EXEC 的少量系統呼叫，完整來賓執行時期尚無端對端效能量測。方法與
 如實狀態見 [docs/PERF.md](../docs/PERF.md)。原生 CPU 執行不代表每種工作負載
 都有原生速度：系統呼叫處理、資料複製與行程啟動仍須付出成本。
 
@@ -343,9 +345,10 @@ HTTP 模式。Windows 請用 `qqbox-mcp.exe`。例如呼叫 `run` 工具：
 ```
 
 上游結果包含結束碼 `0` 與標準輸出 `4\n`。在這份 Rust 程式庫中，呼叫會回傳
-`isError: true`，並在 `stderr` 帶上原生後端診斷訊息，因為一般執行路徑尚未
-移植完成；它
-不會捏造一次成功的執行。只有在伺服器以 `--allow-net` 啟動且呼叫要求
+`isError: true`，並在 `stderr` 帶上原生後端診斷訊息，因為一般 `qqbox run`
+路徑回傳 `UnsupportedPlatform`（macOS／Windows 啟動契約與完整系統呼叫表尚未
+移植）；Linux trap 後端已移植，可由 `qqbox backend exec-elf` 見證。它不會捏造
+一次成功的執行。只有在伺服器以 `--allow-net` 啟動且呼叫要求
 `"network": true` 時，才可使用外部網路。預設每次執行逾時為 120 秒，每條
 輸出串流上限為 1 MiB；伺服器提供 `--timeout` 與 `--max-output` 調整。
 

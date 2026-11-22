@@ -3,7 +3,7 @@ use crate::error::{Error, Result};
 use crate::types::*;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -384,11 +384,84 @@ impl ImageRef {
 
 /// Libraries take options, not the environment. A cache root is a required
 /// caller-supplied option; the deterministic fallback is a fixed path, never
-/// `TMPDIR`/`std::env::temp_dir()`.
+/// `TMPDIR`/`std::env::temp_dir()`. The fallback is created 0700 and checked
+/// on every use, so a local user cannot pre-plant refs or layer contents.
 pub fn cache_dir(o: &PullOptions) -> PathBuf {
     o.cache_dir
         .clone()
         .unwrap_or_else(|| PathBuf::from("/tmp/qqbox/images"))
+}
+
+fn ensure_private_dir(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = std::fs::symlink_metadata(dir)?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            return Err(Error::Config(format!(
+                "image cache {} is not a real directory",
+                dir.display()
+            )));
+        }
+        if meta.uid() != unsafe { libc::geteuid() } {
+            return Err(Error::Config(format!(
+                "image cache {} is owned by another user",
+                dir.display()
+            )));
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(())
+}
+
+/// Read a cache entry without following a symlink out of the private root.
+fn read_cache_bytes(path: &Path) -> Result<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        let meta = std::fs::symlink_metadata(path)?;
+        if meta.file_type().is_symlink() {
+            return Err(Error::Config(format!(
+                "image cache entry {} is a symlink",
+                path.display()
+            )));
+        }
+    }
+    Ok(std::fs::read(path)?)
+}
+
+/// Constant-time equality over two byte strings of equal length.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Verify that registry bytes really hash to the digest the manifest named.
+/// Without this, a digest-pinned reference is only a URL string, not a pin.
+fn verify_content_digest(digest: &str, body: &[u8]) -> Result<()> {
+    let Some(encoded) = digest.strip_prefix("sha256:") else {
+        return Err(Error::Config(format!(
+            "unsupported content digest algorithm in {digest}"
+        )));
+    };
+    if encoded.len() != 64 || !encoded.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(Error::Config(format!("malformed content digest {digest}")));
+    }
+    let got = hex::encode(Sha256::digest(body));
+    if !ct_eq(got.as_bytes(), encoded.as_bytes()) {
+        return Err(Error::Config(format!(
+            "content digest mismatch: manifest says {encoded}, registry returned {got}"
+        )));
+    }
+    Ok(())
 }
 
 fn ref_key(r: &ImageRef, arch: Arch) -> String {
@@ -410,6 +483,8 @@ pub fn valid_hex(s: &str) -> bool {
 
 pub fn local(r: &ImageRef, o: &PullOptions) -> Result<Option<Image>> {
     let dir = cache_dir(o);
+    ensure_private_dir(&dir)?;
+    ensure_private_dir(&dir.join("refs"))?;
     let ref_file = dir.join("refs").join(ref_key(r, o.arch));
     let hex = match std::fs::read_to_string(&ref_file) {
         Ok(v) => v.trim().to_string(),
@@ -418,9 +493,18 @@ pub fn local(r: &ImageRef, o: &PullOptions) -> Result<Option<Image>> {
     if !valid_hex(&hex) {
         return Err(Error::Config("corrupt ref entry".into()));
     }
-    let bytes = std::fs::read(dir.join(&hex).join("config.json"))?;
+    let image_dir = dir.join(&hex);
+    ensure_private_dir(&image_dir)?;
+    let bytes = read_cache_bytes(&image_dir.join("config.json"))?;
+    // A pre-planted config.json must hash to the directory name it lives in.
+    let got = hex::encode(Sha256::digest(&bytes));
+    if !ct_eq(got.as_bytes(), hex.as_bytes()) {
+        return Err(Error::Config(format!(
+            "cached config digest mismatch: ref says {hex}, bytes hash to {got}"
+        )));
+    }
     let config = parse_image_config(&bytes)?;
-    let root = dir.join(&hex).join("rootfs");
+    let root = image_dir.join("rootfs");
     if !root.is_dir() {
         return Ok(None);
     }
@@ -433,8 +517,11 @@ pub fn local(r: &ImageRef, o: &PullOptions) -> Result<Option<Image>> {
 }
 
 pub fn remember(r: &ImageRef, digest: &str, o: &PullOptions) -> Result<()> {
-    let dir = cache_dir(o).join("refs");
-    std::fs::create_dir_all(&dir)?;
+    let dir = cache_dir(o);
+    ensure_private_dir(&dir)?;
+    let refs = dir.join("refs");
+    ensure_private_dir(&refs)?;
+    let dir = refs;
     std::fs::write(dir.join(ref_key(r, o.arch)), format!("{digest}\n"))?;
     Ok(())
 }
@@ -546,6 +633,9 @@ pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String
     let auth = auth_header(&r.registry, o.auth_config.as_deref());
     let accept = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json";
     let bytes = get(&r.manifest_url(), accept, auth.as_deref())?;
+    if let Some(pin) = r.digest.as_deref() {
+        verify_content_digest(pin, &bytes)?;
+    }
     let manifest: Manifest = serde_json::from_slice(&bytes)?;
     let digest = if manifest.manifests.is_empty() {
         r.digest.clone().unwrap_or_default()
@@ -553,6 +643,7 @@ pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String
         let d = select_platform(&manifest, o.arch, "linux")?;
         let url = format!("https://{}/v2/{}/manifests/{}", r.registry, r.repository, d);
         let sub = get(&url, accept, auth.as_deref())?;
+        verify_content_digest(&d, &sub)?;
         let m: Manifest = serde_json::from_slice(&sub)?;
         return Ok((m, d));
     };
@@ -561,11 +652,13 @@ pub fn fetch_manifest(r: &ImageRef, o: &PullOptions) -> Result<(Manifest, String
 
 pub fn fetch_blob(r: &ImageRef, digest: &str, o: &PullOptions) -> Result<Vec<u8>> {
     let auth = auth_header(&r.registry, o.auth_config.as_deref());
-    get(
+    let body = get(
         &r.blob_url(digest),
         "application/octet-stream",
         auth.as_deref(),
-    )
+    )?;
+    verify_content_digest(digest, &body)?;
+    Ok(body)
 }
 
 pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
@@ -590,7 +683,9 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
     hasher.update(&config_bytes);
     let hex = hex::encode(hasher.finalize());
     let dir = cache_dir(o);
+    ensure_private_dir(&dir)?;
     let image_dir = dir.join(&hex);
+    ensure_private_dir(&image_dir)?;
     let root = image_dir.join("rootfs");
     if !root.is_dir() {
         std::fs::create_dir_all(&image_dir)?;
@@ -598,6 +693,7 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp)?;
         let mut total = 0u64;
+        let mut written = 0u64;
         for layer in &manifest.layers {
             let bytes = fetch_blob(&r, &layer.digest, o)?;
             total = total.saturating_add(bytes.len() as u64);
@@ -605,7 +701,7 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
                 let _ = std::fs::remove_dir_all(&tmp);
                 return Err(Error::ImageTooLarge);
             }
-            unpack(&bytes, &tmp, o.max_size.saturating_sub(total))?;
+            unpack_budgeted(&bytes, &tmp, o.max_size, &mut written)?;
         }
         std::fs::write(image_dir.join("config.json"), serde_json::to_vec(&config)?)?;
         match std::fs::rename(&tmp, &root) {
@@ -630,11 +726,41 @@ pub fn store_config(dir: &Path, cfg: &ImageConfig) -> Result<()> {
     Ok(())
 }
 
+/// A whiteout remainder must be exactly one ordinary path component.
+fn safe_whiteout_name(white: &str) -> bool {
+    !white.is_empty()
+        && white != "."
+        && white != ".."
+        && !white.starts_with('/')
+        && !white.contains('/')
+        && !white.contains('\\')
+        && !white.chars().any(char::is_control)
+}
+
+/// Remove the contents of `dir` without removing or replacing `dir` itself.
+fn clear_dir_entries(dir: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        match entry.file_type()? {
+            kind if kind.is_dir() => std::fs::remove_dir_all(path)?,
+            _ => std::fs::remove_file(path)?,
+        }
+    }
+    Ok(())
+}
+
 pub fn unpack(flat: &[u8], dest: &Path, max_size: u64) -> Result<()> {
+    let mut written = 0u64;
+    unpack_budgeted(flat, dest, max_size, &mut written)
+}
+
+/// `written` is shared across layers so N small-compressed layers cannot each
+/// write a full `max_size` of decompressed bytes.
+pub fn unpack_budgeted(flat: &[u8], dest: &Path, max_size: u64, written: &mut u64) -> Result<()> {
     let decoder = GzDecoder::new(Cursor::new(flat));
     let mut archive = tar::Archive::new(decoder);
     let entries = archive.entries()?;
-    let mut written = 0u64;
     for entry in entries {
         let mut entry = entry?;
         let path = match entry.path() {
@@ -648,19 +774,33 @@ pub fn unpack(flat: &[u8], dest: &Path, max_size: u64) -> Result<()> {
         let target = confined(dest, &dest.join(&cleaned))?;
         let name = cleaned.rsplit('/').next().unwrap_or("");
         if name.starts_with(".wh.") {
+            let Some(parent) = target.parent() else {
+                continue;
+            };
             if name == ".wh..wh..opq" {
-                if let Some(parent) = target.parent() {
-                    let _ = std::fs::remove_dir_all(parent);
-                    let _ = std::fs::create_dir_all(parent);
-                }
+                // Opaque whiteouts clear the entries of their directory only.
+                // Removing `parent` recursively would delete `dest` itself
+                // when the marker sits at the root of the layer.
+                clear_dir_entries(parent)?;
             } else if let Some(white) = name.strip_prefix(".wh.") {
-                if let Some(parent) = target.parent() {
-                    let gone = parent.join(white);
-                    if gone.is_dir() {
-                        let _ = std::fs::remove_dir_all(&gone);
-                    } else {
+                // `.wh...` leaves white=".." and `.wh..` leaves white=".".
+                // Either used to make `remove_dir_all` climb above `dest`.
+                if !safe_whiteout_name(white) {
+                    return Err(Error::PathEscape(format!("unsafe whiteout {name}")));
+                }
+                let gone = confined(dest, &parent.join(white))?;
+                if gone == dest || !gone.starts_with(dest) {
+                    return Err(Error::PathEscape(format!("whiteout target {white}")));
+                }
+                // A symlink must be unlinked, never followed outside `dest`.
+                match std::fs::symlink_metadata(&gone) {
+                    Ok(meta) if meta.file_type().is_symlink() || meta.is_file() => {
                         let _ = std::fs::remove_file(&gone);
                     }
+                    Ok(meta) if meta.is_dir() => {
+                        let _ = std::fs::remove_dir_all(&gone);
+                    }
+                    _ => {}
                 }
             }
             continue;
@@ -701,8 +841,8 @@ pub fn unpack(flat: &[u8], dest: &Path, max_size: u64) -> Result<()> {
             }
         } else if kind.is_file() {
             let size = entry.size();
-            written = written.saturating_add(size);
-            if written > max_size {
+            *written = written.saturating_add(size);
+            if *written > max_size {
                 return Err(Error::ImageTooLarge);
             }
             let mut out = std::fs::File::create(&target)?;

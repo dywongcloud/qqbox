@@ -114,7 +114,7 @@ bitmap of 64 KiB memory blocks; ours is a set of four control-plane partitions.
 Both are finite convergence loops over a well-defined state ADT. That is the
 extent of the analogy: drafter still needs a VMM's guest RAM, which qqbox does
 not have. We did not copy drafter's transport (it has no built-in auth/TLS and
-delegates that to the `io.ReadWriter`); our capability gate is in the protocol.
+delegates that to the `io.ReadWriter`); our capability-derived KDF is in the protocol.
 
 ## 2. The boundary (stated first, on purpose)
 
@@ -179,14 +179,26 @@ MAGIC "QQBM" | wire_version u8 | kind u8 | length u32 BE | payload | HMAC-SHA-25
 - `length` is checked against `MAX_FRAME` (16 MiB) **before** allocation.
 - Two forms exist. Local checkpoint frames use an unkeyed SHA-256 over header
   + payload (integrity only; no secret is stored with the file). Frames on the
-  two-process TCP session use HMAC-SHA-256 keyed by the migration capability,
-  so every frame is authenticated, not merely checksummed. Both are compared
-  in constant time and both failures are typed `MigrationError::Wire`.
-- `Hello.max_frame` is a real negotiation: the receiver uses
-  `min(peer, MAX_FRAME)` as the bound for every subsequent frame, rejecting a
-  peer whose advertised bound is below the minimum frame size.
+  two-process TCP session use HMAC-SHA-256 keyed by a per-session key, so every
+  frame is authenticated, not merely checksummed. Both are compared in
+  constant time and both failures are typed `MigrationError::Wire`.
+- The capability digest is never a wire key and never a frame field. `Hello`
+  carries a CSPRNG `client_nonce`, `HelloAck` carries a CSPRNG `server_nonce`;
+  both peers derive the session key as HMAC(secret, domain + client + server).
+  The handshake itself is authenticated by a domain-separated handshake key.
+  A passive reader of `Hello` cannot compute the session key, and replaying a
+  recorded session into a fresh server fails on the new server nonce.
+- Each keyed MAC binds the frame's monotonic sequence number and a direction
+  tag. Both peers advance outbound/inbound counters in lockstep, so a dropped,
+  duplicated, reordered or reflected frame fails its MAC.
+- `Commit` carries the source's canonical digest; the destination checks it
+  against its own state in constant time before acknowledging the cutover.
+- The decoded `State.version` is validated before `normalize` / `apply`.
+- `Hello.max_frame` is a real negotiation: `min(peer, self, MAX_FRAME)` is
+  enforced on reads AND writes in both directions, rejecting a peer whose
+  advertised bound is below the minimum frame size.
 - `read_exact` everywhere; every failure is a typed `MigrationError::Wire`.
-- Kinds: `Hello`, `State`, `Delta`, `Commit`, `Ack`, `Reject`.
+- Kinds: `Hello`, `HelloAck`, `State`, `Delta`, `Commit`, `Ack`, `Reject`.
 - `read_expect(kind)` refuses type-confused frames before decoding.
 - All readers and writers are explicit arguments — `Effects ≡ IO_Monad`.
 
@@ -238,7 +250,8 @@ and `/Users/dylanwong/.gm-work/qqbox/migration-daemon-witness-driver.sh`.
 | oversized length | rejected, `frame 16777217 exceeds MAX_FRAME 16777216` |
 | two real processes + real TCP socket | `send_rounds=1`, source digest == destination digest |
 | state parity after pre-copy | `source_final_equals_dest=True`, `original_differs_after_delta=True` |
-| wrong capability over TCP | receiver `authentication digest mismatch`, sender rc=1; Hello mismatch is `migration capability rejected` |
+| wrong capability over TCP | receiver `authentication digest mismatch`, sender rc=1; the handshake key is derived from the secret, so no capability field is compared |
+| replay of a recorded session into a fresh server | rejected: `authentication digest mismatch` (new server nonce, new session key) |
 | daemon without bearer token | 401 |
 | daemon state before checkpoint | 404 |
 | daemon checkpoint → state | 200, digests match |
@@ -260,7 +273,7 @@ and `/Users/dylanwong/.gm-work/qqbox/migration-daemon-witness-driver.sh`.
 
 - **Systems**: pure state morphisms separated from the `IO_Monad` boundary;
   separation logic over four disjoint partitions.
-- **Scope**: strict lexical bounds, capability-passing, no ambient/global/
+- **Scope**: strict lexical bounds, capability-derived session KDF, no ambient/global/
   implicit state, every reader/writer parameterized.
 - **Alignment**: total functions (`Result`, no `unwrap`/`panic` in the
   migration path), constructive round-trip laws, no speculative claims about

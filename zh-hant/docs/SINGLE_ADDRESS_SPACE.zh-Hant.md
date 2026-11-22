@@ -12,11 +12,11 @@
 
 | 宿主 | 邊界 |
 | --- | --- |
-| Linux | 每個執行緒的來賓 `seccomp` 過濾器、文字範圍 `RET_TRAP` 以 `SIGSYS` 把漏改寫的呼叫導回監督器、memfd 共享通道、hop 執行緒 |
+| Linux | 每個執行緒的來賓 `seccomp` 過濾器：Rust 監督器服務的系統呼叫以 `RET_TRAP` 搭配 `SIGSYS` 導回 chanPage，固定的二十項直接逃逸拒絕清單以 `RET_KILL_PROCESS` 終止，其餘允許；memfd 共享通道、hop 執行緒 |
 | macOS | `Seatbelt`、Mach task、Hypervisor.framework、共享通道 |
 | Windows | `LPAC` AppContainer、instrumentation callback、事件物件 |
 
-請注意三者行為不對稱：Linux 的後盾把漏網呼叫交回監督器，讓靜態重寫成為最佳化而不是唯一的正確性來源；macOS 與 Windows 的後盾則直接阻止繼續執行。這份不對稱不能為了「統一介面」而被抹平，否則 JIT 密集的來賓、延遲發現的間接分支位置，以及資料段裡恰好出現的 `0f 05` 位元組，都會被誤判。上面每一條邊界都綁在處理程序上，這是本決定最吃重的事實。
+請注意三者行為不對稱：Linux 過濾器對已服務的呼叫交回監督器，讓靜態重寫成為最佳化而不是唯一的正確性來源；固定拒絕清單則直接終止處理程序。這裡沒有預設拒絕的文字範圍後盾：Go 時代約 205 項系統呼叫表與文字範圍前綴尚未移植，相關 Go 路徑僅為歷史出處。Rust 的實作在 `crates/qqbox/src/backend/filter.rs` 的 `trap_and_deny` 與 `crates/qqbox/src/backend/linux.rs` 的 `SIGSYS` 處理器，皆已在 Linux aarch64 即時見證。macOS 與 Windows 的後盾則直接阻止繼續執行；Windows arm64 沒有回呼後盾。這份不對稱不能為了「統一介面」而被抹平，否則 JIT 密集的來賓、延遲發現的間接分支位置，以及資料段裡恰好出現的 `0f 05` 位元組，都會被誤判。上面每一條邊界都綁在處理程序上，這是本決定最吃重的事實。
 
 ## 為什麼合併會造成退化
 

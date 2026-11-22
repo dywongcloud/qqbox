@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 
@@ -635,13 +635,17 @@ impl Process {
 }
 
 fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
-    // Share BOTH halves of the Context with the parent. A fresh `cancelled`
-    // paired with a shared `wake` meant the child woke on parent cancellation
-    // but `is_cancelled()` stayed false, i.e. cancellation was lost.
+    // The child owns a private `cancelled` flag. Sharing that flag meant a
+    // supervisor's normal completion called `cancel()` on the CALLER's
+    // Context, permanently cancelling every later `start()` with the same
+    // Context. Share only `wake` so parent cancellation is delivered to the
+    // watcher; the watcher then cancels the child explicitly. Both predicates
+    // test the atomic flag, never the sticky notification hint.
     let context = Context {
-        cancelled: Arc::clone(&parent.cancelled),
+        cancelled: Arc::new(AtomicBool::new(false)),
         wake: Arc::clone(&parent.wake),
     };
+    let done = Arc::new(AtomicBool::new(false));
     let outcome = Arc::new(Outcome {
         result: Mutex::new(None),
         ready: Condvar::new(),
@@ -651,12 +655,16 @@ fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
     let supervisor_ctx = context.clone();
     let supervisor_outcome = Arc::clone(&outcome);
     let supervisor_pid = Arc::clone(&pid);
+    let supervisor_done = Arc::clone(&done);
     let supervisor = match thread::Builder::new()
         .name("qqbox-supervisor".to_owned())
         .spawn(move || {
             supervisor_pid.store(std::process::id(), Ordering::SeqCst);
             let result = crate::sandbox::run::run(&supervisor_ctx, &prog, &cfg);
-            supervisor_ctx.cancel();
+            // Normal completion wakes the watcher without cancelling the
+            // parent Context.
+            supervisor_done.store(true, Ordering::SeqCst);
+            supervisor_ctx.notify();
             supervisor_pid.store(0, Ordering::SeqCst);
             let value = match result {
                 Ok(code) => WaitResult { code, error: None },
@@ -676,11 +684,14 @@ fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
 
     let watch_parent = parent.clone();
     let watch_child = context.clone();
+    let watch_done = Arc::clone(&done);
     let watcher = match thread::Builder::new()
         .name("qqbox-cancel".to_owned())
         .spawn(move || {
-            watch_parent.wait_cancelled();
-            watch_child.cancel();
+            watch_parent.wait_cancelled_or(&watch_done);
+            if watch_parent.is_cancelled() {
+                watch_child.cancel();
+            }
         }) {
         Ok(handle) => handle,
         Err(err) => {

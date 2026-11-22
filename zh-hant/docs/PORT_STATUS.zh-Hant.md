@@ -74,6 +74,17 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
   該列。殼層本身完整可用。
   先前宣稱此錯誤已修復的敘述在此撤回。
 - 網路限制照實陳述：ICMP echo 只走宿主未特權的 `SOCK_DGRAM`／`IPPROTO_ICMP` 使用者空間路徑；`SOCK_RAW`、`AF_PACKET`、`TUN`、來賓核心內 ICMP、802.11、`nl80211`、`wpa_supplicant`、`NetworkManager` 都不在契約內。
+- 已安裝的 Zig 是 0.16.0，而 43 份 Zig 原始碼是針對 0.13.0 撰寫。四份 stub
+  建置腳本現在遇到非 0.13.x 工具鏈都會失敗關閉；`stub/build.sh` 在
+  `zig objcopy --strip-debug` 失敗時也失敗關閉，不再悄悄交付未去除除錯資訊的
+  二進位。`make stub-verify` 在乾淨簽出、沒有 Zig 工具鏈的情況下驗證八份已提交
+  二進位的 ELF／PE／Mach-O 標頭。以釘版 Zig 逐一比對位元組的重建**尚未見證**：
+  在此 macOS arm64 宿主以 Zig 0.13.0 重建時，兩份 macOS 二進位完全一致，兩份
+  Windows PE 只差在 4 位元組 COFF 時間戳記（歸零後完全一致），但四份 Linux ELF
+  無法重現，因為 Zig 0.13.0 的 `objcopy` 在 macOS 無法連結
+  （`undefined symbol: _sigaction`），而在離庫 Go 執行時期來賓中執行 Linux 版
+  Zig 0.13.0 會在 `ld.lld: unknown file type` 失敗。移植全部原始碼並重建八份
+  已提交二進位，是另一項需要獨立把關的變更。
 
 ## 接下來要做的事
 

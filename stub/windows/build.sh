@@ -16,7 +16,8 @@ if ! "$ZIG" version >/dev/null 2>&1; then
 fi
 case "$("$ZIG" version 2>/dev/null)" in
     0.13.*) ;;
-    *) printf '%s\n' "qqbox: warning: Zig $("$ZIG" version 2>/dev/null) may not build sources written for 0.13.0" >&2 ;;
+    *) printf '%s\n' "qqbox: Zig $("$ZIG" version 2>/dev/null) is not 0.13.x; the freestanding sources require a pinned 0.13.0 toolchain. Set ZIG=<path-to-zig-0.13.0>. Refusing to rebuild the committed blobs with an incompatible compiler." >&2
+       exit 1 ;;
 esac
 build() {
 	"$ZIG" build-exe -target "$1"-windows-gnu -mcpu=baseline -O ReleaseSmall \

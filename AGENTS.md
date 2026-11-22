@@ -29,12 +29,13 @@ instrument, or interpret guest code. The rewriter locates the syscall sites in a
 loaded image and patches those instructions to trap into the supervisor; every
 other byte of the program executes untouched.
 
-- A syscall the rewriter missed reaches the host backstop. On Linux the seccomp
-  text-range check TRAPs (`SECCOMP_TRAP_TAG`) and the SIGSYS handler routes the
-  call to the supervisor, so static rewriting is an optimization and the trap is
-  the correctness backstop; `ErrKilled` fires only for a genuinely rejected call.
-  macOS Seatbelt and the Windows instrumentation callback kill. Never add a
-  silent emulation path around the rewriter.
+- On Linux the installed seccomp program TRAPs the served syscalls
+  (`SECCOMP_TRAP_TAG` → SIGSYS → chanPage) and KILLs a fixed deny-list of direct
+  host escapes. The Go-era default-deny text-range prefix is NOT installed in
+  Rust: the full ~205-syscall table is unported. `ErrKilled` fires only for a
+  genuinely rejected call. macOS Seatbelt and the Windows instrumentation
+  callback kill. Never add a silent emulation path around the filter, and never
+  claim a default-deny backstop that is not installed.
 - The rewriter finds syscall sites **without a disassembler** — hand-rolled
   per-architecture classifiers, with `arm64asm`/`x86asm` used only as test
   oracles. Do not pull in a full disassembler to "fix" a miss; fix the
@@ -91,10 +92,11 @@ not become an I/O engine.
 
 ## Rule 5: libraries take options, not environment
 
-- `qqbox::sandbox`, `qqbox::oci`, `qqbox::vfs` and `qqbox::rewrite` read **no**
-  environment variables; behavior is set through `Options` or `Config` in
-  `crates/qqbox`. Only the binaries (`qqbox`, `qqboxd`, `qqbox-mcp`,
-  `qqbox-runtime`) and examples read the environment.
+- No Rust crate reads a behavior knob from the process environment: there are
+  zero `env::var`/`temp_dir()` calls. Behavior is set through `Options`/`Config`
+  and caller-supplied paths. The default image cache is the fixed
+  `/tmp/qqbox/images` (created 0700 and checked on every use), never `TMPDIR`.
+  Only the example shell scripts read environment variables.
 - The public default is permissive where a developer expects it (RWX guest
   memory allowed, no network) and tightened by an explicit option
   (`WithRejectRWX`, `WithNet` plus the egress allowlist options). Keep new
@@ -107,8 +109,11 @@ not become an I/O engine.
   otherwise — gate the item, then run the full corpus.
 - The Rust workspace is the only build entry point: `cargo build --workspace`
   builds the library plus the `qqbox`, `qqboxd`, `qqbox-mcp` and `qqbox-runtime`
-  binaries. There is no Go workspace. Native guest-execution backends are not
-  yet ported; see docs/PORT_STATUS.md.
+  binaries. There is no Go workspace. The Linux trap-to-supervisor backend IS
+  ported for static aarch64 ET_EXEC; macOS Mach/Seatbelt/HVF, Windows LPAC,
+  PIE/ET_DYN, trampolines and the full syscall table are not. The general
+  `qqbox run` path returns `UnsupportedPlatform`. See docs/PORT_STATUS.md and
+  docs/NATIVE_BACKEND.md.
 - `cargo run -p qqbox-cli -- invariants` and the live CLI witnesses are the gate
   for control-plane changes. Zig stubs rebuild through `make stubs`; the committed
   `.bin` blobs are embedded with `include_bytes!` so a Rust build needs no Zig.

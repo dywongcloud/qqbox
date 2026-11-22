@@ -14,7 +14,11 @@ use sha2::{Digest, Sha256};
 use crate::migrate::state::{Delta, MigrationError, MigrationState, STATE_VERSION};
 
 pub const MAGIC: [u8; 4] = *b"QQBM";
-pub const WIRE_VERSION: u8 = 1;
+pub const WIRE_VERSION: u8 = 2;
+/// Direction tags bound into every keyed MAC so a captured frame cannot be
+/// reflected back along the other half of the duplex stream.
+pub const DIR_SOURCE: u8 = 0x53;
+pub const DIR_DEST: u8 = 0x44;
 /// Hard bound: a frame larger than this is rejected before allocation.
 pub const MAX_FRAME: u32 = 16 * 1024 * 1024;
 pub const HEADER_LEN: usize = 4 + 1 + 1 + 4;
@@ -28,6 +32,7 @@ pub enum Kind {
     Commit = 4,
     Ack = 5,
     Reject = 6,
+    HelloAck = 7,
 }
 
 impl Kind {
@@ -39,6 +44,7 @@ impl Kind {
             4 => Some(Kind::Commit),
             5 => Some(Kind::Ack),
             6 => Some(Kind::Reject),
+            7 => Some(Kind::HelloAck),
             _ => None,
         }
     }
@@ -74,11 +80,128 @@ impl Capability {
     }
 }
 
+/// A per-session key. It is derived from the caller secret plus two fresh
+/// nonces and is NEVER serialized onto the wire; the old wire put the
+/// capability digest itself in Hello and used it as the HMAC key, so a passive
+/// reader could forge any subsequent frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionKey {
+    pub digest: [u8; 32],
+}
+
+impl SessionKey {
+    fn hmac(key: &[u8; 32], parts: &[&[u8]]) -> SessionKey {
+        let mut ipad = [0x36u8; 64];
+        let mut opad = [0x5cu8; 64];
+        for (i, byte) in key.iter().enumerate() {
+            ipad[i] ^= *byte;
+            opad[i] ^= *byte;
+        }
+        let mut inner = Sha256::new();
+        inner.update(ipad);
+        for part in parts {
+            inner.update(part);
+        }
+        let ih = inner.finalize();
+        let mut outer = Sha256::new();
+        outer.update(opad);
+        outer.update(ih);
+        let out = outer.finalize();
+        let mut digest = [0u8; 32];
+        digest.copy_from_slice(&out);
+        SessionKey { digest }
+    }
+
+    /// Key used only for the Hello / HelloAck handshake. Domain-separated so
+    /// handshake frames can never be replayed as session frames.
+    pub fn handshake(cap: &Capability) -> SessionKey {
+        Self::hmac(&cap.digest, &[b"qqbox-migrate-hello-v2"])
+    }
+
+    /// Session key bound to BOTH peers' fresh nonces: replaying a recorded
+    /// session verbatim cannot reproduce it.
+    pub fn session(cap: &Capability, client: &[u8; 32], server: &[u8; 32]) -> SessionKey {
+        Self::hmac(&cap.digest, &[b"qqbox-migrate-session-v2", client, server])
+    }
+}
+
+/// CSPRNG nonce from the OS entropy device. This is an explicit IO effect,
+/// not an ambient environment read; the same source backs the daemon token.
+pub fn fresh_nonce() -> Result<[u8; 32], MigrationError> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open("/dev/urandom")
+        .map_err(|e| MigrationError::Wire(format!("cannot open entropy: {e}")))?;
+    let mut nonce = [0u8; 32];
+    file.read_exact(&mut nonce)
+        .map_err(|e| MigrationError::Wire(format!("cannot read entropy: {e}")))?;
+    Ok(nonce)
+}
+
+/// Per-direction transcript state: outbound/inbound sequence counters, the
+/// negotiated frame bound and the direction tags. Both peers advance these in
+/// lockstep, so a dropped, duplicated, reordered or reflected frame fails its
+/// MAC before it reaches a decoder.
+pub struct WireState {
+    key: SessionKey,
+    out_seq: u64,
+    in_seq: u64,
+    limit: u32,
+    write_dir: u8,
+    read_dir: u8,
+}
+
+impl WireState {
+    pub fn source(cap: &Capability) -> WireState {
+        WireState {
+            key: SessionKey::handshake(cap),
+            out_seq: 0,
+            in_seq: 0,
+            limit: MAX_FRAME,
+            write_dir: DIR_SOURCE,
+            read_dir: DIR_DEST,
+        }
+    }
+
+    pub fn destination(cap: &Capability) -> WireState {
+        WireState {
+            key: SessionKey::handshake(cap),
+            out_seq: 0,
+            in_seq: 0,
+            limit: MAX_FRAME,
+            write_dir: DIR_DEST,
+            read_dir: DIR_SOURCE,
+        }
+    }
+
+    pub fn establish(
+        &mut self,
+        cap: &Capability,
+        client: &[u8; 32],
+        server: &[u8; 32],
+        limit: u32,
+    ) {
+        self.key = SessionKey::session(cap, client, server);
+        self.limit = limit;
+    }
+
+    pub fn limit(&self) -> u32 {
+        self.limit
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub wire_version: u8,
     pub state_version: u8,
-    pub capability: Capability,
+    pub client_nonce: [u8; 32],
+    pub max_frame: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelloAck {
+    pub wire_version: u8,
+    pub state_version: u8,
+    pub server_nonce: [u8; 32],
     pub max_frame: u32,
 }
 
@@ -128,6 +251,15 @@ pub fn decode_hello(payload: &[u8]) -> Result<Hello, MigrationError> {
     serde_json::from_slice(payload).map_err(|e| MigrationError::Wire(format!("hello decode: {e}")))
 }
 
+pub fn hello_ack_payload(ack: &HelloAck) -> Result<Vec<u8>, MigrationError> {
+    serde_json::to_vec(ack).map_err(|e| MigrationError::Wire(format!("hello ack encode: {e}")))
+}
+
+pub fn decode_hello_ack(payload: &[u8]) -> Result<HelloAck, MigrationError> {
+    serde_json::from_slice(payload)
+        .map_err(|e| MigrationError::Wire(format!("hello ack decode: {e}")))
+}
+
 fn header(kind: Kind, len: u32) -> [u8; HEADER_LEN] {
     let mut h = [0u8; HEADER_LEN];
     h[..4].copy_from_slice(&MAGIC);
@@ -147,22 +279,24 @@ fn framed_digest(kind: Kind, payload: &[u8]) -> [u8; 32] {
     d
 }
 
-/// HMAC-SHA-256 over the frame header and payload, keyed by the migration
-/// capability. An unkeyed SHA-256 over a public frame is forgeable: any peer
-/// that can write bytes can recompute the digest. Binding the capability to
-/// EVERY frame makes the wire authenticated, not merely integrity-checked.
+/// HMAC-SHA-256 over the frame header, payload, transcript sequence and
+/// direction tag, keyed by the per-session key. The key is derived from the
+/// caller secret plus two nonces and is never transmitted. Sequence and
+/// direction binding makes every frame position-specific in each direction.
 /// Local checkpoint files still use `framed_digest` (no secret is stored with
 /// them); the two-process session uses this keyed form exclusively.
-fn keyed_digest(kind: Kind, payload: &[u8], cap: &Capability) -> [u8; 32] {
+fn keyed_digest(kind: Kind, payload: &[u8], st: &WireState, seq: u64, dir: u8) -> [u8; 32] {
     let mut ipad = [0x36u8; 64];
     let mut opad = [0x5cu8; 64];
-    for (i, byte) in cap.digest.iter().enumerate() {
+    for (i, byte) in st.key.digest.iter().enumerate() {
         ipad[i] ^= *byte;
         opad[i] ^= *byte;
     }
     let mut inner = Sha256::new();
     inner.update(ipad);
     inner.update(header(kind, payload.len() as u32));
+    inner.update(seq.to_be_bytes());
+    inner.update([dir]);
     inner.update(payload);
     let ih = inner.finalize();
     let mut outer = Sha256::new();
@@ -200,17 +334,22 @@ pub fn write_frame_keyed<W: Write>(
     w: &mut W,
     kind: Kind,
     payload: &[u8],
-    cap: &Capability,
+    st: &mut WireState,
 ) -> Result<(), MigrationError> {
     let len = u32::try_from(payload.len())
         .map_err(|_| MigrationError::Wire("payload exceeds u32".to_owned()))?;
-    if len > MAX_FRAME {
+    if len > MAX_FRAME || len > st.limit {
         return Err(MigrationError::Wire(format!(
-            "frame {len} exceeds MAX_FRAME {MAX_FRAME}"
+            "frame {len} exceeds bound {}/{}",
+            st.limit, MAX_FRAME
         )));
     }
     let h = header(kind, len);
-    let digest = keyed_digest(kind, payload, cap);
+    let digest = keyed_digest(kind, payload, st, st.out_seq, st.write_dir);
+    st.out_seq = st
+        .out_seq
+        .checked_add(1)
+        .ok_or_else(|| MigrationError::Wire("outbound sequence overflow".to_owned()))?;
     w.write_all(&h)
         .map_err(|e| MigrationError::Wire(format!("header write: {e}")))?;
     w.write_all(payload)
@@ -224,11 +363,7 @@ pub fn write_frame_keyed<W: Write>(
 /// Read one capability-authenticated frame. `limit` is the negotiated frame
 /// bound from Hello, so `max_frame` is a real negotiation field rather than a
 /// value that is transmitted and then ignored.
-pub fn read_frame_keyed<R: Read>(
-    r: &mut R,
-    cap: &Capability,
-    limit: u32,
-) -> Result<Frame, MigrationError> {
+pub fn read_frame_keyed<R: Read>(r: &mut R, st: &mut WireState) -> Result<Frame, MigrationError> {
     let mut h = [0u8; HEADER_LEN];
     r.read_exact(&mut h)
         .map_err(|e| MigrationError::Wire(format!("header read: {e}")))?;
@@ -251,9 +386,10 @@ pub fn read_frame_keyed<R: Read>(
             "frame {len} exceeds MAX_FRAME {MAX_FRAME}"
         )));
     }
-    if len > limit {
+    if len > st.limit {
         return Err(MigrationError::Wire(format!(
-            "frame {len} exceeds negotiated limit {limit}"
+            "frame {len} exceeds negotiated limit {}",
+            st.limit
         )));
     }
     let mut payload = vec![0u8; len as usize];
@@ -262,22 +398,25 @@ pub fn read_frame_keyed<R: Read>(
     let mut got = [0u8; DIGEST_LEN];
     r.read_exact(&mut got)
         .map_err(|e| MigrationError::Wire(format!("digest read: {e}")))?;
-    let expected = keyed_digest(kind, &payload, cap);
+    let expected = keyed_digest(kind, &payload, st, st.in_seq, st.read_dir);
     if !constant_time_eq(&got, &expected) {
         return Err(MigrationError::Wire(
             "authentication digest mismatch".to_owned(),
         ));
     }
+    st.in_seq = st
+        .in_seq
+        .checked_add(1)
+        .ok_or_else(|| MigrationError::Wire("inbound sequence overflow".to_owned()))?;
     Ok(Frame { kind, payload })
 }
 
 pub fn read_expect_keyed<R: Read>(
     r: &mut R,
     expected: Kind,
-    cap: &Capability,
-    limit: u32,
+    st: &mut WireState,
 ) -> Result<Vec<u8>, MigrationError> {
-    let frame = read_frame_keyed(r, cap, limit)?;
+    let frame = read_frame_keyed(r, st)?;
     if frame.kind != expected {
         return Err(MigrationError::Wire(format!(
             "expected {:?} frame, got {:?}",
@@ -345,11 +484,20 @@ pub fn read_expect<R: Read>(r: &mut R, expected: Kind) -> Result<Vec<u8>, Migrat
     Ok(frame.payload)
 }
 
-pub fn default_hello(capability: Capability) -> Hello {
+pub fn default_hello(client_nonce: [u8; 32]) -> Hello {
     Hello {
         wire_version: WIRE_VERSION,
         state_version: STATE_VERSION,
-        capability,
+        client_nonce,
+        max_frame: MAX_FRAME,
+    }
+}
+
+pub fn default_hello_ack(server_nonce: [u8; 32]) -> HelloAck {
+    HelloAck {
+        wire_version: WIRE_VERSION,
+        state_version: STATE_VERSION,
+        server_nonce,
         max_frame: MAX_FRAME,
     }
 }

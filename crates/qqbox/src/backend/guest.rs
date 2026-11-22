@@ -166,9 +166,21 @@ unsafe extern "C" fn on_sigsys(_sig: i32, _info: *mut libc::siginfo_t, _uc: *mut
 /// mappings. `MAP_FIXED` would silently discard existing mappings, so refuse
 /// the collision instead of corrupting the supervisor.
 fn disjoint_from_self(bytes: &[u8]) -> Result<()> {
+    if bytes.len() < std::mem::size_of::<Ehdr>() {
+        return Err(Error::Message("guest ELF is truncated".into()));
+    }
     let eh = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<Ehdr>()) };
-    let phdr_bytes = eh.phnum as usize * eh.phentsize as usize;
-    if eh.phoff as usize + phdr_bytes > bytes.len() {
+    let phentsize = eh.phentsize as usize;
+    if phentsize < std::mem::size_of::<Phdr>() {
+        return Err(Error::Message(
+            "guest program header entry is too small".into(),
+        ));
+    }
+    let phdr_end = (eh.phnum as usize)
+        .checked_mul(phentsize)
+        .and_then(|n| (eh.phoff as usize).checked_add(n))
+        .ok_or_else(|| Error::Message("guest program header table overflows".into()))?;
+    if phdr_end > bytes.len() {
         return Err(Error::Message("guest program headers out of bounds".into()));
     }
     let maps = std::fs::read_to_string("/proc/self/maps")
@@ -186,17 +198,26 @@ fn disjoint_from_self(bytes: &[u8]) -> Result<()> {
             None => continue,
         };
         for i in 0..eh.phnum as usize {
-            let ph = unsafe {
-                &*bytes
-                    .as_ptr()
-                    .add(eh.phoff as usize + i * eh.phentsize as usize)
-                    .cast::<Phdr>()
-            };
+            let off = (eh.phoff as usize)
+                .checked_add(i * phentsize)
+                .ok_or_else(|| Error::Message("guest program header offset overflows".into()))?;
+            if off + std::mem::size_of::<Phdr>() > bytes.len() {
+                return Err(Error::Message("guest program header out of bounds".into()));
+            }
+            let ph = unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(off).cast::<Phdr>()) };
             if ph.ptype != 1 {
                 continue;
             }
             let start = ph.vaddr & !4095u64;
-            let end = (ph.vaddr + ph.memsz + 4095) & !4095u64;
+            let end = ph
+                .vaddr
+                .checked_add(ph.memsz)
+                .and_then(|v| v.checked_add(4095))
+                .map(|v| v & !4095u64)
+                .ok_or_else(|| Error::Message("guest segment range overflows".into()))?;
+            if end <= start {
+                return Err(Error::Message("guest segment range is empty".into()));
+            }
             if start < hi && lo < end {
                 return Err(Error::Message(format!(
                     "guest PT_LOAD {start:#x}..{end:#x} overlaps supervisor mapping {lo:#x}..{hi:#x}"
@@ -214,6 +235,11 @@ fn map_guest(bytes: &[u8], stack_bytes: usize) -> Result<MappedGuest> {
         return Err(Error::Message("guest ELF is truncated".into()));
     }
     let eh = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<Ehdr>()) };
+    if (eh.phentsize as usize) < std::mem::size_of::<Phdr>() {
+        return Err(Error::Message(
+            "guest program header entry is too small".into(),
+        ));
+    }
     if &eh.ident[..4] != b"\x7fELF" || eh.ident[4] != 2 {
         return Err(Error::Message("guest is not a 64-bit ELF".into()));
     }
@@ -227,20 +253,42 @@ fn map_guest(bytes: &[u8], stack_bytes: usize) -> Result<MappedGuest> {
 
     let mut mapped_any = false;
     for i in 0..eh.phnum as usize {
-        let off = eh.phoff as usize + i * eh.phentsize as usize;
-        if off + std::mem::size_of::<Phdr>() > bytes.len() {
+        let stride = i
+            .checked_mul(eh.phentsize as usize)
+            .ok_or_else(|| Error::Message("guest program header offset overflows".into()))?;
+        let off = (eh.phoff as usize)
+            .checked_add(stride)
+            .ok_or_else(|| Error::Message("guest program header offset overflows".into()))?;
+        let hdr_end = off
+            .checked_add(std::mem::size_of::<Phdr>())
+            .ok_or_else(|| Error::Message("guest program header offset overflows".into()))?;
+        if hdr_end > bytes.len() {
             return Err(Error::Message("guest program header out of bounds".into()));
         }
         let ph = unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(off).cast::<Phdr>()) };
         if ph.ptype != 1 {
             continue;
         }
-        let src_end = (ph.off + ph.filesz) as usize;
-        if src_end > bytes.len() || ph.filesz > ph.memsz {
+        let src_off = usize::try_from(ph.off)
+            .map_err(|_| Error::Message("guest PT_LOAD offset out of range".into()))?;
+        let src_end = ph
+            .off
+            .checked_add(ph.filesz)
+            .and_then(|v| usize::try_from(v).ok())
+            .ok_or_else(|| Error::Message("guest PT_LOAD file size invalid".into()))?;
+        if src_end > bytes.len() || src_off > src_end || ph.filesz > ph.memsz {
             return Err(Error::Message("guest PT_LOAD file size invalid".into()));
         }
         let start = ph.vaddr & !4095u64;
-        let end = (ph.vaddr + ph.memsz + 4095) & !4095u64;
+        let end = ph
+            .vaddr
+            .checked_add(ph.memsz)
+            .and_then(|v| v.checked_add(4095))
+            .map(|v| v & !4095u64)
+            .ok_or_else(|| Error::Message("guest PT_LOAD range overflows".into()))?;
+        if end <= start {
+            return Err(Error::Message("guest PT_LOAD range is empty".into()));
+        }
         let len = (end - start) as usize;
         let map = unsafe {
             libc::mmap(
@@ -258,11 +306,14 @@ fn map_guest(bytes: &[u8], stack_bytes: usize) -> Result<MappedGuest> {
                 std::io::Error::last_os_error()
             )));
         }
-        let src = &bytes[ph.off as usize..src_end];
+        let src = &bytes[src_off..src_end];
         unsafe {
             std::ptr::copy_nonoverlapping(src.as_ptr(), ph.vaddr as *mut u8, src.len());
             let mut a = ph.vaddr & !63u64;
-            let b = ph.vaddr + ph.filesz;
+            let b = ph
+                .vaddr
+                .checked_add(ph.filesz)
+                .ok_or_else(|| Error::Message("guest PT_LOAD cache range overflows".into()))?;
             while a < b {
                 core::arch::asm!("dc civac, {x}", x = in(reg) a, options(nostack));
                 a += 64;
@@ -333,7 +384,7 @@ fn map_guest(_bytes: &[u8], _stack_bytes: usize) -> Result<MappedGuest> {
 /// builder. No duplicate BPF arithmetic: the same program shape and the same
 /// bounds checks as `filter::trap_one`.
 fn broker_filter(trapped: &[u32]) -> Result<Vec<crate::sandbox::SockFilter>> {
-    filter::trap_syscalls(trapped)
+    filter::trap_and_deny(trapped, filter::GUEST_DENY)
 }
 
 /// Execute a real unmodified guest ELF under the Rust supervisor.
@@ -442,7 +493,16 @@ pub fn run_elf(guest: &Path, opts: &GuestOptions) -> Result<GuestReport> {
     }
 
     let mut status = 0i32;
-    unsafe { libc::waitpid(pid, &mut status, 0) };
+    loop {
+        let rc = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if rc >= 0 {
+            break;
+        }
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(libc::EINTR) {
+            return Err(Error::Message(format!("waitpid: {err}")));
+        }
+    }
     let hits = unsafe { std::ptr::read_volatile(ch.base().add(SCRATCH).cast::<u32>()) };
     let guest_exit_code = if libc::WIFEXITED(status) {
         libc::WEXITSTATUS(status)

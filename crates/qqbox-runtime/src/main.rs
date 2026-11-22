@@ -164,6 +164,9 @@ fn run(cli: Cli) -> ExitCode {
                 Ok(s) => s,
                 Err(e) => return fail(e),
             };
+            if !state.is_object() {
+                return fail(format!("instance {} state is not a JSON object", id));
+            }
             state["signal"] = json!(signal.unwrap_or_else(|| "SIGTERM".into()));
             match write_state(root, &id, &state) {
                 Ok(()) => ExitCode::SUCCESS,

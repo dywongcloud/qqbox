@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::str::FromStr;
@@ -481,19 +481,22 @@ pub fn reply(query: &DnsMessage, code: DnsCode, ttl: u32, addresses: &[IpAddr]) 
     Ok(out)
 }
 
-fn query_id(name: &str, qtype: u16) -> u16 {
-    let qtype_bytes = qtype.to_be_bytes();
-    let mut hash: u32 = 0x811c9dc5;
-    for byte in name.as_bytes().iter().chain(qtype_bytes.iter()) {
-        hash ^= u32::from(*byte);
-        hash = hash.wrapping_mul(0x01000193);
-    }
-    (hash & 0xffff) as u16
+/// CSPRNG transaction id from the OS entropy device. Predictable FNV-1a ids
+/// let any host that can reach the ephemeral source port inject a forged
+/// answer. Libraries take options, not the environment: this is an explicit
+/// entropy read, not an ambient knob.
+fn fresh_query_id() -> Result<u16> {
+    let mut file = std::fs::File::open("/dev/urandom")
+        .map_err(|e| Error::Message(format!("cannot open entropy: {e}")))?;
+    let mut bytes = [0u8; 2];
+    file.read_exact(&mut bytes)
+        .map_err(|e| Error::Message(format!("cannot read entropy: {e}")))?;
+    Ok(u16::from_be_bytes(bytes))
 }
 
-pub fn build_query(name: &str, qtype: u16) -> Result<Vec<u8>> {
+pub fn build_query_with_id(name: &str, qtype: u16, id: u16) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(64);
-    push_u16(&mut out, query_id(name, qtype));
+    push_u16(&mut out, id);
     push_u16(&mut out, 0x0100);
     push_u16(&mut out, 1);
     push_u16(&mut out, 0);
@@ -503,6 +506,100 @@ pub fn build_query(name: &str, qtype: u16) -> Result<Vec<u8>> {
     push_u16(&mut out, qtype);
     push_u16(&mut out, CLASS_IN);
     Ok(out)
+}
+
+pub fn build_query(name: &str, qtype: u16) -> Result<Vec<u8>> {
+    build_query_with_id(name, qtype, fresh_query_id()?)
+}
+
+/// Decode a DNS name that may use a compression pointer, with cycle detection.
+/// Used to check that a response echoes the question we actually sent.
+fn decode_name_any(bytes: &[u8], cursor: &mut usize) -> Result<String> {
+    let mut at = *cursor;
+    let mut end = *cursor;
+    let mut jumped = false;
+    let mut jumps = 0usize;
+    let mut visited = BTreeSet::new();
+    let mut labels: Vec<String> = Vec::new();
+    loop {
+        if at >= bytes.len() || !visited.insert(at) {
+            return Err(Error::Message("truncated or cyclic dns name".to_owned()));
+        }
+        let length = bytes[at];
+        if length & 0xc0 == 0xc0 {
+            if at + 1 >= bytes.len() {
+                return Err(Error::Message(
+                    "truncated dns compression pointer".to_owned(),
+                ));
+            }
+            let target = ((usize::from(length) & 0x3f) << 8) | usize::from(bytes[at + 1]);
+            if target >= bytes.len() {
+                return Err(Error::Message("dns pointer out of bounds".to_owned()));
+            }
+            jumps += 1;
+            if jumps > 32 {
+                return Err(Error::Message(
+                    "too many dns compression pointers".to_owned(),
+                ));
+            }
+            if !jumped {
+                end = at + 2;
+                jumped = true;
+            }
+            at = target;
+            continue;
+        }
+        if length & 0xc0 != 0 {
+            return Err(Error::Message("reserved dns label length".to_owned()));
+        }
+        if length == 0 {
+            if !jumped {
+                end = at + 1;
+            }
+            break;
+        }
+        let start = at + 1;
+        let stop = start + usize::from(length);
+        if stop > bytes.len() {
+            return Err(Error::Message("truncated dns label".to_owned()));
+        }
+        let label = std::str::from_utf8(&bytes[start..stop])
+            .map_err(|_| Error::Message("non-utf8 dns label".to_owned()))?;
+        if !is_valid_label(label) {
+            return Err(Error::Message("invalid dns label".to_owned()));
+        }
+        labels.push(label.to_ascii_lowercase());
+        if labels.len() > MAX_LABELS {
+            return Err(Error::Message("dns name has too many labels".to_owned()));
+        }
+        at = stop;
+    }
+    *cursor = end;
+    let joined = labels.join(".");
+    if !is_valid_name(&joined) {
+        return Err(Error::Message("invalid dns name".to_owned()));
+    }
+    Ok(joined)
+}
+
+/// Extract the echoed question from a response. A response with no question
+/// section is not an answer to our query.
+pub fn response_question(bytes: &[u8]) -> Result<DnsQuestion> {
+    let header = parse_header(bytes)?;
+    if !header.response || header.question_count == 0 {
+        return Err(Error::Message(
+            "dns response does not echo a question".to_owned(),
+        ));
+    }
+    let mut cursor = 12usize;
+    let name = decode_name_any(bytes, &mut cursor)?;
+    let qtype = read_u16(bytes, &mut cursor)?;
+    let qclass = read_u16(bytes, &mut cursor)?;
+    Ok(DnsQuestion {
+        name,
+        qtype,
+        qclass,
+    })
 }
 
 pub fn parse_response(bytes: &[u8]) -> Result<DnsResponse> {
@@ -696,22 +793,34 @@ impl DnsResolver {
             _ => TYPE_A,
         };
         let normalized = normalize_name(name)?;
-        let query = build_query(&normalized, qtype)?;
-        let expected = query_id(&normalized, qtype);
+        let expected_id = fresh_query_id()?;
+        let query = build_query_with_id(&normalized, qtype, expected_id)?;
+        let wanted = DnsQuestion {
+            name: normalized.clone(),
+            qtype,
+            qclass: CLASS_IN,
+        };
         for server in &self.servers {
             let wire = match udp_exchange(*server, &query) {
                 Ok(bytes) => bytes,
                 Err(_) => continue,
             };
             let mut response = match parse_response(&wire) {
-                Ok(value) if value.id == expected => value,
+                Ok(value)
+                    if value.id == expected_id
+                        && response_question(&wire).ok().as_ref() == Some(&wanted) =>
+                {
+                    value
+                }
                 Ok(_) => continue,
                 Err(_) => continue,
             };
             if response.truncated {
                 if let Ok(bytes) = tcp_exchange(*server, &query) {
                     if let Ok(value) = parse_response(&bytes) {
-                        if value.id == expected {
+                        if value.id == expected_id
+                            && response_question(&bytes).ok().as_ref() == Some(&wanted)
+                        {
                             response = value;
                         }
                     }
@@ -800,7 +909,15 @@ fn udp_exchange(server: SocketAddr, query: &[u8]) -> Result<Vec<u8>> {
     socket.set_write_timeout(Some(QUERY_TIMEOUT))?;
     socket.send_to(query, server)?;
     let mut buffer = [0u8; 4096];
-    let (size, _) = socket.recv_from(&mut buffer)?;
+    let (size, source) = socket.recv_from(&mut buffer)?;
+    // An off-path host that can reach the ephemeral source port must not be
+    // able to inject a forged answer: the reply has to come from the server
+    // we actually queried.
+    if source.ip() != server.ip() {
+        return Err(Error::Message(format!(
+            "dns reply source {source} is not the queried server {server}"
+        )));
+    }
     Ok(buffer[..size].to_vec())
 }
 

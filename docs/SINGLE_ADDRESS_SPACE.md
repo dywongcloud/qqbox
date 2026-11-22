@@ -24,26 +24,33 @@ is process-scoped on every host:
 
 | Host | Boundary |
 | --- | --- |
-| Linux | per-thread seccomp guest filter (`RET_KILL_PROCESS` for out-of-policy calls) and a text-range `RET_TRAP` backstop that routes an un-rewritten syscall to the supervisor, Landlock, `CLONE_CHILD_CLEARTID`, `Pdeathsig`, `process_vm_readv/writev`, memfd shared channel |
+| Linux | per-thread seccomp guest filter (`RET_TRAP` for the syscalls the Rust supervisor serves, `RET_KILL_PROCESS` for a fixed deny-list of direct host escapes, `RET_ALLOW` otherwise), Landlock, `CLONE_CHILD_CLEARTID`, `Pdeathsig`, `process_vm_readv/writev`, memfd shared channel |
 | macOS | Seatbelt `(deny default)` allowlist that kills an un-rewritten `svc`, bootstrap-port drop, ad-hoc codesign, `os_sync` shared channel |
 | Windows | LPAC AppContainer token plus job kill-on-close, x86-64 ProcessInstrumentationCallback `BACKSTOP_KILL`, auto-reset events, PE cache |
 
-The Linux backstop is **TRAP-to-supervisor**, not kill. The Go-era paths below
-(`stub/zig/seccomp.zig`, `internal/sandbox/config.go`) refer to the removed Go
-tree and are retained only as historical provenance; the live Rust equivalent is
-`crates/qqbox/src/backend/filter.rs` (`RET_TRAP`) plus `trap.rs` (`SIGSYS`),
-both witnessed on Linux aarch64. A rewrite miss is therefore correct but slower:
-static rewriting is the optimization, the trap is the backstop. macOS Seatbelt
-and the Windows x86-64 instrumentation callback kill; Windows arm64 has no
-callback backstop. The Rust Linux backend preserves the asymmetry. A port that
-collapses it to kill-on-miss would regress JIT-heavy guests (V8/Node/.NET),
-lazy indirect-branch site discovery and stray `0f 05` bytes in data.
+The Linux filter has **three** verdicts, not a blanket kill: the syscalls the Rust
+supervisor serves get `RET_TRAP` → `SIGSYS` → chanPage, a fixed 20-entry deny-list
+of direct host escapes gets `RET_KILL_PROCESS`, and everything else is allowed.
+There is **no default-deny text-range backstop**: the Go-era ~205-syscall table
+and its text-range prefix are unported, and the Go paths (`stub/zig/seccomp.zig`,
+`internal/sandbox/config.go`) are historical provenance only. The live Rust source
+is `crates/qqbox/src/backend/filter.rs` (`trap_and_deny`) plus
+`crates/qqbox/src/backend/linux.rs` (SIGSYS handler), witnessed on Linux aarch64.
+A served-syscall rewrite miss is therefore correct but slower: static rewriting is
+the optimization, the trap is the backstop. macOS Seatbelt and the Windows x86-64
+instrumentation callback kill; Windows arm64 has no callback backstop. The Rust
+Linux backend preserves the asymmetry. Collapsing it to kill-on-miss would regress
+JIT-heavy guests (V8/Node/.NET), lazy indirect-branch site discovery and stray
+`0f 05` bytes in data.
 Every boundary above is attached to a process, which is the load-bearing fact for this
 decision.
 
-The `Pdeathsig`/SIGIO lifeline kills the stub when its supervisor dies. The guest filter
-admits only the channel, futexes, signals, clocks, a new thread, exit and the stdio fast
-path; mapping memory, holding descriptors and forking happen only on the host-op thread.
+The `Pdeathsig`/SIGIO lifeline kills the stub when its supervisor dies. The
+Go-era guest filter admitted only the channel, futexes, signals, clocks, a new
+thread, exit and the stdio fast path; that allowlist is historical provenance.
+In the Rust backend the filter traps the served syscalls and kills the deny-list,
+while mapping memory, holding descriptors and forking happen only on a separate
+host-op thread that never executes guest code.
 
 ## Why merging regresses
 

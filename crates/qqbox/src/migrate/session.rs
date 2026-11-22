@@ -8,11 +8,12 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
-use crate::migrate::state::{Delta, MigrationError, MigrationState};
+use crate::migrate::state::{Delta, MigrationError, MigrationState, STATE_VERSION};
 use crate::migrate::wire::{
-    ack_payload, decode_ack, decode_delta, decode_hello, decode_state, default_hello,
-    delta_payload, hello_payload, read_expect_keyed, read_frame_keyed, state_payload,
-    write_frame_keyed, Ack, Capability, Kind, HEADER_LEN, MAX_FRAME,
+    ack_payload, decode_ack, decode_delta, decode_hello, decode_hello_ack, decode_state,
+    default_hello, default_hello_ack, delta_payload, fresh_nonce, hello_ack_payload, hello_payload,
+    read_expect_keyed, read_frame_keyed, state_payload, write_frame_keyed, Ack, Capability, Kind,
+    WireState, HEADER_LEN, MAX_FRAME,
 };
 
 pub trait Phase {
@@ -130,23 +131,25 @@ impl Session<Streaming> {
     pub fn send_delta<R: Read, W: Write>(
         self,
         cap: &Capability,
+        st: &mut WireState,
         r: &mut R,
         w: &mut W,
         d: &Delta,
     ) -> Result<Session<Streaming>, MigrationError> {
         require(cap, &self.capability)?;
-        write_frame_keyed(w, Kind::Delta, &delta_payload(d)?, cap)?;
-        self.read_ack(r, cap, MAX_FRAME, "streaming")
+        write_frame_keyed(w, Kind::Delta, &delta_payload(d)?, st)?;
+        self.read_ack(r, cap, st, "streaming")
     }
 
     fn read_ack<R: Read>(
         mut self,
         r: &mut R,
         cap: &Capability,
-        limit: u32,
+        st: &mut WireState,
         phase: &'static str,
     ) -> Result<Session<Streaming>, MigrationError> {
-        let bytes = read_expect_keyed(r, Kind::Ack, cap, limit)?;
+        require(cap, &self.capability)?;
+        let bytes = read_expect_keyed(r, Kind::Ack, st)?;
         let ack: Ack = decode_ack(&bytes)?;
         if ack.phase != phase {
             return Err(MigrationError::Phase {
@@ -224,22 +227,50 @@ pub fn send<R: Read, W: Write>(
         .prepare(cap)?
         .begin(cap)?;
 
-    write_frame_keyed(
-        w,
-        Kind::Hello,
-        &hello_payload(&default_hello(cap.clone()))?,
-        cap,
-    )?;
-    write_frame_keyed(w, Kind::State, &state_payload(&session.state)?, cap)?;
+    let mut st = WireState::source(cap);
+    let client_nonce = fresh_nonce()?;
+    let hello = default_hello(client_nonce);
+    write_frame_keyed(w, Kind::Hello, &hello_payload(&hello)?, &mut st)?;
+
+    // The destination answers with its own fresh nonce. Both peers then derive
+    // the same session key from the shared secret and BOTH nonces; the key is
+    // never on the wire. Replaying a recorded session cannot reproduce it.
+    let ack_bytes = read_expect_keyed(r, Kind::HelloAck, &mut st)?;
+    let hello_ack = decode_hello_ack(&ack_bytes)?;
+    if hello_ack.wire_version != super::wire::WIRE_VERSION
+        || hello_ack.state_version != STATE_VERSION
+    {
+        return Err(MigrationError::Wire(format!(
+            "peer version wire={} state={}",
+            hello_ack.wire_version, hello_ack.state_version
+        )));
+    }
+    if hello_ack.max_frame > MAX_FRAME {
+        return Err(MigrationError::Wire(
+            "peer max_frame exceeds bound".to_owned(),
+        ));
+    }
+    let limit = hello.max_frame.min(hello_ack.max_frame).min(MAX_FRAME);
+    if limit < HEADER_LEN as u32 + 1 {
+        return Err(MigrationError::Wire(format!(
+            "negotiated max_frame {limit} is below the minimum frame size"
+        )));
+    }
+    st.establish(cap, &client_nonce, &hello_ack.server_nonce, limit);
+
+    write_frame_keyed(w, Kind::State, &state_payload(&session.state)?, &mut st)?;
 
     let mut streaming = session;
     for newer in deltas {
         let (next, d) = streaming.push(cap, newer)?;
-        streaming = next.send_delta(cap, r, w, &d)?;
+        streaming = next.send_delta(cap, &mut st, r, w, &d)?;
     }
 
-    write_frame_keyed(w, Kind::Commit, &[], cap)?;
-    let bytes = read_expect_keyed(r, Kind::Ack, cap, MAX_FRAME)?;
+    // The source's canonical digest travels in the Commit payload, so the
+    // destination can verify parity instead of comparing a value to itself.
+    let source_digest = streaming.digest;
+    write_frame_keyed(w, Kind::Commit, &source_digest, &mut st)?;
+    let bytes = read_expect_keyed(r, Kind::Ack, &mut st)?;
     let ack: Ack = decode_ack(&bytes)?;
     if ack.phase != Committed::NAME {
         return Err(MigrationError::Phase {
@@ -258,39 +289,51 @@ pub fn receive<R: Read, W: Write>(
     w: &mut W,
     cap: &Capability,
 ) -> Result<Session<Restored>, MigrationError> {
-    let hello_bytes = read_expect_keyed(r, Kind::Hello, cap, MAX_FRAME)?;
+    let mut st = WireState::destination(cap);
+    let hello_bytes = read_expect_keyed(r, Kind::Hello, &mut st)?;
     let hello = decode_hello(&hello_bytes)?;
-    if hello.wire_version != super::wire::WIRE_VERSION
-        || hello.state_version != super::state::STATE_VERSION
-    {
+    if hello.wire_version != super::wire::WIRE_VERSION || hello.state_version != STATE_VERSION {
         return Err(MigrationError::Wire(format!(
             "peer version wire={} state={}",
             hello.wire_version, hello.state_version
         )));
-    }
-    if !cap.matches(&hello.capability) {
-        return Err(MigrationError::Capability);
     }
     if hello.max_frame > MAX_FRAME {
         return Err(MigrationError::Wire(
             "peer max_frame exceeds bound".to_owned(),
         ));
     }
-    // The smaller of the two peers' bounds governs every subsequent frame.
+    // The smaller of the two peers' bounds governs every subsequent frame,
+    // in BOTH directions.
     let limit = hello.max_frame.min(MAX_FRAME);
     if limit < HEADER_LEN as u32 + 1 {
         return Err(MigrationError::Wire(format!(
             "peer max_frame {limit} is below the minimum frame size"
         )));
     }
-    let state_bytes = read_expect_keyed(r, Kind::State, cap, limit)?;
+    let server_nonce = fresh_nonce()?;
+    write_frame_keyed(
+        w,
+        Kind::HelloAck,
+        &hello_ack_payload(&default_hello_ack(server_nonce))?,
+        &mut st,
+    )?;
+    st.establish(cap, &hello.client_nonce, &server_nonce, limit);
+
+    let state_bytes = read_expect_keyed(r, Kind::State, &mut st)?;
     let state = decode_state(&state_bytes)?;
+    if state.version != STATE_VERSION {
+        return Err(MigrationError::Version {
+            found: state.version,
+            supported: STATE_VERSION,
+        });
+    }
     let mut session = Session::<Idle>::open(state, cap.clone())?
         .prepare(cap)?
         .begin(cap)?;
 
-    loop {
-        let frame = read_frame_keyed(r, cap, limit)?;
+    let source_digest = loop {
+        let frame = read_frame_keyed(r, &mut st)?;
         match frame.kind {
             Kind::Delta => {
                 let d = decode_delta(&frame.payload)?;
@@ -302,16 +345,30 @@ pub fn receive<R: Read, W: Write>(
                     digest: session.digest,
                     phase: Streaming::NAME.to_string(),
                 };
-                write_frame_keyed(w, Kind::Ack, &ack_payload(&ack)?, cap)?;
+                write_frame_keyed(w, Kind::Ack, &ack_payload(&ack)?, &mut st)?;
             }
-            Kind::Commit => break,
+            Kind::Commit => {
+                if frame.payload.len() != 32 {
+                    return Err(MigrationError::Wire(
+                        "commit frame must carry the source digest".to_owned(),
+                    ));
+                }
+                let mut digest = [0u8; 32];
+                digest.copy_from_slice(&frame.payload);
+                if !super::wire::constant_time_eq(&digest, &session.digest) {
+                    return Err(MigrationError::Wire(
+                        "source/destination digest mismatch at commit".to_owned(),
+                    ));
+                }
+                break digest;
+            }
             other => {
                 return Err(MigrationError::Wire(format!(
                     "unexpected frame {other:?} during streaming"
                 )))
             }
         }
-    }
+    };
 
     // `apply` is the real restore morphism: it must succeed on the received
     // canonical state before we acknowledge the cutover.
@@ -328,10 +385,9 @@ pub fn receive<R: Read, W: Write>(
         digest: session.digest,
         phase: Committed::NAME.to_string(),
     };
-    write_frame_keyed(w, Kind::Ack, &ack_payload(&ack)?, cap)?;
+    write_frame_keyed(w, Kind::Ack, &ack_payload(&ack)?, &mut st)?;
 
-    let digest = session.digest;
     let mut committed = session.commit(cap)?;
-    committed.peer_digest = Some(digest);
+    committed.peer_digest = Some(source_digest);
     committed.finish(cap)
 }

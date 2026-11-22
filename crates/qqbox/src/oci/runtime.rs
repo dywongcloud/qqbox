@@ -389,7 +389,13 @@ pub fn apply(spec: &RuntimeSpec) -> Result<(Config, Vec<String>)> {
         }
         for rlimit in &process.rlimits {
             if rlimit.kind == "RLIMIT_NOFILE" {
-                cfg.resource_limits.pids_limit = rlimit.hard as i64;
+                match i64::try_from(rlimit.hard) {
+                    Ok(limit) => cfg.resource_limits.pids_limit = limit,
+                    Err(_) => rejected.push(format!(
+                        "rlimits.{}.hard exceeds i64 (no unchecked narrowing)",
+                        rlimit.kind
+                    )),
+                }
             } else {
                 rejected.push(format!("rlimits.{}", rlimit.kind));
             }

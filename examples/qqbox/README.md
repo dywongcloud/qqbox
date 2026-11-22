@@ -52,9 +52,19 @@ binary**, preserved off-repo to boot this desktop. The Rust `qqbox` CLI in this
 tree has no `build` subcommand and no `-image` flag (`qqbox build --help`
 returns rc=2).
 
-Neither `chromium/` (~339 MiB) nor `claude/claude-code.tgz` (~34 MiB) is
-committed. `fetch-extras.sh` refuses to invent the Tencent BrowserSkill artifacts
-if the host has not installed them.
+Six `Dockerfile` `COPY` inputs are generated, not committed: `node18/`, `npm/`,
+`chromium/` (~339 MiB), `chromium-wrapper.sh` is committed but copied into the
+payload by `fetch-chromium.sh`, `tencent-browserskill/`, `browser-skill/`,
+`extension/`, `skills/tencent-browser/SKILL.md` and `claude/claude-code.tgz`
+(~34 MiB). Run both fetch scripts before the build. `fetch-extras.sh` reads a
+**host-specific** Chrome profile path
+(`$HOME/Library/Application Support/Google/Chrome/Default/Extensions/hhcmgoofomhgciiibhipgmgkgnoenaoi/0.5.0_0`)
+and exits 1 when that exact extension version is absent; it also requires
+`$HOME/.tclaude/skills/browser-skill`. Those paths are macOS host paths, so the
+generated payload cannot be reproduced from a clean Linux checkout without
+supplying the artifacts out of band. `fetch-extras.sh` never invents the Tencent
+BrowserSkill artifacts. The remaining `COPY` sources (`start-xubuntu.sh`,
+`chromium-wrapper.sh`, `extension/`) are tracked in this repository.
 
 `-net` is required for the `RUN apt-get` steps. Chrome-for-Testing 158 was tried
 and segfaults instantly under qqbox (rc=139 in every flag combination), so

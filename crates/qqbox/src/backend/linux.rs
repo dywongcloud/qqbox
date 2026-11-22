@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 /// the caller, so `install_backstop` owns both.
 pub struct LinuxBackend {
     backstop: Mutex<Option<Arc<Channel>>>,
+    supervisor_started: std::sync::atomic::AtomicBool,
 }
 
 /// SIGCHLD interrupts FUTEX_WAIT: a child that exited before publishing a
@@ -30,6 +31,7 @@ impl LinuxBackend {
     pub fn new() -> Self {
         Self {
             backstop: Mutex::new(None),
+            supervisor_started: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -96,6 +98,14 @@ impl Platform for LinuxBackend {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
+        // A second install would spawn a second, never-joined thread racing
+        // the same futex word. Refuse it instead of dispatching one request
+        // twice.
+        if self.supervisor_started.swap(true, Ordering::SeqCst) {
+            return Err(Error::Message(
+                "backstop supervisor is already installed on this backend".into(),
+            ));
+        }
         if slot.is_none() {
             *slot = Some(Arc::new(Channel::create()?));
         }
@@ -115,16 +125,20 @@ impl Platform for LinuxBackend {
                 let mut ops =
                     HostOps::new(ns, std::process::id()).with_guest_pid(std::process::id() as i32);
                 loop {
-                    if hostop::serve_one(&serving, &mut ops).is_ok() {
-                        hostop::ack(&serving);
-                    }
+                    // The SIGSYS handler alone owns REPLY -> IDLE. An
+                    // unconditional ack() here would clobber a REQUEST the
+                    // handler just published, losing the next trap.
+                    let _ = hostop::serve_one(&serving, &mut ops);
                     if CHILD_GONE.load(Ordering::SeqCst) != 0 {
                         hostop::GUEST_GONE.store(0, Ordering::SeqCst);
                     }
                 }
             })
             .map_err(|e| Error::Message(format!("spawn host-op thread: {e}")))?;
-        crate::sandbox::install(&filter::trap_one(nr::GETPPID as u32)?)
+        crate::sandbox::install(&filter::trap_and_deny(
+            &[nr::GETPPID as u32],
+            filter::GUEST_DENY,
+        )?)
     }
 
     /// Live end-to-end witness: fork a guest thread, install a real seccomp

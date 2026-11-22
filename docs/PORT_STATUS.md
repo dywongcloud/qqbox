@@ -10,7 +10,7 @@ plane for a complete runtime.
   `qqbox-runtime`) builds cleanly with `cargo build --workspace` on darwin/arm64
   with rustc 1.98.1.
 - The full typed configuration surface: `Options` (every `With…` option), `Config`
-  (55 fields), image config, runtime-spec config, compose spec, labels, ports,
+  (49 fields), image config, runtime-spec config, compose spec, labels, ports,
   volumes, network mode, capabilities, resource limits, seccomp and AppArmor profiles,
   healthchecks, restart and log policies.
 - The OCI image pipeline: reference parsing, registry manifest/index and blob URLs,
@@ -139,7 +139,9 @@ Still honestly unresolved from that sweep: no supervisor-side `S_ISUID` fix,
 no real `docker run --runtime=qqbox` / containerd / Podman integration (only
 `curl` against `qqboxd` and `qqbox-runtime` against a real bundle), no
 translation-fidelity review of the zh-Hant docs, and the MCP `run` tool still
-returns `isError: true` by design because no native backend exists.
+returns `isError: true` by design because the general `qqbox run` path returns
+`UnsupportedPlatform` (the Linux trap backend is ported only for static
+aarch64 ET_EXEC).
 
 ## Inherited platform limits (from the security recon)
 
@@ -162,11 +164,12 @@ recorded so a port does not claim parity it does not have:
   (Namespace tree plus `openat2`). The Rust port does not invent a phantom Policy
   trait.
 
-The Rust library reads no behavior knob from the environment. Its only host-path
-lookups are `std::env::temp_dir()` for the default image cache and, when
-`PullOptions.auth_config` is set, that path for registry auth; both come from
-`Options` (`with_image_cache_dir`, `with_docker_config`) rather than being
-hard-coded to `$HOME`.
+No Rust crate reads `env::var` or `std::env::temp_dir()`; the only `env::`
+uses are compile-time `std::env::consts::ARCH`/`OS` constants. When
+`PullOptions.cache_dir` is unset, `cache_dir()` falls back to the fixed
+`/tmp/qqbox/images`, created 0700 and verified to be owned by the current
+euid and free of symlinks on every use. Registry auth comes only from the
+caller-supplied `PullOptions.auth_config` path.
 
 ## Not done — the remaining work
 
@@ -241,9 +244,11 @@ historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
 
 - Single address space across instances: rejected with evidence; see
   `docs/SINGLE_ADDRESS_SPACE.md`. One address space per instance is preserved.
-- Linux backstop is TRAP-to-supervisor, macOS/Windows kill. README, AGENTS.md and
-  llms.txt claimed kill-on-miss for all three; that drift is corrected here and in
-  the rewritten docs.
+- Linux installs a real mediation filter (TRAP for served syscalls, KILL for
+  the direct-escape deny-list, ALLOW for ordinary process syscalls); the Go-era
+  default-deny text-range backstop is NOT ported. macOS/Windows kill. README,
+  AGENTS.md and llms.txt once claimed kill-on-miss for all three; that drift is
+  corrected here and in the rewritten docs.
 
 ## Residual limitations (disclosed, not claimed as done)
 
@@ -278,6 +283,15 @@ historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
   PTY, and `setsid --ctty` was additionally typed into the live VNC 5905
   terminal. Each leaves the line in place. The shell is fully usable. Earlier documentation claimed this
   error was fixed; that claim is retracted here.
-- Zig 0.16.0 is installed; the 43 Zig sources were authored against 0.13.0. The build
-  scripts now prefer `ZIG` then PATH and warn on a version mismatch; migrating all
-  sources and rebuilding the eight committed blobs is a separate, gated change.
+- Zig 0.16.0 is installed; the 43 Zig sources were authored against 0.13.0. All four
+  stub build scripts now fail closed on a non-0.13.x toolchain, and `stub/build.sh`
+  fails closed when `zig objcopy --strip-debug` fails instead of silently shipping an
+  unstripped blob. `make stub-verify` validates the eight committed blobs' ELF/PE/Mach-O
+  headers on a clean checkout with no Zig toolchain. A pinned-Zig byte-for-byte rebuild
+  comparison is NOT witnessed: with Zig 0.13.0 on this macOS arm64 host, the two macOS
+  blobs rebuild byte-identically, the two Windows PE blobs differ only in the 4-byte COFF
+  timestamp (byte-identical after zeroing it), but the four Linux ELF blobs do not
+  reproduce because Zig 0.13.0's `objcopy` fails to link on macOS
+  (`undefined symbol: _sigaction`), and running the Linux Zig 0.13.0 inside the
+  off-repo Go runtime guest fails at `ld.lld: unknown file type`. Migrating all sources
+  and rebuilding the eight committed blobs is a separate, gated change.

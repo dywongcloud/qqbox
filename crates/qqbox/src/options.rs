@@ -247,37 +247,9 @@ fn validate_volume(volume: &VolumeSpec) -> Result<()> {
 }
 
 fn validate_published_port(port: &PublishedPort) -> Result<()> {
-    if port.container_port == 0 {
-        return Err(Error::Config(
-            "published port has no container port".to_owned(),
-        ));
-    }
-    let container_last = match port.container_port_end {
-        Some(end) => end,
-        None => port.container_port,
-    };
-    let host_last = match port.host_port_end {
-        Some(end) => end,
-        None => port.host_port,
-    };
-    if container_last < port.container_port || host_last < port.host_port {
-        return Err(Error::Config("published port range is reversed".to_owned()));
-    }
-    if port.host_port == 0 && port.host_port_end.is_some() {
-        return Err(Error::Config(
-            "ephemeral host port cannot have a range".to_owned(),
-        ));
-    }
-    if let (Some(host_end), Some(container_end)) = (port.host_port_end, port.container_port_end) {
-        let host_span = u32::from(host_end) - u32::from(port.host_port);
-        let container_span = u32::from(container_end) - u32::from(port.container_port);
-        if host_span != container_span {
-            return Err(Error::Config(
-                "published port ranges have different lengths".to_owned(),
-            ));
-        }
-    }
-    Ok(())
+    // One validator, one contract. A private copy previously omitted the
+    // "ranges must be paired" and "ephemeral + container range" rejections.
+    crate::net::ports::validate_published_port(port)
 }
 
 impl Options {

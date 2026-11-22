@@ -2,16 +2,22 @@
 # Assemble the third-party artifacts the qqbox desktop preloads:
 #   * the real Tencent BrowserSkill (MIT) MV3 extension from the host Chrome
 #     profile + the matching browser-skill SKILL.md (or Claude Code skill dir).
-#   * the pure-JS Claude Code 1.0.128 npm tarball (Node 18; the Bun-based
-#     2.1.x native build aborts under laboon's futex emulation.
+#   * the pure-JS Claude Code 1.0.128 npm tarball (Node 18). The Bun-based
+#     2.1.x native build aborted under the pre-removal Go runtime's futex
+#     emulation; that runtime is historical Go-era provenance.
 #
-# These are NOT committed. Run this before `qqbox build`.
+# These are NOT committed. Run this before building the image with the
+# off-repo pre-removal Go runtime binary; the Rust `qqbox` CLI has no `build`
+# subcommand (`qqbox build --help` returns rc=2). The generated payloads are
+# consumed only by examples/qqbox/Dockerfile. Historical provenance: the Go
+# CLI.
 #
 # Honest boundary: bsk 0.5.0 is a macOS Mach-O binary and cannot run in a
 # Linux ELF guest; the extension and skill documentation are installed, but
 # browser automation via bsk is not available in the guest. Chromium requires
-# --single-process --no-zygote under laboon, which prevents the extension's
-# service worker from running (multi-process mode loads it). See README.md.
+# --single-process --no-zygote under the pre-removal Go runtime, which prevents
+# the extension's service worker from running (multi-process mode loads it).
+# See README.md.
 set -eu
 cd "$(dirname "$0")"
 mkdir -p tencent-browserskill browser-skill/references claude extension skills/tencent-browser

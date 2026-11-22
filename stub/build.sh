@@ -26,7 +26,8 @@ if ! "$ZIG" version >/dev/null 2>&1; then
 fi
 case "$("$ZIG" version 2>/dev/null)" in
     0.13.*) ;;
-    *) printf '%s\n' "qqbox: warning: Zig $("$ZIG" version 2>/dev/null) may not build sources written for 0.13.0" >&2 ;;
+    *) printf '%s\n' "qqbox: Zig $("$ZIG" version 2>/dev/null) is not 0.13.x; the freestanding sources require a pinned 0.13.0 toolchain. Set ZIG=<path-to-zig-0.13.0>. Refusing to rebuild the committed blobs with an incompatible compiler."
+       exit 1 ;;
 esac
 
 STUB_PRIMARY=0x6f0000000000
@@ -38,7 +39,12 @@ exe() { # arch mcpu out
 	printf 'pub const STUB_BASE: u64 = %s;\n' "$STUB_PRIMARY" > zig/layout.zig
 	"$ZIG" build-exe -target "$1"-linux-none -mcpu "$2" -O ReleaseSmall -fPIC -fno-PIE \
 		$common --image-base "$STUB_PRIMARY" -femit-bin="$3" zig/stub.zig
-	"$ZIG" objcopy --strip-debug "$3" "$3".tmp && mv "$3".tmp "$3"
+	if ! "$ZIG" objcopy --strip-debug "$3" "$3".tmp; then
+		printf '%s\n' "qqbox: zig objcopy failed to strip $3; refusing to ship an unstripped stub" >&2
+		rm -f "$3".tmp
+		exit 1
+	fi
+	mv "$3".tmp "$3"
 	rm -f "$3".o
 }
 
@@ -48,7 +54,12 @@ pie() { # arch mcpu out
 	printf 'pub const STUB_BASE: u64 = %s;\n' "$STUB_PRIMARY" > zig/layout.zig
 	"$ZIG" build-exe -target "$1"-linux-none -mcpu "$2" -O ReleaseSmall -fPIE \
 		$common -femit-bin="$3" zig/stub.zig
-	"$ZIG" objcopy --strip-debug "$3" "$3".tmp && mv "$3".tmp "$3"
+	if ! "$ZIG" objcopy --strip-debug "$3" "$3".tmp; then
+		printf '%s\n' "qqbox: zig objcopy failed to strip $3; refusing to ship an unstripped stub" >&2
+		rm -f "$3".tmp
+		exit 1
+	fi
+	mv "$3".tmp "$3"
 	rm -f "$3".o
 }
 

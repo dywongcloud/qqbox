@@ -1,4 +1,11 @@
 #!/bin/bash
+# HISTORICAL GO-ERA EXAMPLE. This is the archived stock webtop Xubuntu boot
+# script, retained for the evidence in examples/xubuntu/README.md. Its fixed
+# delays are Go-era readiness guesses, not a correctness mechanism; no delay
+# was injected here as a synchronization fix. The supported startup path is
+# examples/qqbox/start-xubuntu.sh (xubuntu 26, event-driven readiness, no
+# fixed delays). Do not copy these sleeps into new code.
+#
 # Boots the stock linuxserver/webtop ubuntu-xfce (Xubuntu) desktop in qqbox.
 # Only the X server/VNC adapter is qqbox-specific; the XFCE session, theme,
 # Firefox, Thunar and xfce4-terminal are the image's own.

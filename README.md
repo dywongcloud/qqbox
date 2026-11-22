@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/dywongcloud/qqbox/actions/workflows/ci.yml"><img src="https://github.com/dywongcloud/qqbox/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/dywongcloud/qqbox/releases/latest"><img src="https://img.shields.io/github/v/release/dywongcloud/qqbox" alt="Latest release"></a>
+  <a href="https://github.com/dywongcloud/qqbox/actions/workflows/release.yml"><img src="https://img.shields.io/badge/build-workflow%20artifacts-blue" alt="Release workflow artifacts"></a>
   <a href="https://docs.rs/qqbox"><img src="https://img.shields.io/badge/docs.rs-qqbox-blue" alt="Rust reference"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20macOS%20Windows-informational" alt="Platforms">
@@ -26,7 +26,9 @@ matching CPU architecture: amd64 or arm64, with no translation between them.
 Isolation has **two independent layers**: supervisor mediation through a
 confined filesystem with no direct host paths, a fixed device allowlist, and
 networking off by default with configurable egress allowlists; plus the host-OS
-sandbox (seccomp / Seatbelt / AppContainer) as a kill-on-escape backstop. Give
+sandbox (seccomp / Seatbelt / AppContainer). The Rust Linux backend installs a
+real mediation filter: served syscalls TRAP to the supervisor and direct host
+escapes are killed. Give
 each untrusted program or agent-generated command a disposable sandbox, exposing
 only the files and network access it needs.
 
@@ -69,9 +71,10 @@ cargo install --path crates/qqbox-mcp
 cargo install --path crates/qqbox-runtime
 ```
 
-Prebuilt binaries for every platform are on the
-[latest release](https://github.com/dywongcloud/qqbox/releases/latest). To embed
-qqbox as a Rust library, add it to your `Cargo.toml`:
+The [`release` workflow](.github/workflows/release.yml) builds release binaries for
+Linux, macOS and Windows on `v*` tags and uploads them as **workflow-run artifacts**;
+it does not create a GitHub Release, so there is no `/releases/latest` download page
+yet. To embed qqbox as a Rust library, add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -189,6 +192,9 @@ curl -X POST -H 'Authorization: Bearer my-secret' -H 'Content-Type: application/
 ```
 
 Unauthenticated requests return HTTP 401. There is no unauthenticated default.
+The migration wire derives a fresh session key from the caller secret plus two
+CSPRNG nonces; the capability digest is never transmitted and every frame is
+bound to its sequence and direction (see [docs/LIVE_MIGRATION.md](docs/LIVE_MIGRATION.md)).
 The token is generated and printed at startup when `--token` is omitted. The 54
 routes are listed by `qqboxd --routes` and
 `GET /qqbox/v1/routes`; the enforced invariants are at
@@ -325,12 +331,16 @@ allowlist. Guests cannot resolve host paths directly; host files are available
 only through explicitly configured roots or mounts. This lets a run use an
 image's files while sharing only the host directories its caller chooses.
 
-**Host-OS backstop.** The asymmetry is deliberate. On Linux a syscall that
-escapes rewriting is TRAPped to the Rust supervisor (seccomp `RET_TRAP` →
-`SIGSYS` → chanPage), not killed: a rewrite miss is correct but slower. macOS
-Seatbelt and the Windows x86-64 instrumentation callback kill; Windows arm64
-has no callback backstop. On Linux, mapping memory, holding descriptors and
-forking belong to a separate host-op thread that never executes guest code.
+**Host-OS mediation filter.** On Linux the installed seccomp program TRAPs the
+syscalls the Rust supervisor serves (`RET_TRAP` → `SIGSYS` → chanPage), KILLs a
+fixed deny-list of direct host escapes (`execve`, `socket`, `ptrace`,
+`process_vm_*`, module loading, `clone`) and allows the ordinary process
+syscalls a guest needs (`futex`, `rt_sigreturn`, `exit`). This is a real
+mediation filter, not the Go-era default-deny text-range backstop: the full
+~205-syscall table and the text-range prefix are not ported. macOS Seatbelt and
+the Windows x86-64 instrumentation callback kill; Windows arm64 has no
+callback backstop. On Linux, mapping memory, holding descriptors and forking
+belong to a separate host-op thread that never executes guest code.
 [AGENTS.md](AGENTS.md) and [docs/NATIVE_BACKEND.md](docs/NATIVE_BACKEND.md)
 define these boundaries.
 
@@ -366,8 +376,10 @@ The upstream README records measurements of the **Go runtime** (Apple M4
 macOS 26.5: Alpine `echo` 12 ms vs Docker Desktop 187 ms, Node start 129 ms vs
 200 ms, CPU loop ~tie; Linux CPU-bound slowdown ~1.01× native, ~224 ns per
 trivial intercepted syscall). Those are **recorded measurements, not fresh
-validation of this Rust tree**, and they do not carry over: no native Rust guest
-backend exists yet, so no end-to-end measurement can be produced here. See
+validation of this Rust tree**, and they do not carry over: the Linux
+trap-to-supervisor backend IS ported, but it serves only a small witnessed
+static aarch64 ET_EXEC syscall subset, so no end-to-end measurement of the
+general guest runtime can be produced here. See
 [docs/PERF.md](docs/PERF.md) for the method and the honest status. Native CPU
 execution does not make every workload native-speed: syscall handling, data
 copies, and process startup still cost time.
@@ -396,13 +408,16 @@ and connect to `http://127.0.0.1:8080/` for HTTP server mode. On Windows, use
 
 The upstream result contains exit code `0` and stdout `4\n`. In this Rust tree
 the call returns `isError: true` with the native-backend diagnostic in
-`stderr`, because no guest backend is ported yet; it does not fabricate a
+`stderr`, because the general `qqbox run` path returns
+`UnsupportedPlatform` (macOS/Windows launch contracts and the full syscall
+table are unported); the Linux trap backend IS ported for static aarch64
+ET_EXEC via `qqbox backend exec-elf`. It does not fabricate a
 successful run. External networking is available only when the server starts
 with `--allow-net` and the call requests `"network": true`. By default, runs
 have a 120-second timeout and each output stream is capped at 1 MiB; the server
 exposes `--timeout` and `--max-output` to change those defaults.
 
-The server also exposes real, fully witnessed tools that need no guest backend:
+The server also exposes real, fully witnessed tools that need no general guest runtime:
 `qqbox_invariants`, `qqbox_routes`, `qqbox_runtime_spec_validate`,
 `qqbox_config_validate`, `qqbox_ports_check`, `qqbox_compose_plan` and
 `qqbox_version`.

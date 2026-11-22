@@ -1,4 +1,13 @@
 #!/bin/sh
+# HISTORICAL GO-ERA EXAMPLE. This is the archived Alpine XFCE boot script
+# from the first desktop build, retained for the evidence in FIXES.json. It
+# keeps the Go-era fixed delays verbatim as historical provenance; they are
+# readiness guesses, not a correctness mechanism. The supported startup path
+# is examples/qqbox/start-xubuntu.sh, which uses `-displayfd` FIFOs, log-line
+# readiness, `xdotool search --sync`, a synchronous X round-trip and an
+# event-driven `wait -n -p` supervisor with no fixed delays. Do not copy these
+# sleeps into new code.
+#
 # Boots the fixed XFCE desktop inside a qqbox sandbox.
 #
 # Fixes vs the first version:

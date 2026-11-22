@@ -104,7 +104,7 @@ suspend/commit 屏障、按需 post-copy — 是我們的 `delta` 回合與 `Com
 四個控制平面分割的集合。兩者都是在明確狀態 ADT 上的有限收斂迴圈，類比僅止於
 此：drafter 仍需要 VMM 的來賓 RAM，而 qqbox 沒有。我們沒有抄襲 drafter 的
 傳輸層（它沒有內建認證／TLS，把這部分交給外部 `io.ReadWriter`）；我們的
-capability 閘控在協定之內。
+capability 推導的 KDF 在協定之內。
 
 ## 2. 邊界（刻意先說明）
 
@@ -160,13 +160,23 @@ VMM。Linux 後端會把系統呼叫 TRAP 到 chanPage 並服務它，但那是�
 ## 4. 線路協定
 
 ```
-MAGIC "QQBM" | wire_version u8 | kind u8 | length u32 BE | payload | SHA-256
+MAGIC "QQBM" | wire_version u8 | kind u8 | length u32 BE | payload | HMAC-SHA-256
 ```
 
 - `length` 在**配置記憶體之前**即以 `MAX_FRAME`（16 MiB）檢查。
-- 摘要覆蓋 header + payload，並以常數時間比較。
+- 本機 checkpoint 訊框使用未加金鑰的 SHA-256（僅完整性）；TCP 工作階段的
+  訊框使用 HMAC-SHA-256，並以常數時間比較。
+- capability 摘要既不是線路金鑰，也不是訊框欄位。`Hello` 攜帶 CSPRNG
+  `client_nonce`，`HelloAck` 攜帶 CSPRNG `server_nonce`；雙方以
+  HMAC(密鑰, 網域 + client + server) 推導工作階段金鑰。被動監聽 `Hello`
+  無法推得金鑰；把錄下的工作階段重放到新伺服器會因新 nonce 而失敗。
+- 每個 MAC 亦綁定單調序號與方向標籤；丟失、重複、亂序或反射的訊框皆失敗。
+- `Commit` 攜帶來源的標準摘要，目的端在確認切換前以常數時間比對。
+- 解碼後的 `State.version` 在 `normalize` / `apply` 之前先驗證。
+- `Hello.max_frame` 為真實協商：`min(peer, self, MAX_FRAME)` 在雙向的讀與寫
+  皆生效。
 - 全部使用 `read_exact`；每個失敗都是具型別的 `MigrationError::Wire`。
-- 訊框種類：`Hello`、`State`、`Delta`、`Commit`、`Ack`、`Reject`。
+- 訊框種類：`Hello`、`HelloAck`、`State`、`Delta`、`Commit`、`Ack`、`Reject`。
 - `read_expect(kind)` 在解碼前拒絕型別混淆的訊框。
 - 所有 reader／writer 都是明確參數 — `Effects ≡ IO_Monad`。
 
@@ -175,8 +185,8 @@ MAGIC "QQBM" | wire_version u8 | kind u8 | length u32 BE | payload | SHA-256
 `Session<Idle> → Prepared → Streaming → Committed → Restored`。每次轉換
 **消耗 `self`**，且 `Session` 刻意不實作 `Clone` 或 `Copy`，因此階段無法重用，
 遷移也無法被 commit 兩次。每個具權限的轉換都要求 `Capability` — 呼叫者提供
-之密鑰的 SHA-256，以常數時間比對。密鑰絕不作為原始碼中的字面值，也絕不出現在
-訊框中；訊框中只有其摘要。
+之密鑰的 SHA-256，以常數時間比對。密鑰絕不作為原始碼中的字面值；其摘要也
+絕不出現在訊框中，僅作為推導工作階段金鑰的 KDF 輸入。
 
 daemon 端點另外由既有的 bearer token 保護：
 
@@ -214,9 +224,10 @@ qqbox migrate send        --secret S --endpoint 127.0.0.1:P --input src.frame \
 | 損毀的本機訊框 | 拒絕，`integrity digest mismatch` |
 | 截斷訊框 | 拒絕，`digest read: failed to fill whole buffer` |
 | 超長長度 | 拒絕，`frame 16777217 exceeds MAX_FRAME 16777216` |
-| 兩個真實行程 + 真實 TCP socket | `send_rounds=1`，來源摘要 == 目的摘要；每個訊框以 capability 金鑰做 HMAC-SHA-256 驗證，`Hello.max_frame` 為實際協商上限 |
+| 兩個真實行程 + 真實 TCP socket | `send_rounds=1`，來源摘要 == 目的摘要；每個訊框以雙 nonce 推導的工作階段金鑰做 HMAC-SHA-256 驗證並綁定序號／方向，`Hello.max_frame` 為實際協商上限 |
+| 錄下的工作階段重放到新伺服器 | 拒絕：`authentication digest mismatch`（新 server nonce） |
 | pre-copy 後的狀態一致性 | `source_final_equals_dest=True`、`original_differs_after_delta=True` |
-| TCP 上錯誤 capability | 接收端 `migration capability rejected`，傳送端 rc=1 |
+| TCP 上錯誤 capability | 接收端 `authentication digest mismatch`，傳送端 rc=1；交握金鑰由密鑰推導，不比較 capability 欄位 |
 | daemon 無 bearer token | 401 |
 | checkpoint 前的 daemon 狀態 | 404 |
 | daemon checkpoint → state | 200，摘要相符 |

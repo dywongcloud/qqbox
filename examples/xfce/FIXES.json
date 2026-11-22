@@ -24,7 +24,7 @@
         "internal/sandbox/lx_termios.go: lxTIOCPKT = 0x5420",
         "internal/sandbox/pty_unix.go: guarded case in ptmxIoctl forwards TIOCPKT to the host pty master with unix.IoctlSetPointerInt",
         "internal/sandbox/termios_unix.go: guarded case in ttyIoctl for the slave",
-        "cargo build --workspace -> Mach-O arm64; gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass"
+        "cargo build --workspace -> Mach-O arm64 (historical Go-era gate: gofmt clean; go test ./internal/oci/... ./internal/sandbox/... pass; those paths no longer exist. Current gate is cargo test --workspace + make witness)"
       ],
       "witness": [
         "probe/tiocpkt-direct.txt: fcntl.ioctl(master, TIOCPKT, struct.pack('i',1)) -> TIOCPKT_OK /dev/pts/13; off variant also OK",

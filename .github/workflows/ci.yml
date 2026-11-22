@@ -22,14 +22,19 @@ jobs:
         run: cargo build --workspace
       - name: check
         run: cargo check --workspace
+      - name: tests
+        run: cargo test --workspace
       - name: live witnesses
         shell: bash
         run: make witness
+      - name: socket-level authz witness
+        shell: bash
+        run: make witness-http
       - name: invariants
         run: cargo run -q -p qqbox-cli -- invariants
 
-  fmt:
-    name: rustfmt and clippy
+  docs:
+    name: zh-Hant gate and clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -40,9 +45,11 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace -- -D warnings
+      - name: zh-Hant verify
+        run: make zh-hant-verify
 
   zig-stubs:
-    name: stub scripts are valid
+    name: stub scripts and blobs are valid
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -52,3 +59,19 @@ jobs:
           sh -n stub/macos/build.sh
           sh -n stub/macos/build-hvf.sh
           sh -n stub/windows/build.sh
+          sh -n examples/qqbox/fetch-extras.sh
+          sh -n examples/qqbox/fetch-chromium.sh
+          sh -n examples/qqbox/chromium-wrapper.sh
+          bash -n examples/qqbox/start-xubuntu.sh
+          bash -n examples/xfce/start-xfce.sh
+          bash -n examples/xubuntu/start-xubuntu.sh
+      - name: committed stub integrity
+        run: make stub-verify
+      - name: pinned toolchain gate fails closed
+        run: |
+          if ZIG=/bin/false sh stub/build.sh >/dev/null 2>&1; then
+            echo 'qqbox: stub/build.sh accepted a broken toolchain' >&2; exit 1
+          fi
+          echo 'stub_toolchain_gate_fails_closed=true'
+      - name: Traditional Chinese gate
+        run: make zh-hant-verify

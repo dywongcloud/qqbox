@@ -70,8 +70,10 @@ Rust 監督器分派，以及真實的來賓繼續執行。
 `getpid(172) -> 91676`、`brk(214) -> 0`、`clock_gettime(113) -> -14`
 （EFAULT：未提供來賓緩衝區）、未知 `999 -> -38`（ENOSYS）。
 `qqbox backend memory` 以真實緩衝區證明有界的資料平面：
-`clock_gettime_result=16` 位元組、`uname_result=390` 位元組、
-`tv_sec=1795229114`、`sysname=Linux`、rc=0。沒有任何系統呼叫假裝成功。
+`clock_gettime_result=0`、`uname_result=0`（Linux 成功回傳值）、
+`tv_sec=1795229114`、`sysname=Linux`、rc=0。寫入位元組由緩衝區內容證明，
+而非回傳值；部分 `process_vm_writev` 現在回傳 `-EFAULT`。沒有任何系統呼叫
+假裝成功。
 
 Linux 上的 `qqbox backend capabilities` 回報 `memfd_channel=true`、
 `seccomp_trap=true`、`sigsys_handler=true`、`implemented_syscalls=14`。

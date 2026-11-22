@@ -104,6 +104,14 @@ impl HostOps {
         self
     }
 
+    /// Only descriptors opened on the guest's behalf may be referenced. A
+    /// truncated u64 must never become a supervisor fd (stdout, sockets,
+    /// logs, the chanPage fd itself).
+    fn guest_fd(&self, raw: u64) -> Option<i32> {
+        let fd = i32::try_from(raw).ok()?;
+        self.guest.fd_table.contains_key(&fd).then_some(fd)
+    }
+
     fn read_guest(&self, addr: u64, max: usize) -> Option<Vec<u8>> {
         let pid = self.guest_pid?;
         if addr == 0 || max == 0 || max > MAX_GUEST_IO {
@@ -176,8 +184,8 @@ impl HostOps {
                     )
                 };
                 match self.write_guest(args[1], bytes) {
-                    Some(n) => n as i64,
-                    None => EFAULT,
+                    Some(n) if n == bytes.len() => 0,
+                    Some(_) | None => EFAULT,
                 }
             }
             nr::UNAME => {
@@ -196,22 +204,28 @@ impl HostOps {
                     out[i * 65..i * 65 + n].copy_from_slice(&b[..n]);
                 }
                 match self.write_guest(args[0], &out) {
-                    Some(n) => n as i64,
-                    None => EFAULT,
+                    Some(n) if n == out.len() => 0,
+                    Some(_) | None => EFAULT,
                 }
             }
             nr::WRITE => {
+                let Some(fd) = self.guest_fd(args[0]) else {
+                    return EBADF;
+                };
                 let len = (args[2] as usize).min(MAX_GUEST_IO);
                 let bytes = match self.read_guest(args[1], len) {
                     Some(b) => b,
                     None => return EFAULT,
                 };
-                unsafe { libc::write(args[0] as i32, bytes.as_ptr().cast(), bytes.len()) as i64 }
+                unsafe { libc::write(fd, bytes.as_ptr().cast(), bytes.len()) as i64 }
             }
             nr::READ => {
+                let Some(fd) = self.guest_fd(args[0]) else {
+                    return EBADF;
+                };
                 let len = (args[2] as usize).min(MAX_GUEST_IO);
                 let mut buf = vec![0u8; len];
-                let n = unsafe { libc::read(args[0] as i32, buf.as_mut_ptr().cast(), len) };
+                let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), len) };
                 if n <= 0 {
                     return n as i64;
                 }
@@ -247,7 +261,9 @@ impl HostOps {
                 fd as i64
             }
             nr::CLOSE => {
-                let fd = args[0] as i32;
+                let Some(fd) = self.guest_fd(args[0]) else {
+                    return EBADF;
+                };
                 self.guest.fd_table.remove(&fd);
                 unsafe { libc::close(fd) as i64 }
             }

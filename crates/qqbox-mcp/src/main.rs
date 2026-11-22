@@ -11,9 +11,12 @@ use qqbox::daemon::Daemon;
 use qqbox::security;
 use qqbox::{run_image, Context, Options};
 use serde_json::{json, Value};
-use std::io::{self, BufRead, Write};
+use std::io::Read as _;
+use std::io::{self, Write};
 
 const PROTOCOL: &str = "2025-06-18";
+/// Same ceiling as qqboxd: one byte past the limit is enough to reject.
+pub const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "qqbox-mcp", version, about = "MCP server for qqbox sandboxes")]
@@ -276,8 +279,21 @@ fn handle(req: &Value, cli: &Cli) -> Option<Value> {
 fn stdio(cli: &Cli) -> io::Result<()> {
     let stdin = io::stdin();
     let mut out = io::stdout();
-    for line in stdin.lock().lines() {
-        let line = line?;
+    let mut reader = stdin.lock();
+    loop {
+        let mut line = String::new();
+        // A stdio caller shares a private pipe, but an unbounded line is still
+        // an unbounded allocation. `.take()` is a real cap, not a timeout.
+        let n = reader
+            .by_ref()
+            .take(MAX_BODY_BYTES as u64 + 1)
+            .read_to_string(&mut line)?;
+        if n == 0 {
+            break;
+        }
+        if line.len() > MAX_BODY_BYTES {
+            return Err(io::Error::other("MCP stdio request exceeds MAX_BODY_BYTES"));
+        }
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -321,7 +337,7 @@ fn http(cli: &Cli, addr: &str) -> io::Result<()> {
             .map(|h| h.value.as_str().as_bytes().to_vec());
         let ok = auth
             .as_deref()
-            .map(|a| a == want.as_slice())
+            .map(|a| security::secure_eq(a, want.as_slice()))
             .unwrap_or(false);
         if !ok {
             let denied = tiny_http::Response::from_string(r#"{"error":"unauthorized"}"#)
@@ -329,9 +345,18 @@ fn http(cli: &Cli, addr: &str) -> io::Result<()> {
             let _ = req.respond(denied);
             continue;
         }
-        let mut body = String::new();
-        let _ = req.as_reader().read_to_string(&mut body);
-        let parsed: Result<Value, _> = serde_json::from_str(&body);
+        let mut body = Vec::new();
+        let read = req
+            .as_reader()
+            .take(MAX_BODY_BYTES as u64 + 1)
+            .read_to_end(&mut body);
+        if read.is_err() || body.len() > MAX_BODY_BYTES {
+            let denied = tiny_http::Response::from_string(r#"{"error":"payload too large"}"#)
+                .with_status_code(tiny_http::StatusCode(413));
+            let _ = req.respond(denied);
+            continue;
+        }
+        let parsed: Result<Value, _> = serde_json::from_slice(&body);
         let (status, payload) = match parsed {
             Ok(v) => match handle(&v, cli) {
                 Some(resp) => (200, resp.to_string()),
@@ -348,6 +373,15 @@ fn http(cli: &Cli, addr: &str) -> io::Result<()> {
         } else {
             payload
         };
+        // The advertised --max-output cap is now enforced rather than merely
+        // echoed by `qqbox_version`.
+        if data.len() > cli.max_output {
+            let too_large = json!({"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"tool output exceeds --max-output"}});
+            let denied = tiny_http::Response::from_string(too_large.to_string())
+                .with_status_code(tiny_http::StatusCode(200));
+            let _ = req.respond(denied);
+            continue;
+        }
         let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
             .map_err(|_| io::Error::other("malformed static Content-Type header"))?;
         let response = tiny_http::Response::from_string(data)

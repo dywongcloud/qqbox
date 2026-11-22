@@ -1,6 +1,6 @@
 //! Live migration for qqbox: a versioned control-plane state ADT, a framed
-//! capability-authenticated wire protocol, an affine typestate session, and a
-//! bounded pre-copy/commit/restore exchange.
+//! nonce-derived-session-key wire protocol with per-frame transcript binding,
+//! an affine typestate session, and a bounded pre-copy/commit/restore exchange.
 //!
 //! ## Scope, stated precisely
 //!
@@ -16,9 +16,10 @@
 //! the workload spec, the vfs Namespace (the only filesystem), the chanPage/fd
 //! table, and the egress/port-binding policy. Everything is a pure value;
 //! `capture`/`apply` form an isomorphism on that value (`f o f = f` after
-//! canonicalization), wire frames are bounded, HMAC-SHA-256 authenticated with
-//! the capability and limited by the negotiated `Hello.max_frame`, and the
-//! phase machine is affine and capability-gated.
+//! canonicalization), wire frames are bounded, HMAC-SHA-256 authenticated
+//! with a per-session key derived from the secret and two CSPRNG nonces, bound
+//! to their sequence and direction, and limited by the negotiated
+//! `Hello.max_frame`; the phase machine is affine and capability-gated.
 //!
 //! ## Design invariants
 //!
@@ -43,10 +44,11 @@ pub use state::{
     NetState, ResolvedBinding, Spec, STATE_VERSION,
 };
 pub use wire::{
-    ack_payload, constant_time_eq, decode_ack, decode_delta, decode_hello, decode_state,
-    delta_payload, hello_payload, read_expect, read_expect_keyed, read_frame, read_frame_keyed,
-    state_payload, write_frame, write_frame_keyed, Ack, Capability, Frame, Hello, Kind, DIGEST_LEN,
-    HEADER_LEN, MAGIC, MAX_FRAME, WIRE_VERSION,
+    ack_payload, constant_time_eq, decode_ack, decode_delta, decode_hello, decode_hello_ack,
+    decode_state, default_hello, default_hello_ack, delta_payload, fresh_nonce, hello_ack_payload,
+    hello_payload, read_expect, read_expect_keyed, read_frame, read_frame_keyed, state_payload,
+    write_frame, write_frame_keyed, Ack, Capability, Frame, Hello, HelloAck, Kind, SessionKey,
+    WireState, DIGEST_LEN, DIR_DEST, DIR_SOURCE, HEADER_LEN, MAGIC, MAX_FRAME, WIRE_VERSION,
 };
 
 /// Human-readable feature/boundary description for the CLI and daemon.
@@ -61,13 +63,14 @@ pub fn features() -> serde_json::Value {
         "partitionDisjointness": "capture destructures Config exhaustively; each field is moved into exactly one partition",
         "laws": [
             "recapture(apply(s)) == s (generation and chan geometry restored)",
+            "replay(recorded session, fresh server nonce) == rejected",
             "normalize(normalize(s)) == normalize(s)",
             "apply_delta(apply_delta(s,d),d) == apply_delta(s,d)",
             "digest(s) == digest(normalize(s))"
         ],
         "preCopy": "iterative assignment-based deltas, then a single commit barrier",
-        "capability": "SHA-256 of a caller-supplied secret; constant-time match",
-        "integrity": "local checkpoint frames: SHA-256 over header+payload; wire frames: HMAC-SHA-256 keyed by the capability, constant-time compare; frame bound negotiated from Hello.max_frame",
+        "capability": "SHA-256 of a caller-supplied secret; constant-time match; used as KDF input, never as a wire key or frame field",
+        "integrity": "local checkpoint frames: SHA-256 over header+payload; wire frames: HMAC-SHA-256 keyed by a per-session key derived from the secret plus two CSPRNG nonces (Hello/HelloAck), bound to sequence and direction, constant-time compare; negotiated Hello.max_frame applies in both directions",
         "guestExecution": "NotCapturable",
         "guestExecutionReason": "no VMM/hypervisor: qqbox rewrites syscalls in a host process and has no guest-RAM API; see docs/LIVE_MIGRATION.md",
         "unsupported": [

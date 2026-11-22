@@ -675,14 +675,7 @@ fn generated_token() -> Result<String> {
 /// data-dependent branch. Compares fixed-size SHA-256 digests of the full
 /// header strings, so a wrong prefix leaks only "not equal".
 fn secure_eq(a: &[u8], b: &[u8]) -> bool {
-    use sha2::{Digest, Sha256};
-    let da = Sha256::digest(a);
-    let db = Sha256::digest(b);
-    let mut diff = 0u8;
-    for (x, y) in da.iter().zip(db.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+    crate::security::secure_eq(a, b)
 }
 
 #[derive(Debug)]

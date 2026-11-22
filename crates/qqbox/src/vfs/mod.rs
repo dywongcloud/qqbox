@@ -203,6 +203,14 @@ impl Namespace {
                 read_only: false,
             });
         }
+        // The advertised DeviceAllowlist invariant is enforced here, not just
+        // declared: an unknown /dev node must not resolve to a host path.
+        if guest == "dev" || guest.starts_with("dev/") {
+            let device = guest.strip_prefix("dev/").unwrap_or("");
+            if !device.is_empty() && !Self::allowed_devices().contains(&device) {
+                return Err(Error::NotFound(guest_path.to_string()));
+            }
+        }
         for entry in &self.mounts {
             if guest == entry.guest || guest.starts_with(&format!("{}/", entry.guest)) {
                 let rest = guest
@@ -322,10 +330,24 @@ impl Namespace {
         } else {
             PathBuf::from(&snap.root)
         };
+        // A symlinked root would silently redirect every subsequent resolve.
+        if let Ok(meta) = std::fs::symlink_metadata(&root) {
+            if meta.file_type().is_symlink() {
+                return Err(Error::PathEscape(root.display().to_string()));
+            }
+        }
         let mut mounts = Vec::with_capacity(snap.mounts.len());
         for entry in &snap.mounts {
             if entry.host.contains("..") {
                 return Err(Error::PathEscape(entry.host.clone()));
+            }
+            let host = PathBuf::from(&entry.host);
+            // Reject symlink chains in the mount host path that escape root.
+            symlink_safe(&host, &root)?;
+            if let Ok(meta) = std::fs::symlink_metadata(&host) {
+                if meta.file_type().is_symlink() {
+                    return Err(Error::PathEscape(entry.host.clone()));
+                }
             }
             let guest = normalize_guest(&entry.guest)?;
             if guest.is_empty() {
@@ -334,7 +356,7 @@ impl Namespace {
                 ));
             }
             mounts.push(MountEntry {
-                host: PathBuf::from(&entry.host),
+                host,
                 guest,
                 read_only: entry.read_only,
             });

@@ -77,8 +77,10 @@ a real Rust supervisor dispatch, and a real guest resume.
 `getpid(172) -> 91676`, `brk(214) -> 0`, `clock_gettime(113) -> -14`
 (EFAULT: no guest buffer was supplied), unknown `999 -> -38` (ENOSYS).
 `qqbox backend memory` proves the bounded data plane with a real buffer:
-`clock_gettime_result=16` bytes written, `uname_result=390` bytes written,
-`tv_sec=1795229114`, `sysname=Linux`, rc=0. No syscall returns a fake success.
+`clock_gettime_result=0` and `uname_result=0` (the Linux success return),
+`tv_sec=1795229114`, `sysname=Linux`, rc=0. The bytes are proven by the buffer
+contents, not by the return value: a partial `process_vm_writev` now returns
+`-EFAULT`. No syscall returns a fake success.
 
 `qqbox backend capabilities` on Linux reports `memfd_channel=true`,
 `seccomp_trap=true`, `sigsys_handler=true`, `implemented_syscalls=14`.

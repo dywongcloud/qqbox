@@ -221,7 +221,11 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                 }
                 BackendAction::Install => {
                     platform.install_backstop().map_err(|e| e.to_string())?;
-                    println!("backend={} backstop_installed=true", platform.name());
+                    println!(
+                        "backend={} trap_filter_installed=true deny_list={} default_deny=false",
+                        platform.name(),
+                        qqbox::backend::filter::GUEST_DENY.len()
+                    );
                 }
                 BackendAction::Witness => {
                     let report = platform.witness().map_err(|e| e.to_string())?;
@@ -250,7 +254,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
                                 "guest_memory": "bounded process_vm_writev, real buffer",
                             })
                         );
-                        if clock_rc != 16 || uname_rc != 390 || tv_sec == 0 || sysname != "Linux" {
+                        if clock_rc != 0 || uname_rc != 0 || tv_sec == 0 || sysname != "Linux" {
                             return Err("bounded guest-memory witness failed".into());
                         }
                     }

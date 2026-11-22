@@ -192,6 +192,96 @@ pub fn trap_syscalls(trapped: &[u32]) -> Result<Vec<SockFilter>> {
     Ok(out)
 }
 
+/// Syscalls a guest must never reach the host kernel with directly. These are
+/// aarch64 asm-generic numbers; each one is an escape from the supervisor's
+/// mediation (arbitrary host process creation, socket access, cross-process
+/// memory reads, kernel module loading). A full default-deny text-range filter
+/// needs the unported ~205-syscall table; this deny-list closes the direct
+/// escapes without pretending that table exists.
+pub const GUEST_DENY: &[u32] = &[
+    105, // init_module
+    106, // delete_module
+    117, // ptrace
+    198, // socket
+    199, // socketpair
+    200, // bind
+    201, // listen
+    202, // accept
+    203, // connect
+    206, // sendto
+    207, // recvfrom
+    220, // clone
+    221, // execve
+    241, // perf_event_open
+    242, // accept4
+    270, // process_vm_readv
+    271, // process_vm_writev
+    273, // finit_module
+    280, // bpf
+    281, // execveat
+];
+
+/// TRAP the syscalls the Rust supervisor serves, KILL the direct host escapes,
+/// and allow the rest (the guest still needs futex, rt_sigreturn, exit and the
+/// ordinary process syscalls to run). This is a real mediation filter, not a
+/// default-deny text-range backstop; see docs/NATIVE_BACKEND.md.
+///
+/// Layout (d = deny.len(), t = trapped.len()):
+///   0        LD arch
+///   1        JEQ arch -> 2, else -> 5+d+t (KILL)
+///   2        LD nr
+///   3+i      JEQ deny_i   -> 5+d+t (KILL)
+///   3+d+j    JEQ trap_j   -> 4+d+t (TRAP)
+///   3+d+t    RET ALLOW
+///   4+d+t    RET TRAP | SECCOMP_TRAP_TAG
+///   5+d+t    RET KILL_PROCESS
+pub fn trap_and_deny(trapped: &[u32], deny: &[u32]) -> Result<Vec<SockFilter>> {
+    if host_audit_arch() == 0 {
+        return Err(Error::UnsupportedPlatform(
+            "seccomp BPF audit arch is not modelled for this CPU".into(),
+        ));
+    }
+    const NR_FUTEX: u32 = 98;
+    const NR_RT_SIGRETURN: u32 = 139;
+    if trapped.contains(&NR_FUTEX) || deny.contains(&NR_FUTEX) {
+        return Err(Error::Message(
+            "cannot deny futex: the chanPage handshake needs it".into(),
+        ));
+    }
+    if trapped.contains(&NR_RT_SIGRETURN) || deny.contains(&NR_RT_SIGRETURN) {
+        return Err(Error::Message(
+            "cannot deny rt_sigreturn: the SIGSYS handler needs it".into(),
+        ));
+    }
+    if trapped.iter().any(|nr| deny.contains(nr)) {
+        return Err(Error::Message(
+            "a syscall cannot be both trapped and denied".into(),
+        ));
+    }
+    let d = deny.len();
+    let t = trapped.len();
+    if t == 0 || d.saturating_add(t).saturating_add(3) > u8::MAX as usize {
+        return Err(Error::Message(
+            "trap/deny lists exceed BPF jump offset range".into(),
+        ));
+    }
+    let mut out = Vec::with_capacity(d + t + 6);
+    out.push(ld(SECCOMP_DATA_ARCH));
+    out.push(jeq(host_audit_arch(), 0, (d + t + 3) as u8));
+    out.push(ld(SECCOMP_DATA_NR));
+    for (i, nr) in deny.iter().enumerate() {
+        out.push(jeq(*nr, (d - i + t + 1) as u8, 0));
+    }
+    for (j, nr) in trapped.iter().enumerate() {
+        out.push(jeq(*nr, (t - j) as u8, 0));
+    }
+    out.push(ret(SECCOMP_RET_ALLOW));
+    out.push(ret(SECCOMP_RET_TRAP | SECCOMP_TRAP_TAG));
+    out.push(ret(SECCOMP_RET_KILL_PROCESS));
+    validate(&out)?;
+    Ok(out)
+}
+
 /// A filter that TRAPs one syscall number and allows the rest. Used by the
 /// live backend witness: a real `syscall` from a real guest thread is caught,
 /// served over the chanPage, and resumed with the supervisor's result.
@@ -201,27 +291,42 @@ pub fn trap_one(nr: u32) -> Result<Vec<SockFilter>> {
 
 /// Static BPF verifier: prove every jump target is inside the program and
 /// that execution cannot fall off the end. This is a total, allocation-free
-/// check applied before any program reaches the kernel. No unreachable-code
-/// or out-of-range jump can be installed.
+/// check applied before any program reaches the kernel.
+///
+/// BPF_JMP is class 0x05. BPF_JA (code 0x05) carries its offset in `k` and
+/// has no jt/jf; every other conditional jump -- K-register (0x15, 0x25,
+/// 0x35, 0x45) or X-register (0x1d, 0x2d, 0x3d, 0x4d) -- uses jt/jf. Only
+/// checking the K-register subset would leave JA and X-register targets
+/// unverified. `k` is u32, so its target is computed with checked u64 math.
 pub fn validate(filters: &[SockFilter]) -> Result<()> {
     if filters.is_empty() || filters.len() > u16::MAX as usize {
         return Err(Error::Message("invalid seccomp filter length".into()));
     }
-    let len = filters.len();
+    let len = filters.len() as u64;
     for (pc, f) in filters.iter().enumerate() {
         let class = f.code & 0x07;
-        let is_jump =
-            class == 0x05 && matches!(f.code & 0xf8, 0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x80);
-        if is_jump {
-            for (which, off) in [("jt", f.jt), ("jf", f.jf)] {
-                let target = pc + 1 + off as usize;
+        if class == 0x05 {
+            if f.code == 0x05 {
+                let target = (pc as u64)
+                    .checked_add(1)
+                    .and_then(|v| v.checked_add(u64::from(f.k)))
+                    .ok_or_else(|| Error::Message(format!("BPF JA offset overflows at pc={pc}")))?;
                 if target >= len {
                     return Err(Error::Message(format!(
-                        "BPF {which} jump at pc={pc} targets {target}, program length {len}"
+                        "BPF JA at pc={pc} targets {target}, program length {len}"
                     )));
                 }
+            } else {
+                for (which, off) in [("jt", f.jt), ("jf", f.jf)] {
+                    let target = pc as u64 + 1 + u64::from(off);
+                    if target >= len {
+                        return Err(Error::Message(format!(
+                            "BPF {which} jump at pc={pc} targets {target}, program length {len}"
+                        )));
+                    }
+                }
             }
-        } else if pc + 1 == len && class != 0x06 {
+        } else if pc + 1 == filters.len() && class != 0x06 {
             return Err(Error::Message(format!(
                 "BPF program falls through past final instruction at pc={pc}"
             )));

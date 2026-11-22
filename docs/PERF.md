@@ -43,7 +43,7 @@ near-native CPU, ~2x syscall-heavy, higher on I/O.
 The macOS port is the same overhead class: the shared-memory channel spin
 round-trip measures ~90 ns on an M4 (vs a ~90 ns native getppid), the
 Mach-exception path (~5.5 us) is a rare backstop not the hot path, and hot I/O
-stays in the stub. See macos/README.md for the primitive measurements.
+stays in the stub. That path belonged to the removed Go tree; no such file remains, so these macOS numbers are historical Go-era measurements with no reproducible harness in this Rust tree.
 
 ## vs Docker Desktop (macOS)
 
@@ -63,8 +63,7 @@ create/start/remove, so per-task isolation is near-instant -- what an agent
 spinning up many short tasks needs. CPU-bound work ties, because Docker
 Desktop's VM also runs ARM code near-native on Apple Silicon. The numbers are
 macOS; Docker Desktop on Windows is the same VM-based architecture (not yet
-measured here). Method: `docker run --rm <img> <cmd>` vs `qqbox -image <img>
-<cmd>`, 15 iterations each (6 for the CPU loop), median.
+measured here). Historical Go-era method: `docker run --rm <img> <cmd>` versus the pre-removal Go binary (`qqbox -image <img> <cmd>`), 15 iterations each (6 for the CPU loop), median. The Rust CLI has no `build` or `-image` flags; those commands are Go-era provenance, not a runnable Rust recipe.
 
 ## Levers
 

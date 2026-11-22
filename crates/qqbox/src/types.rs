@@ -72,6 +72,14 @@ pub struct Context {
 impl Context {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
+        self.notify();
+    }
+
+    /// Wake waiters without setting `cancelled`. Used when a supervisor
+    /// finishes normally so a watcher can exit without poisoning the caller's
+    /// Context. The sticky flag is only a notification hint; all predicates
+    /// test `cancelled` itself.
+    pub fn notify(&self) {
         let (lock, changed) = &*self.wake;
         let mut guard = match lock.lock() {
             Ok(guard) => guard,
@@ -91,12 +99,34 @@ impl Context {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        while !*guard {
+        // The predicate is the atomic flag, not the sticky notification hint:
+        // a prior normal completion must not look like a cancellation to the
+        // next Process created with the same Context.
+        while !self.is_cancelled() {
             guard = match changed.wait(guard) {
                 Ok(next) => next,
                 Err(poisoned) => poisoned.into_inner(),
             };
         }
+    }
+
+    /// Wait for cancellation or for `done` to be set. `done` is set by the
+    /// supervisor on normal completion so the watcher thread is joinable
+    /// without a timeout or periodic recheck. Returns true on cancellation.
+    pub fn wait_cancelled_or(&self, done: &std::sync::atomic::AtomicBool) -> bool {
+        use std::sync::atomic::Ordering as O;
+        let (lock, changed) = &*self.wake;
+        let mut guard = match lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        while !self.is_cancelled() && !done.load(O::SeqCst) {
+            guard = match changed.wait(guard) {
+                Ok(next) => next,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+        }
+        self.is_cancelled()
     }
 }
 
