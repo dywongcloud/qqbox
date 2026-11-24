@@ -17,7 +17,7 @@ export ZIG
 
 .PHONY: build build-release check fmt clippy test stubs stubs-linux \
 	stubs-windows stubs-macos cli daemon mcp runtime run invariants version routes \
-	witness witness-http backend-witness backend-exec-elf zh-hant-verify stub-verify clean
+	witness witness-http backend-witness backend-exec-elf zh-hant-verify stub-verify flag-provenance-verify stub-rebuild-verify clean
 
 # ------------------------------------------------------------- rust build -----
 build:
@@ -283,6 +283,132 @@ export STUB_VERIFY_PY
 
 stub-verify:
 	@python3 -c "$$STUB_VERIFY_PY"
+
+# Rust-facing docs must not present the Go runtime's single-dash flags as
+# current CLI flags. Historical example command blocks are allowed only when
+# the page carries an explicit provenance note. GAP 3 of the adversarial
+# completeness critic; this is a clean-checkout gate, not a test file.
+define FLAG_PROVENANCE_PY
+import pathlib, sys
+fails = []
+rust_facing = ['README.md', 'llms.txt', 'AGENTS.md', 'SECURITY.md',
+               'docs/permissions-and-limits.md', 'docs/OCI_MATRIX.md',
+               'docs/PORT_STATUS.md', 'zh-hant/llms.zh-Hant.txt',
+               'zh-hant/AGENTS.zh-Hant.md', 'zh-hant/SECURITY.zh-Hant.md',
+               'zh-hant/docs/PERMISSIONS.zh-Hant.md',
+               'zh-hant/docs/PORT_STATUS.zh-Hant.md',
+               'zh-hant/docs/OCI_MATRIX.zh-Hant.md']
+legacy = ['`-net`', '`-allow-domains`', '`-allow-cidrs`', '`-allow-ports`']
+for rel in rust_facing:
+    p = pathlib.Path(rel)
+    if not p.is_file():
+        fails.append(rel + ': missing'); continue
+    text = p.read_text(encoding='utf-8')
+    # Strip fenced command blocks: Go-era CLI lines are historical evidence.
+    prose = '\n'.join(line for i, line in enumerate(text.splitlines()) if True)
+    hits = [tok for tok in legacy if tok in text and not (
+        'Flag provenance' in text or '旗標出處' in text or
+        'Go-era' in text or 'Go 執行期' in text or 'off-repo pre-removal Go' in text)]
+    if hits: fails.append(rel + ': unqualified Go-era flags ' + ','.join(hits))
+    print('FLAGS ' + rel + ' ' + ('PASS' if not hits else 'FAIL'))
+examples = sorted(pathlib.Path('examples').rglob('README.md')) + sorted(pathlib.Path('zh-hant/examples').rglob('README*.md'))
+for p in examples:
+    text = p.read_text(encoding='utf-8')
+    has_legacy = any(tok in text for tok in legacy)
+    has_note = 'Flag provenance' in text or '旗標出處' in text
+    if has_legacy and not has_note:
+        fails.append(str(p) + ': Go-era flags without provenance note')
+    print('FLAGS ' + str(p) + ' ' + ('PASS' if not (has_legacy and not has_note) else 'FAIL'))
+print('FLAG_PROVENANCE_FILES=' + str(len(rust_facing) + len(examples)) + ' failures=' + str(len(fails)))
+for f in fails: print('  ' + f)
+print('FLAG_PROVENANCE_' + ('PASS' if not fails else 'FAIL'))
+sys.exit(1 if fails else 0)
+endef
+export FLAG_PROVENANCE_PY
+
+flag-provenance-verify:
+	@python3 -c "$$FLAG_PROVENANCE_PY"
+
+# Rebuild the eight committed stubs with pinned Zig 0.13.0 and compare the
+# security-relevant bytes. Zig symbol tables and PE COFF timestamps carry
+# host-specific metadata, so the gate compares PT_LOAD ranges for ELF, zeroes
+# the 4-byte COFF timestamp for PE, and requires exact identity for Mach-O.
+# Requires a real Linux host: Zig 0.13.0 objcopy cannot link on macOS.
+define STUB_REBUILD_PY
+import os, sys, struct, subprocess, tempfile, shutil, pathlib
+zig = os.environ.get('ZIG', '')
+if not zig:
+    print('STUB_REBUILD_FAIL: ZIG is not set; pass ZIG=<zig-0.13.0> on a Linux host')
+    sys.exit(1)
+try:
+    version = subprocess.check_output([zig, 'version'], text=True).strip()
+except Exception as err:
+    print('STUB_REBUILD_FAIL: cannot run ZIG', err)
+    sys.exit(1)
+if not version.startswith('0.13.'):
+    print('STUB_REBUILD_FAIL: Zig', version, 'is not 0.13.x')
+    sys.exit(1)
+print('pinned_zig=' + version)
+root = pathlib.Path('stub')
+tmp = pathlib.Path(tempfile.mkdtemp(prefix='qqbox-stub-rebuild-'))
+work = tmp / 'stub'
+shutil.copytree(root, work)
+env = dict(os.environ, ZIG=zig)
+for script in ('build.sh', 'windows/build.sh', 'macos/build.sh', 'macos/build-hvf.sh'):
+    path = work / script
+    r = subprocess.run(['sh', path.name], cwd=str(path.parent), env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    print('rebuild', script, 'rc=' + str(r.returncode))
+    if r.returncode != 0:
+        print(r.stdout.decode('utf-8', 'replace')[-600:])
+        shutil.rmtree(tmp, ignore_errors=True)
+        sys.exit(1)
+elf = ['stub-amd64.bin', 'stub-amd64-pie.bin', 'stub-arm64.bin', 'stub-arm64-pie.bin']
+pe = ['windows/stub-amd64.bin', 'windows/stub-arm64.bin']
+macho = ['macos/stub.bin', 'macos/hvf_stub.bin']
+def loads(d):
+    phoff = struct.unpack_from('<Q', d, 32)[0]
+    phentsize = struct.unpack_from('<H', d, 54)[0]
+    phnum = struct.unpack_from('<H', d, 56)[0]
+    out = []
+    for i in range(phnum):
+        e = d[phoff + i * phentsize: phoff + (i + 1) * phentsize]
+        if struct.unpack_from('<I', e, 0)[0] == 1:
+            off = struct.unpack_from('<Q', e, 8)[0]
+            size = struct.unpack_from('<Q', e, 32)[0]
+            out.append((off, size))
+    return out
+fails = []
+for rel in elf:
+    a = (work / rel).read_bytes(); b = (root / rel).read_bytes()
+    la, lb = loads(a), loads(b)
+    load_ok = la == lb and all(a[o:o + s] == b[o:o + s] for o, s in la)
+    diffs = [i for i in range(min(len(a), len(b))) if a[i] != b[i]]
+    metadata_only = all(not any(o <= i < o + s for o, s in la) for i in diffs)
+    ok = load_ok and metadata_only and len(a) == len(b)
+    print('ELF', rel, 'load_match=' + str(load_ok), 'metadata_bytes=' + str(len(diffs)), 'PASS' if ok else 'FAIL')
+    if not ok: fails.append(rel)
+for rel in pe:
+    a = bytearray((work / rel).read_bytes()); b = bytearray((root / rel).read_bytes())
+    ia = struct.unpack_from('<I', a, 0x3c)[0]; ib = struct.unpack_from('<I', b, 0x3c)[0]
+    a[ia + 8:ia + 12] = bytes(4); b[ib + 8:ib + 12] = bytes(4)
+    ok = a == b
+    print('PE', rel, 'timestamp_normalized_match=' + str(ok), 'PASS' if ok else 'FAIL')
+    if not ok: fails.append(rel)
+for rel in macho:
+    a = (work / rel).read_bytes(); b = (root / rel).read_bytes()
+    ok = a == b
+    print('MACHO', rel, 'exact_match=' + str(ok), 'PASS' if ok else 'FAIL')
+    if not ok: fails.append(rel)
+shutil.rmtree(tmp, ignore_errors=True)
+print('STUB_REBUILD_BLOBS=' + str(len(elf) + len(pe) + len(macho)), 'failures=' + str(len(fails)))
+print('STUB_REBUILD_' + ('PASS' if not fails else 'FAIL'))
+sys.exit(1 if fails else 0)
+endef
+export STUB_REBUILD_PY
+
+stub-rebuild-verify:
+	@python3 -c "$$STUB_REBUILD_PY"
 
 clean:
 	$(CARGO) clean

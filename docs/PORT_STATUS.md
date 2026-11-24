@@ -283,15 +283,33 @@ historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
   PTY, and `setsid --ctty` was additionally typed into the live VNC 5905
   terminal. Each leaves the line in place. The shell is fully usable. Earlier documentation claimed this
   error was fixed; that claim is retracted here.
+- Wallpaper A/B is NOT a controlled witness. Two off-repo harnesses from the
+  older adversarial sweep disagree: `wall-26b/out/t.sh` goes from 1 distinct
+  colour to 17,855 after `xwallpaper --zoom`, while
+  `wf26/refute-xubuntu26-wallpaper/guests/r26-xwallpaper/r26-xwallpaper.sh`
+  produces byte-identical 101-colour before/after PNGs with the same
+  `xwallpaper_rc=0` and `_XROOTPMAP_ID` set. The two scripts differ in at least
+  eight variables (apt install at run time, `xfdesktop --version`, `xfconf-query`
+  dump, 6s vs 8s delays, XML layout, a bwrap control, image provenance), so
+  neither proves nor refutes the backdrop fix. `diff -q` on the two scripts
+  returns non-zero. The shipped `examples/qqbox/start-xubuntu.sh` uses a
+  different event-driven path and is witnessed by the live RFB frame, not by
+  these harnesses. Unresolved item U1 stays OPEN; a controlled A/B changing
+  exactly one variable is required. This is disclosed, not claimed resolved.
+- No real `docker run --runtime=qqbox`, containerd or Podman integration is
+  witnessed; the OCI runtime shim is exercised against a real bundle only.
 - Zig 0.16.0 is installed; the 43 Zig sources were authored against 0.13.0. All four
   stub build scripts now fail closed on a non-0.13.x toolchain, and `stub/build.sh`
   fails closed when `zig objcopy --strip-debug` fails instead of silently shipping an
   unstripped blob. `make stub-verify` validates the eight committed blobs' ELF/PE/Mach-O
-  headers on a clean checkout with no Zig toolchain. A pinned-Zig byte-for-byte rebuild
-  comparison is NOT witnessed: with Zig 0.13.0 on this macOS arm64 host, the two macOS
-  blobs rebuild byte-identically, the two Windows PE blobs differ only in the 4-byte COFF
-  timestamp (byte-identical after zeroing it), but the four Linux ELF blobs do not
-  reproduce because Zig 0.13.0's `objcopy` fails to link on macOS
-  (`undefined symbol: _sigaction`), and running the Linux Zig 0.13.0 inside the
-  off-repo Go runtime guest fails at `ld.lld: unknown file type`. Migrating all sources
-  and rebuilding the eight committed blobs is a separate, gated change.
+  headers on a clean checkout with no Zig toolchain. `make stub-rebuild-verify` rebuilds
+  all eight with pinned Zig 0.13.0 on a real Linux aarch64 kernel and compares the
+  security-relevant bytes; it passed with `STUB_REBUILD_BLOBS=8 failures=0`. The two
+  amd64 Linux ELF blobs and both macOS Mach-O blobs are byte-identical; both Windows PE
+  blobs are byte-identical after zeroing the 4-byte COFF timestamp; both arm64 Linux ELF
+  blobs differ in exactly 3 bytes in `.symtab`, outside every PT_LOAD range, with equal
+  loadable segments. Two independent rebuilds in the same VM are byte-identical, so the
+  residual delta is host metadata, not nondeterminism. CI's `zig-stubs` job downloads
+  Zig 0.13.0 and runs the same gate. On macOS, Zig 0.13.0's `objcopy` fails to link
+  (`undefined symbol: _sigaction`); rebuilding the Linux ELF stubs there is not supported.
+  Migrating all sources is a separate, gated change.

@@ -547,6 +547,10 @@ pub struct Process {
     pending: Arc<AtomicI32>,
     handles: Mutex<Option<(JoinHandle<()>, JoinHandle<()>)>>,
     outcome: Arc<Outcome>,
+    /// Shared with the cancel watcher. A panicking supervisor never reaches
+    /// the normal-completion store, so `wait()` must set it on the panic path
+    /// or `watcher.join()` blocks forever.
+    done: Arc<AtomicBool>,
 }
 
 impl Process {
@@ -557,6 +561,11 @@ impl Process {
         };
         if let Some((supervisor, watcher)) = taken {
             if supervisor.join().is_err() {
+                // The child Context and the watcher's parent Context SHARE the
+                // same wake condvar. Set `done` first, then notify, so the
+                // watcher's predicate is already true when it rechecks.
+                self.done.store(true, Ordering::SeqCst);
+                self.context.notify();
                 self.context.cancel();
                 let mut guard = lock(&self.outcome.result);
                 if guard.is_none() {
@@ -706,5 +715,6 @@ fn spawn(parent: &Context, prog: String, cfg: Config) -> Result<Process> {
         pending: Arc::new(AtomicI32::new(0)),
         handles: Mutex::new(Some((supervisor, watcher))),
         outcome,
+        done,
     })
 }

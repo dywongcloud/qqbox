@@ -75,3 +75,12 @@ jobs:
           echo 'stub_toolchain_gate_fails_closed=true'
       - name: Traditional Chinese gate
         run: make zh-hant-verify
+      - name: flag provenance gate
+        run: make flag-provenance-verify
+      - name: pinned Zig 0.13.0 rebuild-and-compare
+        run: |
+          curl -fsSL -o /tmp/zig013.tar.xz \
+            https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          mkdir -p /tmp/zig013
+          tar -xf /tmp/zig013.tar.xz -C /tmp/zig013 --strip-components=1
+          ZIG=/tmp/zig013/zig make stub-rebuild-verify

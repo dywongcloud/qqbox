@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/dywongcloud/qqbox/actions/workflows/ci.yml"><img src="https://github.com/dywongcloud/qqbox/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/dywongcloud/qqbox/actions/workflows/release.yml"><img src="https://img.shields.io/badge/build-workflow%20artifacts-blue" alt="Release workflow artifacts"></a>
-  <a href="https://docs.rs/qqbox"><img src="https://img.shields.io/badge/docs.rs-qqbox-blue" alt="Rust reference"></a>
+  <a href="docs/PORT_STATUS.md"><img src="https://img.shields.io/badge/API-cargo%20doc-blue" alt="Rust reference (build locally; crate unpublished)"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20macOS%20Windows-informational" alt="Platforms">
   <img src="https://img.shields.io/badge/arch-amd64%20arm64-informational" alt="Architectures">

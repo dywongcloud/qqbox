@@ -1,5 +1,11 @@
 # Stock Xubuntu/XFCE desktop inside qqbox
 
+> Flag provenance: the single-dash `-net`, `-allow-domains`, `-allow-cidrs`
+> and `-allow-ports` on this page are flags of the off-repo pre-removal Go
+> runtime used by these historical desktop examples. The Rust `qqbox` CLI in
+> this repository uses `--net`, `--no-net` and `--allow-domain`; CIDR and port
+> limits are `Options`/`Config` fields, not CLI flags.
+
 A live, witnessed `linuxserver/webtop` **ubuntu-xfce** desktop running under the
 native qqbox guest runtime on macOS/arm64, served over VNC on TCP 5905, with a
 real `xfce4-terminal` (VTE), a real Chromium browser, working `ping`, apt/apk

@@ -20,12 +20,16 @@ Key facts for answering questions about this repository:
   not a flat multiplier.
 - All guest filesystem access goes through a single `vfs` Namespace chokepoint;
   the supervisor owns all filesystem and network I/O. The stub forwards.
-- A missed syscall on Linux reaches a seccomp text-range `RET_TRAP` and is routed
-  to the supervisor; macOS Seatbelt and the Windows instrumentation callback kill.
-  `ErrKilled` is not the Linux behavior — older docs claiming that were stale.
-- Networking is opt-in (`Options::net` / `-net`) with domain, CIDR, and port egress
-  allowlists. Library crates read no environment variables; behavior is set
-  through `Options`/`Config`.
+- On Linux the installed seccomp program TRAPs the syscalls the Rust supervisor
+  serves (`RET_TRAP` → `SIGSYS` → chanPage), KILLs a fixed deny-list of direct host
+  escapes, and ALLOWs the rest. The Go-era default-deny text-range backstop is NOT
+  ported, so static rewriting is required for correctness. macOS Seatbelt and the
+  Windows x86-64 instrumentation callback kill; Windows arm64 has no callback.
+- Networking is opt-in (`Options::net` / Rust CLI `--net`) with domain, CIDR, and
+  port egress allowlists. The single-dash `-net` / `-allow-domains` flags belong to
+  the off-repo pre-removal Go runtime used only by the historical desktop examples.
+  Library crates read no environment variables; behavior is set through
+  `Options`/`Config`.
 - The Rust build entry point is `Cargo.toml` (`cargo build --workspace`). The
   `qqbox` CLI and `qqboxd` daemon are separate crates. The Zig channel ABI is
   frozen in `crates/qqbox/src/zig/abi.rs` (128-byte `chanPage`).

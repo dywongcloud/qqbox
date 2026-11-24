@@ -630,6 +630,11 @@ pub fn parse_response(bytes: &[u8]) -> Result<DnsResponse> {
         let rdata = bytes
             .get(cursor..stop)
             .ok_or_else(|| Error::Message("truncated dns record".to_owned()))?;
+        // Advance past RDATA for EVERY record, including CNAME. A `continue`
+        // here previously skipped `cursor = stop`, desynchronizing the cursor
+        // for every subsequent answer record (and potentially re-parsing RDATA
+        // as a header).
+        cursor = stop;
         if class == CLASS_IN {
             if rrtype == TYPE_A && length == 4 {
                 addresses.push(IpAddr::V4(Ipv4Addr::new(
@@ -639,11 +644,8 @@ pub fn parse_response(bytes: &[u8]) -> Result<DnsResponse> {
                 let mut octets = [0u8; 16];
                 octets.copy_from_slice(rdata);
                 addresses.push(IpAddr::V6(Ipv6Addr::from(octets)));
-            } else if rrtype == TYPE_CNAME {
-                continue;
             }
         }
-        cursor = stop;
     }
     Ok(DnsResponse {
         id: header.id,

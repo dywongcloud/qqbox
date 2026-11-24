@@ -1,5 +1,11 @@
 # Fully provisioned Tencent qqbox Xubuntu 26 desktop
 
+> Flag provenance: the single-dash `-net`, `-allow-domains`, `-allow-cidrs`
+> and `-allow-ports` on this page are flags of the off-repo pre-removal Go
+> runtime used by these historical desktop examples. The Rust `qqbox` CLI in
+> this repository uses `--net`, `--no-net` and `--allow-domain`; CIDR and port
+> limits are `Options`/`Config` fields, not CLI flags.
+
 This is the reproducible Xubuntu **26.04.1 LTS (Resolute Raccoon)** desktop,
 running under the native qqbox guest runtime on macOS/arm64 and served over VNC
 TCP 5905. It is the successor to `examples/xubuntu/` (Ubuntu 24.04).

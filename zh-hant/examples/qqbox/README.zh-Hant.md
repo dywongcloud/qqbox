@@ -1,5 +1,10 @@
 # `examples/qqbox`：完整配置 Xubuntu 26 桌面（繁體中文）
 
+> 旗標出處：本頁的單破折號 `-net`、`-allow-domains`、`-allow-cidrs`、
+> `-allow-ports` 是移除前 Go 執行期的旗標，用於歷史桌面範例的指令；
+> 本儲存庫的 Rust CLI 使用 `--net`、`--no-net` 與 `--allow-domain`，
+> CIDR 及連接埠限制由 `Options`／`Config` 欄位設定。
+
 本目錄是 [`../xubuntu/README.zh-Hant.md`](../xubuntu/README.zh-Hant.md) 的後繼版本，
 以 **Ubuntu 26.04.1 LTS「Resolute Raccoon」** 為基底，搭配 Xubuntu 26.04.1 的
 設定、主題與桌布，在 qqbox 原生來賓執行環境中透過 VNC TCP 5905 提供桌面。

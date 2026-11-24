@@ -7,7 +7,7 @@
 - 工作區：`crates/qqbox`（核心）、`crates/qqbox-cli`（CLI `qqbox`）、`crates/qqboxd`（與 Docker 相容的常駐程式 `qqboxd`）、`crates/qqbox-mcp`（MCP 伺服器）、`crates/qqbox-runtime`（OCI runtime shim），共五個 crate。`cargo build --workspace` 是建置入口。
 - 型別化設定：`Options`／`Config`、映像檔設定、runtime-spec、Compose、標籤、連接埠、磁碟區、網路模式、capabilities、資源限制、`seccomp`／`AppArmor`、健康檢查與重新啟動政策。無法實作的安全欄位不是靜默丟棄，而是附診斷訊息明確拒絕。
 - OCI 表面：映像檔設定、連接埠與連接埠轉送、`/etc/hosts`／`/etc/resolv.conf`／`/etc/hostname` 的產生、磁碟區、標籤、健康檢查、重新啟動政策、Compose（JSON 與 YAML，含 `depends_on` 條件）、多架構 index、capabilities、`seccomp`／`AppArmor`、資源限制。逐項對照見 [OCI_MATRIX.zh-Hant.md](OCI_MATRIX.zh-Hant.md)。
-- 網路政策：`-net` 之下的 `:53` DNS 攔截與宿主解析、TCP `connect()` 代理；`-allow-domains`／`-allow-cidrs`／`-allow-ports` 只收緊；封閉預設下沒有 DNS 與宿主可達性，瀏覽器顯示通用離線頁面。
+- 網路政策：`Options::net`／Rust CLI `--net` 之下的 `:53` DNS 攔截與宿主解析、TCP `connect()` 代理；`allow_domains`／`allow_cidrs`／`allow_ports` 只收緊；封閉預設下沒有 DNS 與宿主可達性，瀏覽器顯示通用離線頁面。單破折號旗標僅屬移除前的 Go 執行期。
 - `vfs` Namespace 作為唯一路徑咽喉，含掛載遮蔽與合成 `/proc`／`/sys`／`/dev`；監督器擁有檔案與網路的資料平面，來賓 Zig stub 只負責轉送。
 - 常駐程式：54 條路由、真實 JSON、零信任 bearer 權杖，每一條路由都要求 `Authorization: Bearer <secret>`，沒有未經驗證的預設值。
 - 見證：`make witness` 跑過版本、安全不變量、ABI、連接埠、映像檔設定、Compose、runtime-spec、網路計畫與路由清單，並把結果印出。Zig stub 的共享通道版面保持兩端位元組一致；`cargo run -p qqbox-cli -- invariants` 可單獨核對安全不變量。
@@ -74,17 +74,31 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
   該列。殼層本身完整可用。
   先前宣稱此錯誤已修復的敘述在此撤回。
 - 網路限制照實陳述：ICMP echo 只走宿主未特權的 `SOCK_DGRAM`／`IPPROTO_ICMP` 使用者空間路徑；`SOCK_RAW`、`AF_PACKET`、`TUN`、來賓核心內 ICMP、802.11、`nl80211`、`wpa_supplicant`、`NetworkManager` 都不在契約內。
+- 桌布 A／B 不是受控見證。較早對抗式掃描留下的兩份離庫腳本結論相反：
+  `wall-26b/out/t.sh` 在 `xwallpaper --zoom` 之後由 1 種顏色變成 17,855 種，
+  而 `wf26/refute-xubuntu26-wallpaper/guests/r26-xwallpaper/r26-xwallpaper.sh`
+  在同樣的 `xwallpaper_rc=0` 與 `_XROOTPMAP_ID` 之下，前後 PNG 逐位元組相同、
+  都只有 101 種顏色。兩份腳本至少在八個變數上不同（執行期才安裝套件、
+  `xfdesktop --version`、`xfconf-query` 傾印、6 秒與 8 秒延遲、XML 排版、
+  bwrap 對照、映像出處），因此兩者都無法證明或推翻桌布修正；對兩份腳本
+  執行 `diff -q` 回傳非零。已交付的 `examples/qqbox/start-xubuntu.sh` 走的是
+  另一條事件驅動路徑，以即時 RFB 畫面見證，而非這兩份腳本。未解項目 U1
+  維持 OPEN，需要只改變單一變數的受控 A／B。此處如實揭露，不宣稱已解。
+- 沒有見證過真正的 `docker run --runtime=qqbox`、containerd 或 Podman 整合；
+  OCI runtime shim 只以真實 bundle 演練。
 - 已安裝的 Zig 是 0.16.0，而 43 份 Zig 原始碼是針對 0.13.0 撰寫。四份 stub
   建置腳本現在遇到非 0.13.x 工具鏈都會失敗關閉；`stub/build.sh` 在
   `zig objcopy --strip-debug` 失敗時也失敗關閉，不再悄悄交付未去除除錯資訊的
   二進位。`make stub-verify` 在乾淨簽出、沒有 Zig 工具鏈的情況下驗證八份已提交
-  二進位的 ELF／PE／Mach-O 標頭。以釘版 Zig 逐一比對位元組的重建**尚未見證**：
-  在此 macOS arm64 宿主以 Zig 0.13.0 重建時，兩份 macOS 二進位完全一致，兩份
-  Windows PE 只差在 4 位元組 COFF 時間戳記（歸零後完全一致），但四份 Linux ELF
-  無法重現，因為 Zig 0.13.0 的 `objcopy` 在 macOS 無法連結
-  （`undefined symbol: _sigaction`），而在離庫 Go 執行時期來賓中執行 Linux 版
-  Zig 0.13.0 會在 `ld.lld: unknown file type` 失敗。移植全部原始碼並重建八份
-  已提交二進位，是另一項需要獨立把關的變更。
+  二進位的 ELF／PE／Mach-O 標頭。`make stub-rebuild-verify` 會在真實 Linux aarch64
+  核心以釘版 Zig 0.13.0 重建八份二進位並比對與安全相關的位元組，見證結果為
+  `STUB_REBUILD_BLOBS=8 failures=0`。兩份 amd64 Linux ELF 與兩份 macOS Mach-O
+  逐位元組一致；兩份 Windows PE 在歸零 4 位元組 COFF 時間戳記後一致；兩份 arm64
+  Linux ELF 只在 `.symtab` 差 3 個位元組，位於所有 PT_LOAD 範圍之外，可載入區段
+  完全相同。同一虛擬機內兩次獨立重建逐位元組一致，因此剩餘差異是宿主後設資料，
+  而非不確定性。CI 的 `zig-stubs` 工作會下載 Zig 0.13.0 並執行同一道閘門。
+  在 macOS 上 Zig 0.13.0 的 `objcopy` 無法連結（`undefined symbol: _sigaction`），
+  不支援在該宿主重建 Linux ELF stub。移植全部原始碼是另一項需要獨立把關的變更。
 
 ## 接下來要做的事
 

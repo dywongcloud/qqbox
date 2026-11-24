@@ -9,7 +9,7 @@ qqbox 預設即受限制；以下每一項能力都必須明確啟用。程式�
 ## 網路
 
 網路預設關閉，來賓只有 loopback，如同 `docker --network none`。
-`Options { net: true, .. }`（CLI 為 `-net`）會啟用經監督器代理的對外連線；
+`Options { net: true, .. }`（Rust CLI 為 `--net`）會啟用經監督器代理的對外連線；
 常駐程式的等價形式是 `Config { net: true, .. }`。請再加上
 `allow_domains`、`allow_cidrs` 與 `allow_ports` 加以限縮；只啟用網路並不會
 自動建立限縮清單。網域名規則包含子網域，CIDR 規則加入可直接連線的位址，

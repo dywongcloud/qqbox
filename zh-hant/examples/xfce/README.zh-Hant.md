@@ -1,5 +1,10 @@
 # `examples/xfce`：Alpine 上的 XFCE 桌面（繁體中文）
 
+> 旗標出處：本頁的單破折號 `-net`、`-allow-domains`、`-allow-cidrs`、
+> `-allow-ports` 是移除前 Go 執行期的旗標，用於歷史桌面範例的指令；
+> 本儲存庫的 Rust CLI 使用 `--net`、`--no-net` 與 `--allow-domain`，
+> CIDR 及連接埠限制由 `Options`／`Config` 欄位設定。
+
 > 這是一個以 Alpine 為基底的 XFCE 桌面範例，透過 `x11vnc` 在 VNC TCP 5905 提供畫面。它展示的不是合成截圖，而是來賓內真正執行的 XFCE 工作階段、原生 `xfce4-terminal` 與 Debian Chromium 150 `linux/arm64`。qqbox 讓未經修改的 Linux ELF 與 OCI 容器直接在宿主 CPU 上執行，沒有虛擬機器，也沒有第二個核心；只有系統呼叫與同類指令被重寫並陷入監督器，`vfs` Namespace 是唯一的檔案系統。
 
 ## 內容與啟動條件

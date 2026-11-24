@@ -1,5 +1,11 @@
 # Examples
 
+> Flag provenance: the single-dash `-net`, `-allow-domains`, `-allow-cidrs`
+> and `-allow-ports` on this page are flags of the off-repo pre-removal Go
+> runtime used by these historical desktop examples. The Rust `qqbox` CLI in
+> this repository uses `--net`, `--no-net` and `--allow-domain`; CIDR and port
+> limits are `Options`/`Config` fields, not CLI flags.
+
 This directory holds reproducible inputs and the two desktop images. The
 Go-era example programs were removed together with the Go source tree; the
 Rust workspace (`cargo build --workspace`) is the only build entry point.

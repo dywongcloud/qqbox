@@ -1,5 +1,10 @@
 # 範例（繁體中文）
 
+> 旗標出處：本頁的單破折號 `-net`、`-allow-domains`、`-allow-cidrs`、
+> `-allow-ports` 是移除前 Go 執行期的旗標，用於歷史桌面範例的指令；
+> 本儲存庫的 Rust CLI 使用 `--net`、`--no-net` 與 `--allow-domain`，
+> CIDR 及連接埠限制由 `Options`／`Config` 欄位設定。
+
 > 這個目錄收錄 qqbox 的桌面範例。`examples/xfce` 是 Alpine 上的 XFCE 桌面，`examples/xubuntu` 是原廠 `linuxserver/webtop` ubuntu-xfce；兩者都以 `x11vnc` 在 VNC TCP 5905 提供畫面。範例的目的，是讓人看見在「沒有虛擬機器、沒有第二個核心」的前提下，真實的 Linux 桌面、原生終端機與瀏覽器如何透過監督器運作。
 
 ## 兩個桌面範例

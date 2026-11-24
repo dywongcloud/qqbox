@@ -1,5 +1,10 @@
 # `examples/xubuntu`：原廠 Xubuntu／XFCE 桌面（繁體中文）
 
+> 旗標出處：本頁的單破折號 `-net`、`-allow-domains`、`-allow-cidrs`、
+> `-allow-ports` 是移除前 Go 執行期的旗標，用於歷史桌面範例的指令；
+> 本儲存庫的 Rust CLI 使用 `--net`、`--no-net` 與 `--allow-domain`，
+> CIDR 及連接埠限制由 `Options`／`Config` 欄位設定。
+
 > 這是以原廠 `linuxserver/webtop` ubuntu-xfce 映像檔為基底的桌面範例，透過 `x11vnc` 在 VNC TCP 5905 提供畫面，並以確切的 `linux/arm64` 資訊清單摘要固定版本：`sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`。它展示的是原廠桌面、原生 `xfce4-terminal` 與真實的 Debian Chromium 150 `linux/arm64`，在「沒有虛擬機器、沒有第二個核心」的 qqbox 沙箱中運作。
 
 ## 原廠映像檔與支援範圍

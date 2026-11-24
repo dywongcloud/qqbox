@@ -9,7 +9,7 @@ the **upstream Go API** and do not exist in this Rust-only tree.
 ## Networking
 
 Networking is off by default: the guest has loopback only, like
-`docker --network none`. `Options { net: true, .. }` (CLI `-net`) enables egress
+`docker --network none`. `Options { net: true, .. }` (Rust CLI `--net`) enables egress
 through supervisor-proxied host sockets; `Config { net: true, .. }` is the
 daemon-side equivalent. Add `allow_domains`, `allow_cidrs` and `allow_ports` to
 bound access; enabling networking alone does not create a restrictive allowlist.

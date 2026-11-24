@@ -703,7 +703,11 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
             }
             unpack_budgeted(&bytes, &tmp, o.max_size, &mut written)?;
         }
-        std::fs::write(image_dir.join("config.json"), serde_json::to_vec(&config)?)?;
+        // The cache directory name is SHA-256 of the RAW registry config blob
+        // (see the hasher above and `local`). Writing a serde re-serialization
+        // here would make the next `local()` recompute a different digest and
+        // reject its own cache as "pre-planted". Preserve the exact bytes.
+        std::fs::write(image_dir.join("config.json"), &config_bytes)?;
         match std::fs::rename(&tmp, &root) {
             Ok(()) => {}
             Err(_) if root.is_dir() => {}
@@ -720,9 +724,11 @@ pub fn pull(reference: &str, o: &PullOptions) -> Result<Image> {
     })
 }
 
-pub fn store_config(dir: &Path, cfg: &ImageConfig) -> Result<()> {
+/// Store a raw OCI config blob. `local()` hashes these exact bytes against the
+/// digest-named cache directory, so the blob must never be re-serialized.
+pub fn store_config(dir: &Path, raw_config: &[u8]) -> Result<()> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(dir.join("config.json"), serde_json::to_vec(cfg)?)?;
+    std::fs::write(dir.join("config.json"), raw_config)?;
     Ok(())
 }
 

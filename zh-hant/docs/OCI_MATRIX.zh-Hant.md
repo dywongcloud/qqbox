@@ -23,12 +23,12 @@
 
 | 項目 | 必要條件 | 說明 |
 | --- | --- | --- |
-| 來賓對外連線 | 明確加上 `-net` | 監督器攔截每個 `:53` DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實宿主通訊端；沒有 `-net` 就沒有 DNS 與宿主可達性，瀏覽器顯示通用離線頁面。 |
-| 目的地限制 | `-allow-domains`、`-allow-cidrs`、`-allow-ports` | 三者只收緊、不放寬；加上去只會縮小可達的目的地，不能取代 `-net`，也不會授予新權限。 |
-| 套件登錄 | `-net` | `apt` 與 `apk` 的安裝可正常運作；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效並修復 `/var/lib/dpkg/status`。 |
+| 來賓對外連線 | 明確加上 `--net` | 監督器攔截每個 `:53` DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實宿主通訊端；沒有它就沒有 DNS 與宿主可達性，瀏覽器顯示通用離線頁面。 |
+| 目的地限制 | `Options` 的 `allow_domains`、`allow_cidrs`、`allow_ports`（CLI `--allow-domain`） | 三者只收緊、不放寬；加上去只會縮小可達的目的地，不能取代 `--net`，也不會授予新權限。 |
+| 套件登錄 | `--net` | `apt` 與 `apk` 的安裝可正常運作；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效並修復 `/var/lib/dpkg/status`。 |
 | ICMP echo（`ping`） | 使用者空間 ICMP echo 客戶端 + 宿主未特權 `SOCK_DGRAM`／`IPPROTO_ICMP` | 這是唯一的支援路徑；`SOCK_RAW` 不可用，路徑外的 `ping` 失敗是預期結果。以 DNS、TCP 與 HTTPS 的實際連線作為網路可用的證據。 |
 | Debian Chromium 150 沙箱與圖形 | 如實回報 | setuid 沙箱特權不授予，沙箱狀態與 `SwiftShader` 軟體渲染狀態照實呈現；macOS 圖形處理器不透傳給 Linux ELF 來賓，硬體加速不可用。 |
-| VNC TCP 5905 | `x11vnc` + `-net` 連接埠轉送 | `x11vnc -nopw` 在區域網路可達，部署時改用 `-rfbauth` 加密碼；這是部署選擇，不是隔離不變量。 |
+| VNC TCP 5905 | `x11vnc` + 網路轉送 | `x11vnc -nopw` 在區域網路可達，部署時改用 `-rfbauth` 加密碼；這是部署選擇，不是隔離不變量。 |
 
 ## 3. 不在契約內
 

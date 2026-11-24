@@ -106,39 +106,48 @@ impl Platform for LinuxBackend {
                 "backstop supervisor is already installed on this backend".into(),
             ));
         }
-        if slot.is_none() {
-            *slot = Some(Arc::new(Channel::create()?));
-        }
-        let Some(ch) = slot.as_ref() else {
-            return Err(Error::Message("backstop chanPage unavailable".into()));
-        };
-        ch.reset();
-        trap::set_channel(ch);
-        trap::install_handler()?;
-        Self::install_sigchld()?;
+        // Claim the flag atomically, but do NOT leave it set if any fallible
+        // step below fails: otherwise a failed install permanently wedges
+        // every retry into "already installed". Roll back on every error path.
+        let result = (|| -> Result<()> {
+            if slot.is_none() {
+                *slot = Some(Arc::new(Channel::create()?));
+            }
+            let Some(ch) = slot.as_ref() else {
+                return Err(Error::Message("backstop chanPage unavailable".into()));
+            };
+            ch.reset();
+            trap::set_channel(ch);
+            trap::install_handler()?;
+            Self::install_sigchld()?;
 
-        let serving = Arc::clone(ch);
-        let ns = Namespace::new(std::path::Path::new("/"))?;
-        std::thread::Builder::new()
-            .name("qqbox-hostop".to_owned())
-            .spawn(move || {
-                let mut ops =
-                    HostOps::new(ns, std::process::id()).with_guest_pid(std::process::id() as i32);
-                loop {
-                    // The SIGSYS handler alone owns REPLY -> IDLE. An
-                    // unconditional ack() here would clobber a REQUEST the
-                    // handler just published, losing the next trap.
-                    let _ = hostop::serve_one(&serving, &mut ops);
-                    if CHILD_GONE.load(Ordering::SeqCst) != 0 {
-                        hostop::GUEST_GONE.store(0, Ordering::SeqCst);
+            // Build the filter before spawning the serving thread: fewer
+            // fallible steps remain after a thread exists.
+            let program = filter::trap_and_deny(&[nr::GETPPID as u32], filter::GUEST_DENY)?;
+            let serving = Arc::clone(ch);
+            let ns = Namespace::new(std::path::Path::new("/"))?;
+            std::thread::Builder::new()
+                .name("qqbox-hostop".to_owned())
+                .spawn(move || {
+                    let mut ops = HostOps::new(ns, std::process::id())
+                        .with_guest_pid(std::process::id() as i32);
+                    loop {
+                        // The SIGSYS handler alone owns REPLY -> IDLE. An
+                        // unconditional ack() here would clobber a REQUEST the
+                        // handler just published, losing the next trap.
+                        let _ = hostop::serve_one(&serving, &mut ops);
+                        if CHILD_GONE.load(Ordering::SeqCst) != 0 {
+                            hostop::GUEST_GONE.store(0, Ordering::SeqCst);
+                        }
                     }
-                }
-            })
-            .map_err(|e| Error::Message(format!("spawn host-op thread: {e}")))?;
-        crate::sandbox::install(&filter::trap_and_deny(
-            &[nr::GETPPID as u32],
-            filter::GUEST_DENY,
-        )?)
+                })
+                .map_err(|e| Error::Message(format!("spawn host-op thread: {e}")))?;
+            crate::sandbox::install(&program)
+        })();
+        if result.is_err() {
+            self.supervisor_started.store(false, Ordering::SeqCst);
+        }
+        result
     }
 
     /// Live end-to-end witness: fork a guest thread, install a real seccomp

@@ -1,5 +1,11 @@
 # XFCE desktop inside qqbox
 
+> Flag provenance: the single-dash `-net`, `-allow-domains`, `-allow-cidrs`
+> and `-allow-ports` on this page are flags of the off-repo pre-removal Go
+> runtime used by these historical desktop examples. The Rust `qqbox` CLI in
+> this repository uses `--net`, `--no-net` and `--allow-domain`; CIDR and port
+> limits are `Options`/`Config` fields, not CLI flags.
+
 A reproducible, witnessed XFCE 4.18 session running inside a qqbox sandbox on
 macOS/arm64, served over VNC. `xfce-desktop-native.png` shows the native
 `xfce4-terminal` rendering real shell output; `xfce-terminal-typed.png` shows a

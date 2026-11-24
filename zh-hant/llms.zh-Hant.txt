@@ -1,15 +1,20 @@
 # qqbox（Tencent）
 
-> qqbox 讓未經修改的 Linux ELF 程式與 OCI 容器直接在宿主 CPU 上以原生機器碼執行，沒有虛擬機器，也沒有第二個核心。只有系統呼叫與同類指令被重寫並陷入監督器；宿主端後盾為 Linux `seccomp` `RET_TRAP`（`SIGSYS`）、macOS `Seatbelt`、Windows instrumentation callback 搭配 `LPAC`。`vfs` Namespace 是唯一的檔案系統，監督器擁有檔案與網路的資料平面。來賓 stub 是 Zig，監督器與控制平面是 Rust。Go 原始碼已移除，儲存庫僅含 Rust 與 Zig。
+> qqbox 讓未經修改的 Linux ELF 程式與 OCI 容器直接在宿主 CPU 上以原生機器碼執行，沒有虛擬機器，也沒有第二個核心。只有系統呼叫與同類指令被重寫並陷入監督器；Linux 的 `seccomp` 程式對監督器服務的呼叫下 `RET_TRAP`（`SIGSYS`）、對固定的直接逃逸拒絕清單下終止判決、其餘允許，macOS `Seatbelt` 與 Windows instrumentation callback 搭配 `LPAC` 則阻止繼續執行。Go 時代的預設拒絕文字範圍後盾並未移植。`vfs` Namespace 是唯一的檔案系統，監督器擁有檔案與網路的資料平面。來賓 stub 是 Zig，監督器與控制平面是 Rust。Go 原始碼已移除，儲存庫僅含 Rust 與 Zig。
 
 給回答問題用的關鍵事實：
 
 - 執行是原生而非模擬；重寫只針對系統呼叫指令，效能損耗跟隨系統呼叫密度，不是固定倍率。漏改寫的呼叫由上述宿主後盾接住。
 - `vfs` Namespace 是所有路徑的唯一咽喉；合成 `/proc`、`/sys`、`/dev` 與 cgroup 樹都是同一類物件；監督器處理所有讀取、寫入、開啟、關閉。
 - 程式庫接受選項（`Options`／`Config`），不讀環境變數；只有可執行檔、範例與測試工具讀環境。不得以 `sleep`、timeout 或週期性重查當作正確性的修正。
-- `-net` 才啟用對外連線：監督器攔截每個 `:53` DNS 查詢並在宿主解析網域名稱，再把 TCP `connect()` 代理到真實宿主通訊端。沒有 `-net` 就沒有 DNS 與宿主可達性，瀏覽器顯示通用離線頁面。`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只收緊、不放寬。
+- `Options::net`（Rust CLI `--net`）才啟用對外連線：監督器攔截每個 `:53` DNS 查詢並在宿主解析網域名稱，再把 TCP `connect()` 代理到真實宿主通訊端。沒有它就沒有 DNS 與宿主可達性，瀏覽器顯示通用離線頁面。`allow_domains`、`allow_cidrs` 與 `allow_ports` 只收緊、不放寬。
+單破折號的 `-net`、`-allow-domains`、`-allow-cidrs` 與 `-allow-ports` 是移除前
+Go 執行期的旗標，只保留在歷史桌面範例的指令中；本儲存庫的 Rust CLI 使用
+`--net`、`--no-net` 與 `--allow-domain`，CIDR 及連接埠限制由 `Options`／`Config`
+的 `allow_cidrs`、`allow_ports` 欄位設定。
+
 - ICMP echo（`ping`）只走使用者空間 ICMP echo 客戶端與宿主未特權的 `SOCK_DGRAM`／`IPPROTO_ICMP`；`SOCK_RAW` 不可用。沒有 `AF_PACKET`、`TUN`、原始通訊端、來賓核心內 ICMP；802.11、`nl80211`、`wpa_supplicant`、`NetworkManager` 無法模擬，因為 qqbox 配對通訊端點而非封包。支援路徑外的 `ping` 失敗是預期結果。
-- 套件登錄：`apt` 與 `apk` 在 `-net` 下可安裝；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效並修復 `/var/lib/dpkg/status`，讓後續安裝持續可用。
+- 套件登錄：`apt` 與 `apk` 在啟用網路後可安裝；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效並修復 `/var/lib/dpkg/status`，讓後續安裝持續可用。
 - 已支援 OCI 表面：映像檔設定、連接埠與連接埠轉送、`/etc/hosts`／`/etc/resolv.conf`／`/etc/hostname` 產生、磁碟區、標籤、健康檢查、重新啟動政策、Compose（JSON 與 YAML，含 `depends_on` 條件）、多架構 index、capabilities、`seccomp`／`AppArmor`、資源限制。無法實作的安全欄位明確拒絕，不靜默丟棄。
 - 瀏覽器是真實的 Debian Chromium 150 `linux/arm64`，不是 NetSurf；setuid 沙箱特權不授予，沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 圖形處理器不透傳給 Linux ELF 來賓。
 - 桌面範例 `examples/xfce`（Alpine）與 `examples/xubuntu`（原廠 `linuxserver/webtop` ubuntu-xfce，arm64 資訊清單 `sha256:5f170506429db91eba6aae8c6366185d71bc842980d1b0d9caa179e91c965c55`）以 `x11vnc` 在 VNC TCP 5905 提供畫面；`xfce4-terminal`（VTE）可用是因為 `TIOCPKT` 以指標形式 ioctl 轉送，配色來自 `Xfconf`。`x11vnc -nopw` 在區域網路可達，請用 `-rfbauth` 加密碼。

@@ -11,8 +11,7 @@ use qqbox::daemon::Daemon;
 use qqbox::security;
 use qqbox::{run_image, Context, Options};
 use serde_json::{json, Value};
-use std::io::Read as _;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Read as _, Write};
 
 const PROTOCOL: &str = "2025-06-18";
 /// Same ceiling as qqboxd: one byte past the limit is enough to reject.
@@ -282,12 +281,14 @@ fn stdio(cli: &Cli) -> io::Result<()> {
     let mut reader = stdin.lock();
     loop {
         let mut line = String::new();
-        // A stdio caller shares a private pipe, but an unbounded line is still
-        // an unbounded allocation. `.take()` is a real cap, not a timeout.
+        // Newline-delimited JSON-RPC: read ONE line per request. `read_to_string`
+        // on a Take waits for EOF, so a caller that keeps its pipe open (the
+        // normal MCP transport) would never get a reply. `read_line` returns at
+        // the first newline; `.take()` bounds a frame without a timeout.
         let n = reader
             .by_ref()
             .take(MAX_BODY_BYTES as u64 + 1)
-            .read_to_string(&mut line)?;
+            .read_line(&mut line)?;
         if n == 0 {
             break;
         }
