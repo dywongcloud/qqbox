@@ -95,17 +95,16 @@ fn reason(status: u16) -> &'static str {
 }
 
 fn write_http<W: Write>(w: &mut W, response: &HttpResponse) -> io::Result<()> {
-    let mut head = format!(
+    let head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         response.status,
         reason(response.status),
         response.content_type,
         response.body.len()
     );
-    // Keep the write deadline meaningful: one buffered write, then one body
+    // Keep the write deadline meaningful: one header write, then one body
     // write. A peer that never reads cannot hold the worker indefinitely.
     w.write_all(head.as_bytes())?;
-    head.clear();
     w.write_all(&response.body)?;
     w.flush()
 }
