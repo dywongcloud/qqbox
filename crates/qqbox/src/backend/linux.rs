@@ -7,15 +7,18 @@ use crate::backend::trap;
 use crate::backend::{Capabilities, Platform, WitnessReport};
 use crate::error::{Error, Result};
 use crate::vfs::Namespace;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 /// Holds the chanPage alive for as long as the backstop filter is installed.
 /// A filter that TRAPs without a channel and a serving supervisor would hang
 /// the caller, so `install_backstop` owns both.
 pub struct LinuxBackend {
     backstop: Mutex<Option<Arc<Channel>>>,
-    supervisor_started: std::sync::atomic::AtomicBool,
+    supervisor_started: AtomicBool,
+    supervisor_stop: Arc<AtomicBool>,
+    supervisor_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 /// SIGCHLD interrupts FUTEX_WAIT: a child that exited before publishing a
@@ -31,7 +34,9 @@ impl LinuxBackend {
     pub fn new() -> Self {
         Self {
             backstop: Mutex::new(None),
-            supervisor_started: std::sync::atomic::AtomicBool::new(false),
+            supervisor_started: AtomicBool::new(false),
+            supervisor_stop: Arc::new(AtomicBool::new(false)),
+            supervisor_thread: Mutex::new(None),
         }
     }
 
@@ -124,27 +129,47 @@ impl Platform for LinuxBackend {
             // Build the filter before spawning the serving thread: fewer
             // fallible steps remain after a thread exists.
             let program = filter::trap_and_deny(&[nr::GETPPID as u32], filter::GUEST_DENY)?;
-            let serving = Arc::clone(ch);
             let ns = Namespace::new(std::path::Path::new("/"))?;
-            std::thread::Builder::new()
+            let serving = Arc::clone(ch);
+            self.supervisor_stop.store(false, Ordering::SeqCst);
+            let stop = Arc::clone(&self.supervisor_stop);
+            let handle = std::thread::Builder::new()
                 .name("qqbox-hostop".to_owned())
                 .spawn(move || {
                     let mut ops = HostOps::new(ns, std::process::id())
                         .with_guest_pid(std::process::id() as i32);
-                    loop {
+                    while !stop.load(Ordering::SeqCst) {
                         // The SIGSYS handler alone owns REPLY -> IDLE. An
                         // unconditional ack() here would clobber a REQUEST the
                         // handler just published, losing the next trap.
-                        let _ = hostop::serve_one(&serving, &mut ops);
+                        let _ = hostop::serve_one_with_stop(&serving, &mut ops, &stop);
                         if CHILD_GONE.load(Ordering::SeqCst) != 0 {
                             hostop::GUEST_GONE.store(0, Ordering::SeqCst);
                         }
                     }
                 })
                 .map_err(|e| Error::Message(format!("spawn host-op thread: {e}")))?;
+            *self
+                .supervisor_thread
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(handle);
             crate::sandbox::install(&program)
         })();
         if result.is_err() {
+            // Release the claim AND stop/join the servant, so a failed install
+            // leaves no never-joined thread racing the chanPage futex word.
+            self.supervisor_stop.store(true, Ordering::SeqCst);
+            if let Some(ch) = slot.as_ref() {
+                hostop::wake_all(ch);
+            }
+            if let Some(handle) = self
+                .supervisor_thread
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take()
+            {
+                let _ = handle.join();
+            }
             self.supervisor_started.store(false, Ordering::SeqCst);
         }
         result

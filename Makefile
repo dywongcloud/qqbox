@@ -17,7 +17,7 @@ export ZIG
 
 .PHONY: build build-release check fmt clippy test stubs stubs-linux \
 	stubs-windows stubs-macos cli daemon mcp runtime run invariants version routes \
-	witness witness-http backend-witness backend-exec-elf zh-hant-verify stub-verify flag-provenance-verify stub-rebuild-verify clean
+	witness witness-http backend-witness backend-exec-elf zh-hant-verify stub-verify flag-provenance-verify stub-rebuild-verify transport-witness clean
 
 # ------------------------------------------------------------- rust build -----
 build:
@@ -289,40 +289,36 @@ stub-verify:
 # the page carries an explicit provenance note. GAP 3 of the adversarial
 # completeness critic; this is a clean-checkout gate, not a test file.
 define FLAG_PROVENANCE_PY
-import pathlib, sys
+import pathlib, re, sys
+# Scan EVERY shipped document, not a hand-maintained allowlist. A flag is
+# qualified only when the SAME LINE names its provenance: every occurrence is
+# checked, so a distant "Go-era" sentence cannot waive an unrelated line.
+pat = re.compile(r'(?<![\w-])-net\b|(?<![\w-])-allow-(?:domains|cidrs|ports)\b')
+markers = ['QQBOX_RUNTIME', 'Go-era', 'Go 執行期', '移除前', 'pre-removal Go',
+           'Flag provenance', '旗標出處', 'Go runtime', 'historical Go',
+           'Go 二進位', 'Go CLI', 'Go binary']
+skip = {'.git', 'target', 'node_modules', '.gm'}
 fails = []
-rust_facing = ['README.md', 'llms.txt', 'AGENTS.md', 'SECURITY.md',
-               'docs/permissions-and-limits.md', 'docs/OCI_MATRIX.md',
-               'docs/PORT_STATUS.md', 'zh-hant/llms.zh-Hant.txt',
-               'zh-hant/AGENTS.zh-Hant.md', 'zh-hant/SECURITY.zh-Hant.md',
-               'zh-hant/docs/PERMISSIONS.zh-Hant.md',
-               'zh-hant/docs/PORT_STATUS.zh-Hant.md',
-               'zh-hant/docs/OCI_MATRIX.zh-Hant.md']
-legacy = ['`-net`', '`-allow-domains`', '`-allow-cidrs`', '`-allow-ports`']
-for rel in rust_facing:
-    p = pathlib.Path(rel)
-    if not p.is_file():
-        fails.append(rel + ': missing'); continue
-    text = p.read_text(encoding='utf-8')
-    # Strip fenced command blocks: Go-era CLI lines are historical evidence.
-    prose = '\n'.join(line for i, line in enumerate(text.splitlines()) if True)
-    hits = [tok for tok in legacy if tok in text and not (
-        'Flag provenance' in text or '旗標出處' in text or
-        'Go-era' in text or 'Go 執行期' in text or 'off-repo pre-removal Go' in text)]
-    if hits: fails.append(rel + ': unqualified Go-era flags ' + ','.join(hits))
-    print('FLAGS ' + rel + ' ' + ('PASS' if not hits else 'FAIL'))
-examples = sorted(pathlib.Path('examples').rglob('README.md')) + sorted(pathlib.Path('zh-hant/examples').rglob('README*.md'))
-for p in examples:
-    text = p.read_text(encoding='utf-8')
-    has_legacy = any(tok in text for tok in legacy)
-    has_note = 'Flag provenance' in text or '旗標出處' in text
-    if has_legacy and not has_note:
-        fails.append(str(p) + ': Go-era flags without provenance note')
-    print('FLAGS ' + str(p) + ' ' + ('PASS' if not (has_legacy and not has_note) else 'FAIL'))
-print('FLAG_PROVENANCE_FILES=' + str(len(rust_facing) + len(examples)) + ' failures=' + str(len(fails)))
+files = 0
+hits = 0
+for p in sorted(pathlib.Path('.').rglob('*')):
+    if p.suffix not in {'.md', '.txt'} or any(x in p.parts for x in skip):
+        continue
+    files += 1
+    for i, line in enumerate(p.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+        if pat.search(line):
+            hits += 1
+            if not any(m in line for m in markers):
+                fails.append(str(p) + ':' + str(i) + ': ' + line.strip()[:120])
+print('FLAG_PROVENANCE_FILES=' + str(files), 'occurrences=' + str(hits), 'failures=' + str(len(fails)))
 for f in fails: print('  ' + f)
-print('FLAG_PROVENANCE_' + ('PASS' if not fails else 'FAIL'))
-sys.exit(1 if fails else 0)
+# Non-vacuity self-check: the same per-line predicate must REJECT a synthetic
+# unqualified prose line. A gate that can only print PASS is worthless.
+probe = '`-net` is the Rust CLI switch for egress.'
+detected = bool(pat.search(probe)) and not any(m in probe for m in markers)
+print('nonvacuous_self_check=' + str(detected))
+print('FLAG_PROVENANCE_' + ('PASS' if not fails and detected else 'FAIL'))
+sys.exit(1 if fails or not detected else 0)
 endef
 export FLAG_PROVENANCE_PY
 
@@ -409,6 +405,47 @@ export STUB_REBUILD_PY
 
 stub-rebuild-verify:
 	@python3 -c "$$STUB_REBUILD_PY"
+
+# Live transport witness: 64 stalled peers declaring oversize bodies must not
+# starve the daemon. This is an exported Make variable, not a test file, so the
+# gate runs on a clean checkout. No sleeps or delays are used: read readiness is
+# event-driven via connect() and recv() on real sockets.
+define TRANSPORT_WITNESS_PY
+import socket, subprocess, secrets, sys
+BIN = './target/debug/qqboxd'
+tok = secrets.token_hex(8)
+s = socket.socket(); s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]; s.close()
+p = subprocess.Popen([BIN, '--listen', '127.0.0.1:' + str(port), '--token', tok],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+for _ in range(300):
+    c = socket.socket(); r = c.connect_ex(('127.0.0.1', port)); c.close()
+    if r == 0: break
+def call(raw, timeout=5):
+    c = socket.create_connection(('127.0.0.1', port), timeout=timeout)
+    c.settimeout(timeout); c.sendall(raw)
+    try: out = c.recv(4096)
+    except Exception as e: out = b'ERR:' + str(e).encode()
+    c.close(); return out.split(b'\r\n', 1)[0].decode(errors='replace')
+normal = b'GET /qqbox/v1/containers/json HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'
+huge = b'POST /qqbox/v1/containers/create HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n'
+early = call(huge)
+stall = []
+for _ in range(64):
+    c = socket.create_connection(('127.0.0.1', port), timeout=5)
+    c.sendall(huge); stall.append(c)
+during = call(normal); later = call(normal)
+for c in stall: c.close()
+after = call(normal)
+print('early413=' + early, 'during_stall=' + during, 'later=' + later, 'after_close=' + after)
+p.terminate(); p.wait(timeout=5)
+ok = ('413' in early and all('401' in v for v in (during, later, after)) and '503' not in during + later + after)
+print('TRANSPORT_WITNESS_' + ('PASS' if ok else 'FAIL'))
+sys.exit(0 if ok else 1)
+endef
+export TRANSPORT_WITNESS_PY
+
+transport-witness: build
+	@python3 -c "$$TRANSPORT_WITNESS_PY"
 
 clean:
 	$(CARGO) clean

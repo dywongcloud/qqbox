@@ -86,6 +86,26 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
   維持 OPEN，需要只改變單一變數的受控 A／B。此處如實揭露，不宣稱已解。
 - 沒有見證過真正的 `docker run --runtime=qqbox`、containerd 或 Podman 整合；
   OCI runtime shim 只以真實 bundle 演練。
+- 常駐程式與 MCP 的 HTTP 傳輸使用 `crates/qqbox/src/net/http.rs`，這是一個擁有
+  每個已接受通訊端的小型 HTTP/1.1 伺服器。`tiny_http` 0.12 會在
+  `EqualReader::drop` 排空未讀完的請求本體，因此宣告大型 `Content-Length`
+  後停滯的對等端會占用工作者直到連線關閉。Rust 傳輸在讀取本體之前就拒絕超過
+  `MAX_BODY_BYTES` 的宣告長度，限制標頭與 chunked 本體，並以丟棄通訊端直接關閉
+  （不排空）。每個通訊端都有讀取期限；那是對不受信任網路輸入的上界，不是正確性
+  修正或週期性重查，並行上限飽和時回傳具型別的 503。`make transport-witness`
+  會啟動真實 `qqboxd`，讓 64 個停滯的超大請求對等端同時存在，並見證一般請求仍
+  被服務。常駐程式不再支援 keep-alive：每個回應都帶 `Connection: close`，用戶端
+  每次請求重新連線。Moby／Docker、containerd 與 Podman 整合仍未見證，如上所述。
+- Linux host-op 監督器具備明確的停止旗標與已 join 的執行緒。強制
+  `seccomp(SET_MODE_FILTER)` 失敗時，會停止服務執行緒、以哨兵喚醒 futex、
+  join 並重設安裝宣告，讓重試得以進行；真實 Linux 見證為
+  `BA3_FORCED_FAILURE_JOIN_PASS=true`（執行緒數前後皆為 1）。一般 `qqbox run`
+  路徑仍為 `Error::UnsupportedPlatform`；這是資源生命週期的修正，不是三組原生
+  來賓後端已移植的宣告。
+- `qqbox::net::dns::parse_response` 會解析所有宣告的回答，不再於
+  `MAX_ANSWERS` 截斷：64 個 CNAME 後的 A 記錄現在會回傳位址；上限只套用至
+  儲存的位址向量。MCP stdio 傳輸只計算 JSON 本體，不含框架換行，因此恰好
+  `MAX_BODY_BYTES` 的框架會被接受，多一個位元組則回傳具型別的錯誤。
 - 已安裝的 Zig 是 0.16.0，而 43 份 Zig 原始碼是針對 0.13.0 撰寫。四份 stub
   建置腳本現在遇到非 0.13.x 工具鏈都會失敗關閉；`stub/build.sh` 在
   `zig objcopy --strip-debug` 失敗時也失敗關閉，不再悄悄交付未去除除錯資訊的

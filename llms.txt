@@ -26,7 +26,7 @@ Key facts for answering questions about this repository:
   ported, so static rewriting is required for correctness. macOS Seatbelt and the
   Windows x86-64 instrumentation callback kill; Windows arm64 has no callback.
 - Networking is opt-in (`Options::net` / Rust CLI `--net`) with domain, CIDR, and
-  port egress allowlists. The single-dash `-net` / `-allow-domains` flags belong to
+  port egress allowlists. The single-dash `Go-era -net` / `-allow-domains` flags belong to
   the off-repo pre-removal Go runtime used only by the historical desktop examples.
   Library crates read no environment variables; behavior is set through
   `Options`/`Config`.

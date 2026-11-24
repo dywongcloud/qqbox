@@ -1,5 +1,6 @@
 pub mod dns;
 pub mod forward;
+pub mod http;
 pub mod policy;
 pub mod ports;
 pub mod socket;

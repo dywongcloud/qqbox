@@ -285,13 +285,26 @@ fn stdio(cli: &Cli) -> io::Result<()> {
         // on a Take waits for EOF, so a caller that keeps its pipe open (the
         // normal MCP transport) would never get a reply. `read_line` returns at
         // the first newline; `.take()` bounds a frame without a timeout.
+        // Two extra bytes leave room for the framing newline and an optional CR,
+        // so a body of EXACTLY MAX_BODY_BYTES is accepted rather than rejected
+        // for its delimiter.
         let n = reader
             .by_ref()
-            .take(MAX_BODY_BYTES as u64 + 1)
+            .take(MAX_BODY_BYTES as u64 + 2)
             .read_line(&mut line)?;
         if n == 0 {
             break;
         }
+        let framed = line.ends_with('\n');
+        if framed {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        // The ceiling applies to the JSON body, never to its delimiter: a
+        // body of exactly MAX_BODY_BYTES plus "\n" is accepted, while a frame
+        // that hit the Take limit is rejected because line.len() is > MAX.
         if line.len() > MAX_BODY_BYTES {
             return Err(io::Error::other("MCP stdio request exceeds MAX_BODY_BYTES"));
         }
@@ -312,6 +325,8 @@ fn stdio(cli: &Cli) -> io::Result<()> {
 }
 
 fn http(cli: &Cli, addr: &str) -> io::Result<()> {
+    use qqbox::net::http::{self, HttpResponse};
+
     let token = cli.token.as_deref().ok_or_else(|| {
         io::Error::other(
             "MCP HTTP mode requires --token (zero-trust: no anonymous HTTP). Failing closed.",
@@ -323,41 +338,19 @@ fn http(cli: &Cli, addr: &str) -> io::Result<()> {
         ));
     }
     let want = format!("Bearer {token}").into_bytes();
-    let server = tiny_http::Server::http(addr).map_err(|e| io::Error::other(e.to_string()))?;
     eprintln!("qqbox-mcp listening on http://{addr}/ (bearer auth required)");
-    for mut req in server.incoming_requests() {
+    http::serve(addr, MAX_BODY_BYTES, |req| {
         let auth = req
-            .headers()
-            .iter()
-            .find(|h| {
-                h.field
-                    .as_str()
-                    .as_str()
-                    .eq_ignore_ascii_case("authorization")
-            })
-            .map(|h| h.value.as_str().as_bytes().to_vec());
-        let ok = auth
+            .header("authorization")
+            .map(|v| v.as_bytes().to_vec());
+        let authorized = auth
             .as_deref()
-            .map(|a| security::secure_eq(a, want.as_slice()))
+            .map(|a| security::secure_eq(a, &want))
             .unwrap_or(false);
-        if !ok {
-            let denied = tiny_http::Response::from_string(r#"{"error":"unauthorized"}"#)
-                .with_status_code(tiny_http::StatusCode(401));
-            let _ = req.respond(denied);
-            continue;
+        if !authorized {
+            return HttpResponse::json(401, br#"{"error":"unauthorized"}"#.to_vec());
         }
-        let mut body = Vec::new();
-        let read = req
-            .as_reader()
-            .take(MAX_BODY_BYTES as u64 + 1)
-            .read_to_end(&mut body);
-        if read.is_err() || body.len() > MAX_BODY_BYTES {
-            let denied = tiny_http::Response::from_string(r#"{"error":"payload too large"}"#)
-                .with_status_code(tiny_http::StatusCode(413));
-            let _ = req.respond(denied);
-            continue;
-        }
-        let parsed: Result<Value, _> = serde_json::from_slice(&body);
+        let parsed: Result<Value, _> = serde_json::from_slice(&req.body);
         let (status, payload) = match parsed {
             Ok(v) => match handle(&v, cli) {
                 Some(resp) => (200, resp.to_string()),
@@ -374,23 +367,15 @@ fn http(cli: &Cli, addr: &str) -> io::Result<()> {
         } else {
             payload
         };
-        // The advertised --max-output cap is now enforced rather than merely
+        // The advertised --max-output cap is enforced rather than merely
         // echoed by `qqbox_version`.
         if data.len() > cli.max_output {
             let too_large = json!({"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"tool output exceeds --max-output"}});
-            let denied = tiny_http::Response::from_string(too_large.to_string())
-                .with_status_code(tiny_http::StatusCode(200));
-            let _ = req.respond(denied);
-            continue;
+            return HttpResponse::json(200, too_large.to_string().into_bytes());
         }
-        let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-            .map_err(|_| io::Error::other("malformed static Content-Type header"))?;
-        let response = tiny_http::Response::from_string(data)
-            .with_status_code(tiny_http::StatusCode(status))
-            .with_header(header);
-        let _ = req.respond(response);
-    }
-    Ok(())
+        HttpResponse::json(status, data.into_bytes())
+    })
+    .map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn main() {

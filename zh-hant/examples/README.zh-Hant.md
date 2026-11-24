@@ -16,7 +16,7 @@
 
 兩者共通的關鍵事實：VNC 由 `x11vnc` 在 TCP 5905 提供；`xfce4-terminal`（VTE）能開啟真正的 PTY 並畫出文字，是因為 `TIOCPKT` 以指標形式的 ioctl 正確轉送。這個 ioctl 帶的是指向整數的指標，不是整數本身；把數值當指標傳會得到錯誤位址，只回傳成功卻不啟用封包模式，則會讓 VTE 讀到無法分框的串流而留下黑畫面。終端機配色不是來自 `terminalrc`，而是由 `Xfconf` 提供，改前者不會改變前景與背景。
 
-`-net` 是必要條件：套件登錄的 `apt` 與 `apk` 安裝都要靠它。啟用後監督器攔截每一個送往 `:53` 的 DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓後續安裝不會被前面的失敗卡住。少了 `-net`，來賓沒有 DNS 也沒有宿主可達性，瀏覽器只會顯示通用的離線頁面；`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只用來收緊，不能用來開啟連線或授予新權限。
+`移除前 Go 執行期的 -net` 是必要條件：套件登錄的 `apt` 與 `apk` 安裝都要靠它。啟用後監督器攔截每一個送往 `:53` 的 DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端；映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓後續安裝不會被前面的失敗卡住。少了 `-net`，來賓沒有 DNS 也沒有宿主可達性，瀏覽器只會顯示通用的離線頁面；`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只用來收緊，不能用來開啟連線或授予新權限。
 
 瀏覽器是實際的 Debian Chromium 150 `linux/arm64`，不是 NetSurf。它的 setuid 沙箱需要 qqbox 不授予的特權，因此沙箱狀態與 `SwiftShader` 軟體渲染狀態如實回報；macOS 的圖形處理器不會透傳給 Linux ELF 來賓，請不要期待硬體加速。合成 `/sys` 缺少部分背光與電源服務、桌面出現的警告，不影響終端機、畫面與對外連線；把它們如實記錄下來，比用「已啟用」之類的說法掩飾更有價值。
 
@@ -26,7 +26,7 @@ ICMP echo（`ping`）只在使用者空間 ICMP echo 客戶端與宿主未特權
 
 ## 安全提醒
 
-`x11vnc -nopw` 不要求密碼；在 `-net` 的連接埠轉送下，這個 5905 接聽端會被區域網路內的其他主機連上，任何人都能操作來賓桌面。這是部署選擇，不是 qqbox 的隔離不變量，也不代表監督器被突破。上線前請改用 `x11vnc -rfbauth <vncpasswd>`，以支援密碼的 VNC 客戶端連線，同時把 5905 限制在可信網路。加上 `-allow-ports` 只會縮小目的連接埠，並不會補上密碼。完整的威脅模型與通報方式見 [../SECURITY.zh-Hant.md](../SECURITY.zh-Hant.md)。
+`x11vnc -nopw` 不要求密碼；在 `移除前 Go 執行期的 -net` 的連接埠轉送下，這個 5905 接聽端會被區域網路內的其他主機連上，任何人都能操作來賓桌面。這是部署選擇，不是 qqbox 的隔離不變量，也不代表監督器被突破。上線前請改用 `x11vnc -rfbauth <vncpasswd>`，以支援密碼的 VNC 客戶端連線，同時把 5905 限制在可信網路。加上 `-allow-ports` 只會縮小目的連接埠，並不會補上密碼。完整的威脅模型與通報方式見 [../SECURITY.zh-Hant.md](../SECURITY.zh-Hant.md)。
 
 ## 建置與見證的誠實邊界
 

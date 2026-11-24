@@ -4,11 +4,11 @@
 
 ## 前提：先讀懂邊界
 
-在動手之前，先把三件事記清楚。第一，宿主端後盾是 Linux `seccomp` 的 `RET_TRAP`（`SIGSYS`）、macOS `Seatbelt`、以及 Windows instrumentation callback 搭配 `LPAC`；三者的行為不對稱，不要把它們寫成同一種結果。第二，`vfs` Namespace 是唯一的檔案系統，監督器擁有檔案與網路的資料平面。第三，Linux 原生來賓執行後端已移植到 Rust 並有即時見證（`qqbox backend exec-elf` 可執行未修改的靜態 aarch64 ELF），macOS 與 Windows 後端尚未移植，因此一般 `qqbox run` 仍回傳 `UnsupportedPlatform`；任何說明都必須照實陳述。以下六條規則不是風格建議，而是讓邊界維持單一、可驗證的條件。
+在動手之前，先把三件事記清楚。第一，Linux 已安裝的 `seccomp` 程式對監督器服務的呼叫下 `RET_TRAP`（`SIGSYS` 導回 chanPage）、對固定的直接逃逸清單下終止判決、其餘允許；Go 時代的預設拒絕文字範圍後盾並未移植，因此靜態重寫是正確性的必要條件。macOS `Seatbelt` 與 Windows instrumentation callback 搭配 `LPAC` 則阻止繼續執行；三者行為不對稱，不要把它們寫成同一種結果，也不要假設漏改寫的呼叫仍會被接住。第二，`vfs` Namespace 是唯一的檔案系統，監督器擁有檔案與網路的資料平面。第三，Linux 原生來賓執行後端已移植到 Rust 並有即時見證（`qqbox backend exec-elf` 可執行未修改的靜態 aarch64 ELF），macOS 與 Windows 後端尚未移植，因此一般 `qqbox run` 仍回傳 `UnsupportedPlatform`；任何說明都必須照實陳述。以下六條規則不是風格建議，而是讓邊界維持單一、可驗證的條件。
 
 ## 規則一：只重寫系統呼叫指令
 
-**為什麼。** 來賓機器碼必須以原生速度執行；重寫的目的不是解譯程式，而是把跨越邊界的動作集中到一處。漏改寫的呼叫由宿主後盾接住：Linux 以 `SIGSYS` 把呼叫導回監督器，macOS 與 Windows 的後盾則阻止繼續執行。若為了方便而偷偷加一條繞過重寫器的模擬路徑，等於把邊界拆成兩份，將來必定有一份漏掉，而這類錯誤通常要等到對抗式驗證才會浮現。
+**為什麼。** 來賓機器碼必須以原生速度執行；重寫的目的不是解譯程式，而是把跨越邊界的動作集中到一處。Linux 已安裝的 `seccomp` 程式對監督器服務的呼叫下 `RET_TRAP`（`SIGSYS` 導回 chanPage）、對固定的直接逃逸清單下終止判決、其餘允許；macOS `Seatbelt` 與 Windows instrumentation callback 則阻止繼續執行。Go 時代的預設拒絕文字範圍後盾並未移植，所以靜態重寫是正確性的必要條件，不可假設漏改寫的呼叫仍會被接住。若為了方便而偷偷加一條繞過重寫器的模擬路徑，等於把邊界拆成兩份，將來必定有一份漏掉，而這類錯誤通常要等到對抗式驗證才會浮現。
 
 **如何套用。** 只修改 `syscall`／`svc` 一類指令所在的位元組，其餘位元組原封不動。找到漏網位置時，修正分類器並把該位置納入語料，不要引入完整反組譯器當作萬靈丹，也不要把失敗靜默轉成成功。每個新的陷入點都要能回答：它對應哪一個宿主後盾、漏掉時會發生什麼事。
 

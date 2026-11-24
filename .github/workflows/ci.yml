@@ -84,3 +84,5 @@ jobs:
           mkdir -p /tmp/zig013
           tar -xf /tmp/zig013.tar.xz -C /tmp/zig013 --strip-components=1
           ZIG=/tmp/zig013/zig make stub-rebuild-verify
+      - name: stalled-peer transport witness
+        run: make transport-witness

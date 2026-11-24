@@ -72,7 +72,7 @@ supplying the artifacts out of band. `fetch-extras.sh` never invents the Tencent
 BrowserSkill artifacts. The remaining `COPY` sources (`start-xubuntu.sh`,
 `chromium-wrapper.sh`, `extension/`) are tracked in this repository.
 
-`-net` is required for the `RUN apt-get` steps. Chrome-for-Testing 158 was tried
+`Go-era -net` is required for the `RUN apt-get` steps. Chrome-for-Testing 158 was tried
 and segfaults instantly under qqbox (rc=139 in every flag combination), so
 Debian Chromium 150 is used instead.
 

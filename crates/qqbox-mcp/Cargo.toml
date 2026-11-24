@@ -8,7 +8,6 @@ license.workspace = true
 qqbox = { path = "../qqbox" }
 clap.workspace = true
 serde_json.workspace = true
-tiny_http.workspace = true
 
 [[bin]]
 name = "qqbox-mcp"

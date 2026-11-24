@@ -610,14 +610,18 @@ pub fn parse_response(bytes: &[u8]) -> Result<DnsResponse> {
         ));
     }
     let mut cursor = 12usize;
-    let question_count = usize::from(header.question_count).min(MAX_ANSWERS);
+    // Parse EVERY declared question/answer. Silently capping the count at
+    // MAX_ANSWERS used to drop a legitimate A record that followed 64 CNAMEs,
+    // returning Ok with zero addresses. The wire length bounds the work: each
+    // record consumes at least 11 bytes and every read errors on truncation.
+    let question_count = usize::from(header.question_count);
     for _ in 0..question_count {
         decode_name(bytes, &mut cursor)?;
         read_u16(bytes, &mut cursor)?;
         read_u16(bytes, &mut cursor)?;
     }
     let mut addresses = Vec::new();
-    let answer_count = usize::from(header.answer_count).min(MAX_ANSWERS);
+    let answer_count = usize::from(header.answer_count);
     for _ in 0..answer_count {
         decode_name(bytes, &mut cursor)?;
         let rrtype = read_u16(bytes, &mut cursor)?;
@@ -635,7 +639,9 @@ pub fn parse_response(bytes: &[u8]) -> Result<DnsResponse> {
         // for every subsequent answer record (and potentially re-parsing RDATA
         // as a header).
         cursor = stop;
-        if class == CLASS_IN {
+        // Cap the STORED addresses, not the parsed records: a CNAME chain must
+        // never hide a later A/AAAA record.
+        if class == CLASS_IN && addresses.len() < MAX_ANSWERS {
             if rrtype == TYPE_A && length == 4 {
                 addresses.push(IpAddr::V4(Ipv4Addr::new(
                     rdata[0], rdata[1], rdata[2], rdata[3],

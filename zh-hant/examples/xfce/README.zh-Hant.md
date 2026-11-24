@@ -9,9 +9,9 @@
 
 ## 內容與啟動條件
 
-`examples/xfce` 以 Alpine 建立 XFCE 工作階段，並以 `x11vnc` 在 VNC TCP 5905 提供 RFB 畫面。建置階段需要 `-net`：`apk` 的套件安裝必須透過監督器對外，而 `-net` 正是那個開關。啟用後監督器攔截每一個 `:53` DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端；沒有 `-net` 就沒有 DNS 與宿主可達性，瀏覽器只會顯示通用的離線頁面。`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只收緊、不放寬，加上去只會縮小可達的目的地，不能取代 `-net`，也不能授予新權限。
+`examples/xfce` 以 Alpine 建立 XFCE 工作階段，並以 `x11vnc` 在 VNC TCP 5905 提供 RFB 畫面。建置階段需要 `移除前 Go 執行期的 -net`：`apk` 的套件安裝必須透過監督器對外，而 `-net` 正是那個開關。啟用後監督器攔截每一個 `:53` DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端；沒有 `-net` 就沒有 DNS 與宿主可達性，瀏覽器只會顯示通用的離線頁面。`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只收緊、不放寬，加上去只會縮小可達的目的地，不能取代 `-net`，也不能授予新權限。
 
-映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓之後的安裝仍能持續；這對 Debian 系的 [../xubuntu/README.zh-Hant.md](../xubuntu/README.zh-Hant.md) 尤其關鍵。`apt` 與 `apk` 在 `-net` 下都能安裝套件，這是「套件登錄可用」的實際證據，不是對來賓開啟任意網路的授權。所有讀取、寫入、開啟、關閉都經由監督器的資料平面，來賓端只負責轉送。
+映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓之後的安裝仍能持續；這對 Debian 系的 [../xubuntu/README.zh-Hant.md](../xubuntu/README.zh-Hant.md) 尤其關鍵。`apt` 與 `apk` 在 `移除前 Go 執行期的 -net` 下都能安裝套件，這是「套件登錄可用」的實際證據，不是對來賓開啟任意網路的授權。所有讀取、寫入、開啟、關閉都經由監督器的資料平面，來賓端只負責轉送。
 
 ## 原生終端機為什麼能動
 
@@ -27,7 +27,7 @@ ICMP echo（`ping`）有明確的支援路徑：使用者空間 ICMP echo 客戶
 
 ## VNC 暴露與密碼
 
-`x11vnc -nopw` 不要求密碼。搭配 `-net` 的連接埠轉送，TCP 5905 的接聽端會被區域網路內的其他主機連上，任何人都能操作這個來賓桌面。這不是 qqbox 隔離邊界被跨越，而是部署選擇；上線前請改用 `x11vnc -rfbauth <vncpasswd>`，並以支援密碼的 VNC 客戶端連線。不要把 `-nopw` 帶到不受信任的網路，也不要以為加上 `-allow-ports` 就能補上密碼：允許清單只收緊目的連接埠，不提供身分驗證。憑證與密碼請勿寫入記錄檔或提交到儲存庫。
+`x11vnc -nopw` 不要求密碼。搭配 `移除前 Go 執行期的 -net` 的連接埠轉送，TCP 5905 的接聽端會被區域網路內的其他主機連上，任何人都能操作這個來賓桌面。這不是 qqbox 隔離邊界被跨越，而是部署選擇；上線前請改用 `x11vnc -rfbauth <vncpasswd>`，並以支援密碼的 VNC 客戶端連線。不要把 `-nopw` 帶到不受信任的網路，也不要以為加上 `-allow-ports` 就能補上密碼：允許清單只收緊目的連接埠，不提供身分驗證。憑證與密碼請勿寫入記錄檔或提交到儲存庫。
 
 ## 已知限制
 

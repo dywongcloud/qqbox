@@ -21,6 +21,9 @@ pub const STATE_IDLE: u32 = 0;
 pub const STATE_REQUEST: u32 = 1;
 pub const STATE_REPLY: u32 = 2;
 pub const STATE_DONE: u32 = 3;
+/// Supervisor shutdown sentinel. Written by `wake_all` so a thread blocked in
+/// FUTEX_WAIT returns EAGAIN immediately instead of missing a bare FUTEX_WAKE.
+pub const STATE_STOP: u32 = 4;
 
 /// Publish a request into a chanPage WITHOUT touching the futex state word.
 /// The 4 bytes at OFF_STATE are owned by the futex handshake (AtomicU32 used

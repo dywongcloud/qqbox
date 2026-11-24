@@ -11,7 +11,7 @@
 
 `examples/xubuntu` 以原廠映像檔為基底，不多做桌面改造；多架構 index 的選取讓上面這個 arm64 摘要被確切鎖定，避免日後標籤浮動讓見證無法重現。這也對應已支援的 OCI 表面：映像檔設定、連接埠與連接埠轉送、`/etc/hosts`／`/etc/resolv.conf`／`/etc/hostname` 的產生、磁碟區、標籤、健康檢查、重新啟動政策、Compose（JSON 與 YAML，含 `depends_on` 條件）、多架構 index、capabilities、`seccomp`／`AppArmor` 與資源限制。無法實作的安全欄位會附診斷訊息明確拒絕，不會被靜默丟棄。逐項對照見 [../../docs/OCI_MATRIX.zh-Hant.md](../../docs/OCI_MATRIX.zh-Hant.md)。
 
-建置與安裝需要 `-net`：`apt` 的套件安裝要靠它，監督器會攔截每個 `:53` DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端。映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓後續安裝不會被前面的失敗卡住；另一個 [../xfce/README.zh-Hant.md](../xfce/README.zh-Hant.md) 範例則展示 `apk` 在 `-net` 下也能安裝套件。`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只收緊、不放寬；少了 `-net`，來賓沒有 DNS 與宿主可達性，瀏覽器只會顯示通用的離線頁面，這不是故障，而是預設的封閉狀態。
+建置與安裝需要 `移除前 Go 執行期的 -net`：`apt` 的套件安裝要靠它，監督器會攔截每個 `:53` DNS 查詢、在宿主解析網域名稱，並把 TCP `connect()` 代理到真實的宿主通訊端。映像檔建置使會崩潰的 `ldconfig` dpkg trigger 失效，並修復 `/var/lib/dpkg/status`，讓後續安裝不會被前面的失敗卡住；另一個 [../xfce/README.zh-Hant.md](../xfce/README.zh-Hant.md) 範例則展示 `apk` 在 `-net` 下也能安裝套件。`-allow-domains`、`-allow-cidrs`、`-allow-ports` 只收緊、不放寬；少了 `-net`，來賓沒有 DNS 與宿主可達性，瀏覽器只會顯示通用的離線頁面，這不是故障，而是預設的封閉狀態。
 
 ## 原生終端機與配色
 
@@ -25,7 +25,7 @@ ICMP echo（`ping`）只在使用者空間 ICMP echo 客戶端與宿主未特權
 
 ## VNC 暴露與密碼
 
-VNC 由 `x11vnc` 在 TCP 5905 提供。`x11vnc -nopw` 不要求密碼，搭配 `-net` 的連接埠轉送，這個接聽端會被區域網路內的其他主機連上，任何人都能操作來賓桌面。這是部署選擇，不是 qqbox 的隔離不變量；上線前改用 `x11vnc -rfbauth <vncpasswd>`，以支援密碼的 VNC 客戶端連線，並把 5905 限制在可信網路。`-allow-ports` 只會縮小目的連接埠，不會補上密碼。完整威脅模型見 [../../SECURITY.zh-Hant.md](../../SECURITY.zh-Hant.md)。
+VNC 由 `x11vnc` 在 TCP 5905 提供。`x11vnc -nopw` 不要求密碼，搭配 `移除前 Go 執行期的 -net` 的連接埠轉送，這個接聽端會被區域網路內的其他主機連上，任何人都能操作來賓桌面。這是部署選擇，不是 qqbox 的隔離不變量；上線前改用 `x11vnc -rfbauth <vncpasswd>`，以支援密碼的 VNC 客戶端連線，並把 5905 限制在可信網路。`-allow-ports` 只會縮小目的連接埠，不會補上密碼。完整威脅模型見 [../../SECURITY.zh-Hant.md](../../SECURITY.zh-Hant.md)。
 
 ## 已知限制與誠實邊界
 

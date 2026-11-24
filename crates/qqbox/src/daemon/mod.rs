@@ -1530,144 +1530,20 @@ impl Daemon {
         Response::json(404, &serde_json::json!({"message":"not found"}))
     }
 
-    /// Maximum simultaneous request handlers. A peer that declares a body and
-    /// then stalls owns ONE slot, not the accept loop: `read_to_end` on a
-    /// Content-Length reader blocks until the declared bytes arrive, so a
-    /// single-threaded serve loop let one slow peer deny every other request.
-    /// Concurrency (not a timeout or a periodic recheck) is the fix.
-    const MAX_IN_FLIGHT: usize = 64;
-
+    /// Serve HTTP/1.1 over real TCP with a per-socket read deadline. The
+    /// transport owns the accepted socket, so an oversize declared body gets
+    /// 413 before any body read and a stalled peer is closed (or times out)
+    /// instead of holding a slot until it disconnects.
     pub fn serve(&self, addr: &str) -> Result<()> {
-        use std::sync::atomic::{AtomicUsize, Ordering as O};
-
-        struct InFlight<'a>(&'a AtomicUsize);
-        impl Drop for InFlight<'_> {
-            fn drop(&mut self) {
-                self.0.fetch_sub(1, O::SeqCst);
+        crate::net::http::serve(addr, MAX_BODY_BYTES, |req| {
+            let auth = req.header("authorization");
+            let response = self.handle(&req.method, &req.path, &req.query, &req.body, auth);
+            crate::net::http::HttpResponse {
+                status: response.status,
+                content_type: response.content_type,
+                body: response.body,
             }
-        }
-
-        let server = tiny_http::Server::http(addr)
-            .map_err(|e| Error::Message(format!("cannot listen on {addr}: {e}")))?;
-        let in_flight = AtomicUsize::new(0);
-        std::thread::scope(|scope| -> Result<()> {
-            for request in server.incoming_requests() {
-                // Reserve a slot without waiting. Saturation is a typed 503,
-                // never a blind sleep or a retry loop.
-                let mut current = in_flight.load(O::SeqCst);
-                let reserved = loop {
-                    if current >= Self::MAX_IN_FLIGHT {
-                        break false;
-                    }
-                    match in_flight.compare_exchange_weak(
-                        current,
-                        current + 1,
-                        O::SeqCst,
-                        O::SeqCst,
-                    ) {
-                        Ok(_) => break true,
-                        Err(next) => current = next,
-                    }
-                };
-                if !reserved {
-                    let busy = Response::json(
-                        503,
-                        &serde_json::json!({"message": "too many in-flight requests"}),
-                    );
-                    let mut built = tiny_http::Response::from_data(busy.body)
-                        .with_status_code(tiny_http::StatusCode(503));
-                    if let Ok(header) = tiny_http::Header::from_bytes(
-                        &b"Content-Type"[..],
-                        busy.content_type.as_bytes(),
-                    ) {
-                        built = built.with_header(header);
-                    }
-                    let _ = request.respond(built);
-                    continue;
-                }
-                let counter = &in_flight;
-                scope.spawn(move || {
-                    let _guard = InFlight(counter);
-                    self.serve_one(request);
-                });
-            }
-            Ok(())
         })
-    }
-
-    fn serve_one(&self, mut request: tiny_http::Request) {
-        // Reject an oversized declared body BEFORE touching the stream. The
-        // reader blocks until Content-Length bytes arrive, so an early verdict
-        // removes the whole stall window for oversize peers.
-        if request.body_length().is_some_and(|n| n > MAX_BODY_BYTES) {
-            let too_large = Response::json(
-                413,
-                &serde_json::json!({
-                    "message": "request body exceeds MAX_BODY_BYTES",
-                    "limit": MAX_BODY_BYTES
-                }),
-            );
-            let mut built = tiny_http::Response::from_data(too_large.body)
-                .with_status_code(tiny_http::StatusCode(413));
-            if let Ok(header) = tiny_http::Header::from_bytes(
-                &b"Content-Type"[..],
-                too_large.content_type.as_bytes(),
-            ) {
-                built = built.with_header(header);
-            }
-            let _ = request.respond(built);
-            return;
-        }
-        let method = request.method().as_str().to_string();
-        let url = request.url().to_string();
-        let mut body = Vec::new();
-        // Bounded read: one byte past the ceiling is enough to reject.
-        let _ = request
-            .as_reader()
-            .take(MAX_BODY_BYTES as u64 + 1)
-            .read_to_end(&mut body);
-        if body.len() > MAX_BODY_BYTES {
-            let too_large = Response::json(
-                413,
-                &serde_json::json!({
-                    "message": "request body exceeds MAX_BODY_BYTES",
-                    "limit": MAX_BODY_BYTES
-                }),
-            );
-            let mut built = tiny_http::Response::from_data(too_large.body)
-                .with_status_code(tiny_http::StatusCode(413));
-            if let Ok(header) = tiny_http::Header::from_bytes(
-                &b"Content-Type"[..],
-                too_large.content_type.as_bytes(),
-            ) {
-                built = built.with_header(header);
-            }
-            let _ = request.respond(built);
-            return;
-        }
-        let auth = request
-            .headers()
-            .iter()
-            .find(|h| {
-                h.field
-                    .as_str()
-                    .as_str()
-                    .eq_ignore_ascii_case("authorization")
-            })
-            .map(|h| h.value.as_str().to_string());
-        let (path, query) = match url.split_once('?') {
-            Some((p, q)) => (p.to_string(), q.to_string()),
-            None => (url, String::new()),
-        };
-        let response = self.handle(&method, &path, &query, &body, auth.as_deref());
-        let mut built = tiny_http::Response::from_data(response.body)
-            .with_status_code(tiny_http::StatusCode(response.status));
-        if let Ok(header) =
-            tiny_http::Header::from_bytes(&b"Content-Type"[..], response.content_type.as_bytes())
-        {
-            built = built.with_header(header);
-        }
-        let _ = request.respond(built);
     }
 }
 

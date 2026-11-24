@@ -298,6 +298,31 @@ historical host-call layer was `x/sys/unix` (Linux), `goffi`/libffi (macOS),
   exactly one variable is required. This is disclosed, not claimed resolved.
 - No real `docker run --runtime=qqbox`, containerd or Podman integration is
   witnessed; the OCI runtime shim is exercised against a real bundle only.
+- The daemon and MCP HTTP transports use `crates/qqbox/src/net/http.rs`, a small
+  HTTP/1.1 server that owns each accepted socket. `tiny_http` 0.12 drained an
+  unread request body in `EqualReader::drop`, so a peer that declared a large
+  `Content-Length` and stalled held a worker until it disconnected. The Rust
+  transport rejects a declared body over `MAX_BODY_BYTES` before any body read,
+  bounds headers and chunked bodies, and closes by dropping the socket (no
+  drain). Each socket has a read deadline; that deadline is a bound on untrusted
+  network input, not a correctness fix or a periodic recheck, and the
+  concurrency cap returns a typed 503 on saturation. `make transport-witness`
+  starts a real `qqboxd` and holds 64 stalled oversize peers while a normal
+  request is served. The daemon no longer serves keep-alive: every response
+  carries `Connection: close`, so a client reconnects per request. Moby/Docker,
+  containerd and Podman integration is still unwitnessed, as noted above.
+- The Linux host-op supervisor has an explicit stop flag and a joined thread.
+  A forced `seccomp(SET_MODE_FILTER)` failure now stops the servant, wakes its
+  futex with a sentinel, joins it, and resets the install claim so a retry can
+  proceed. Witnessed on real Linux with `BA3_FORCED_FAILURE_JOIN_PASS=true`
+  (threads before=1, after=1). The general `qqbox run` path remains
+  `Error::UnsupportedPlatform`; this is a resource-lifetime fix, not a claim
+  that the three native guest backends are ported.
+- `qqbox::net::dns::parse_response` parses every declared answer instead of
+  truncating at `MAX_ANSWERS`: a CNAME chain of 64 followed by an A record now
+  returns the address; the cap applies only to the stored address vector. The
+  MCP stdio transport counts the JSON body, not its framing newline, so a frame
+  of exactly `MAX_BODY_BYTES` is accepted and one byte more is a typed error.
 - Zig 0.16.0 is installed; the 43 Zig sources were authored against 0.13.0. All four
   stub build scripts now fail closed on a non-0.13.x toolchain, and `stub/build.sh`
   fails closed when `zig objcopy --strip-debug` fails instead of silently shipping an

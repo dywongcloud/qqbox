@@ -6,11 +6,13 @@
 //! implemented returns `-ENOSYS` rather than pretending to have run, so the
 //! surface is honest about its size.
 
-use crate::backend::channel::{host_request, Channel, STATE_IDLE, STATE_REPLY, STATE_REQUEST};
+use crate::backend::channel::{
+    host_request, Channel, STATE_IDLE, STATE_REPLY, STATE_REQUEST, STATE_STOP,
+};
 use crate::error::{Error, Result};
 use crate::vfs::Namespace;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub const ENOSYS: i64 = -38;
 pub const EBADF: i64 = -9;
@@ -274,11 +276,61 @@ impl HostOps {
 
 /// Wait for one request on the channel, serve it, publish the reply and wake
 /// the trapped thread. Event-driven: FUTEX_WAIT blocks until STATE_REQUEST.
+/// Wait for one request on the channel, serve it, publish the reply and wake
+/// the trapped thread. Event-driven: FUTEX_WAIT blocks until STATE_REQUEST.
+/// `stop` lets the owner shut the supervisor down and JOIN it instead of
+/// leaving a never-joined thread after a failed install.
 #[cfg(target_os = "linux")]
 pub fn serve_one(ch: &Channel, ops: &mut HostOps) -> Result<(u64, i64)> {
+    serve_one_inner(ch, ops, None)
+}
+
+#[cfg(target_os = "linux")]
+pub fn serve_one_with_stop(
+    ch: &Channel,
+    ops: &mut HostOps,
+    stop: &AtomicBool,
+) -> Result<(u64, i64)> {
+    serve_one_inner(ch, ops, Some(stop))
+}
+
+/// Wake every waiter on the chanPage state word. Used to release a supervisor
+/// blocked in FUTEX_WAIT during shutdown; no sleep or periodic recheck.
+#[cfg(target_os = "linux")]
+pub fn wake_all(ch: &Channel) {
+    // Change the futex word BEFORE waking: a thread that has not entered
+    // FUTEX_WAIT yet must not block forever. The waiter compares the word, so
+    // writing the sentinel makes FUTEX_WAIT return EAGAIN; stop flag is the
+    // durable signal.
+    ch.state().store(STATE_STOP, Ordering::SeqCst);
+    unsafe {
+        libc::syscall(
+            libc::SYS_futex,
+            ch.state_word() as *mut libc::c_void,
+            libc::FUTEX_WAKE,
+            i32::MAX as libc::c_ulong,
+            std::ptr::null::<libc::c_void>(),
+            std::ptr::null::<libc::c_void>(),
+            0,
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn serve_one_inner(
+    ch: &Channel,
+    ops: &mut HostOps,
+    stop: Option<&AtomicBool>,
+) -> Result<(u64, i64)> {
     let state = ch.state();
     loop {
+        if stop.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+            return Err(Error::Message("host-op supervisor stopped".into()));
+        }
         let cur = state.load(Ordering::SeqCst);
+        if cur == STATE_STOP {
+            return Err(Error::Message("host-op supervisor stopped".into()));
+        }
         if cur == STATE_REQUEST {
             break;
         }
@@ -308,6 +360,11 @@ pub fn serve_one(ch: &Channel, ops: &mut HostOps) -> Result<(u64, i64)> {
                 _ => return Err(Error::Message(format!("futex wait: {e}"))),
             }
         }
+    }
+    // A stop that arrived while we were waking must not dispatch a stale
+    // request. Re-check under the same SeqCst ordering before touching state.
+    if stop.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return Err(Error::Message("host-op supervisor stopped".into()));
     }
     let req = ch.request();
     let ret = ops.dispatch(req.nr, req.args);
