@@ -36,12 +36,14 @@ and its text-range prefix are unported, and the Go paths (`stub/zig/seccomp.zig`
 `internal/sandbox/config.go`) are historical provenance only. The live Rust source
 is `crates/qqbox/src/backend/filter.rs` (`trap_and_deny`) plus
 `crates/qqbox/src/backend/linux.rs` (SIGSYS handler), witnessed on Linux aarch64.
-A served-syscall rewrite miss is therefore correct but slower: static rewriting is
-the optimization, the trap is the backstop. macOS Seatbelt and the Windows x86-64
-instrumentation callback kill; Windows arm64 has no callback backstop. The Rust
-Linux backend preserves the asymmetry. Collapsing it to kill-on-miss would regress
-JIT-heavy guests (V8/Node/.NET), lazy indirect-branch site discovery and stray
-`0f 05` bytes in data.
+A rewrite miss is therefore not caught by a text-range backstop: the filter's
+`RET_TRAP` verdict is keyed to syscall number, not instruction address, and covers
+only the small set the Rust supervisor serves. Everything else is `RET_ALLOW` and
+runs natively on the host, so static rewriting is required for correctness, not
+merely an optimization. macOS Seatbelt and the Windows x86-64 instrumentation
+callback kill on a miss; Windows arm64 has no callback backstop. Adding a Linux
+kill-on-miss prefix later would have to avoid regressing JIT-heavy guests
+(V8/Node/.NET), lazy indirect-branch site discovery and stray `0f 05` bytes in data.
 Every boundary above is attached to a process, which is the load-bearing fact for this
 decision.
 
@@ -54,9 +56,11 @@ host-op thread that never executes guest code.
 
 ## Why merging regresses
 
-1. Every backstop above is attached to a process. A single address space means a single
-   process, so a `RET_KILL_PROCESS` seccomp verdict or Seatbelt/LPAC denial kills *all*
-   instances at once. One guest's missed syscall becomes a total outage.
+1. Every boundary above is attached to a process. A single address space means a single
+   process, so one `RET_KILL_PROCESS` verdict on the deny-list or one Seatbelt/LPAC
+   denial kills *all* instances at once. On Linux a rewrite miss is not killed at all:
+   the filter ALLOWs it and the syscall runs natively on the host, which is why static
+   rewriting is required for correctness (see above).
 2. The guest can write every byte of the stub. With several instances in one address
    space, one guest can rewrite another instance's channel page, trampoline, signal
    frame, rewrite cache, vfs Namespace or egress policy. No existing primitive prevents

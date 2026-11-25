@@ -29,11 +29,15 @@ instrument, or interpret guest code. The rewriter locates the syscall sites in a
 loaded image and patches those instructions to trap into the supervisor; every
 other byte of the program executes untouched.
 
-- On Linux the installed seccomp program TRAPs the served syscalls
-  (`SECCOMP_TRAP_TAG` → SIGSYS → chanPage) and KILLs a fixed deny-list of direct
-  host escapes. The Go-era default-deny text-range prefix is NOT installed in
-  Rust: the full ~205-syscall table is unported. `ErrKilled` fires only for a
-  genuinely rejected call. macOS Seatbelt and the Windows instrumentation
+- On Linux the installed seccomp program has three verdicts: TRAP for the
+  syscalls the Rust supervisor serves (`SECCOMP_TRAP_TAG` to SIGSYS to chanPage),
+  KILL_PROCESS for a fixed deny-list of direct host escapes, and ALLOW for
+  everything else. The Go-era default-deny text-range prefix is NOT installed in
+  Rust: the full ~205-syscall table is unported, and `RET_TRAP` matches a
+  syscall number, not an instruction address. A rewrite miss outside the TRAP
+  set therefore runs natively on the host, so static rewriting is required for
+  correctness, not merely an optimization. `Error::Killed` is returned only for
+  a genuinely rejected call. macOS Seatbelt and the Windows instrumentation
   callback kill. Never add a silent emulation path around the filter, and never
   claim a default-deny backstop that is not installed.
 - The rewriter finds syscall sites **without a disassembler** — hand-rolled

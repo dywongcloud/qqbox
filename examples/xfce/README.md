@@ -33,7 +33,7 @@ QQBOX_RUNTIME=/path/to/pre-removal-laboon-runtime
   -f examples/xfce/Dockerfile -o /tmp/qqbox-xfce.tar examples/xfce
 ```
 
-`Go-era -net` is required: the `RUN apk add` step needs outbound network. The image is
+The Go-era `-net` flag is required: the `RUN apk add` step needs outbound network. The image is
 Alpine 3.20 arm64 with 378 packages (~1.1 GiB) — full XFCE, Xvfb, x11vnc,
 Chromium 131, fonts, X diagnostics and an opt-in PTY-free command console.
 
@@ -145,7 +145,7 @@ rc=134 with no PNG). `--version` and a headless `--screenshot` both work.
 
 ## Security note: VNC is unauthenticated
 
-`x11vnc` is started with `-nopw` (security type `None`). Under qqbox's `Go-era -net`
+`x11vnc` is started with `-nopw` (security type `None`). Under qqbox's Go-era `-net`
 port forwarding that listener is bound to the host's wildcard
 (`*:5905`, IPv4 and IPv6), so it is reachable from the LAN — an adversarial
 verifier confirmed an RFB handshake against the host's LAN address. This does
@@ -154,7 +154,7 @@ the host supervisor is uid 501), but anyone on the LAN can drive the guest
 console while it is running.
 
 `-localhost` is **not** a valid fix: a live probe showed it silently breaks
-qqbox's `Go-era -net` port forwarding (host connections are refused). To close it,
+qqbox's Go-era `-net` port forwarding (host connections are refused). To close it,
 start x11vnc with a password:
 
 ```sh

@@ -57,7 +57,7 @@ Rust workspace is built with `cargo build --workspace`; it prepares and validate
 the control plane but does not boot this image. See `examples/qqbox/README.md`
 for the current 26.04 image and its build procedure.
 
-`FROM` is the pinned arm64 digest. `Go-era -net` is required for the `RUN apt-get` step.
+`FROM` is the pinned arm64 digest. The Go-era `-net` flag is required for the `RUN apt-get` step.
 The Dockerfile neutralizes a crashing `ldconfig.real` dpkg trigger and repairs
 `libc-bin` status so later `apt-get install` keeps working. It adds `x11vnc`,
 `Xvfb`, `scrot`, `xdotool`, `iputils-ping` and Debian Chromium 150 (see
@@ -73,7 +73,7 @@ mkdir -p /tmp/qqbox-xubuntu-out
 /opt/TurboVNC/bin/vncviewer 127.0.0.1:5905
 ```
 
-`Go-era -net` is **not optional**: it is the switch that enables the supervisor's DNS
+The Go-era `-net` flag is **not optional**: it is the switch that enables the supervisor's DNS
 interception and host-socket egress. Without it a browser gets no DNS and no
 host reach and renders its generic offline page ("Reconnecting to Wi-Fi" is
 Chromium boilerplate, not a wifi driver fault).
@@ -109,7 +109,7 @@ socket. Live A/B: 0% loss with the fix, 100% without. `SOCK_RAW` ICMP and
 
 ### 4. Network / "wifi"
 
-`Go-era -net` provides working egress. Live witnesses inside a `-net` guest:
+The Go-era `-net` flag provides working egress. Live witnesses inside a `-net` guest:
 
 ```
 getent hosts google.com -> AAAA records, rc=0
@@ -120,11 +120,11 @@ apk update / apk add -> rc=0 (Alpine guest; see note below)
 Chromium 150.0.7871.100 renders https://example.com/ over VNC
 ```
 
-The supervisor answers every `:53` query and `Go-era -net` makes `connect()` use a
+The supervisor answers every `:53` query and the Go-era `-net` makes `connect()` use a
 real host socket. The runtime does not generate `/etc/resolv.conf` (musl and
 glibc fall back to `127.0.0.1:53`); `start-xubuntu.sh` writes an explicit
-`nameserver 8.8.8.8` for deterministic glibc clients. `Go-era -allow-domains` /
-`Go-era -allow-cidrs` / `-allow-ports` only *restrict*; adding them breaks egress.
+`nameserver 8.8.8.8` for deterministic glibc clients. The Go-era `-allow-domains` /
+Go-era `-allow-cidrs` / `-allow-ports` only *restrict*; adding them breaks egress.
 `getent hosts` returns AAAA records that are not reachable; `curl -4` works,
 `curl -6` returns `HTTP 000`. IPv6 egress is a known limitation.
 
@@ -179,7 +179,7 @@ sandbox-disable variants were tried; all still show a blank page.
 
 ## Security note
 
-`x11vnc -nopw` is wildcard-bound and LAN-reachable under `Go-era -net`. `-localhost`
+`x11vnc -nopw` is wildcard-bound and LAN-reachable under the Go-era `-net`. `-localhost`
 is **not** a valid fix (it silently breaks qqbox port forwarding). To close it,
 use `x11vnc -rfbauth <vncpasswd>` and `vncviewer -passwd <file>`. The shipped
 default stays passwordless so the existing local connection keeps working; this

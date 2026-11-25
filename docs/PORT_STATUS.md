@@ -144,6 +144,32 @@ returns `isError: true` by design because the general `qqbox run` path returns
 aarch64 ET_EXEC).
 
 ## Inherited platform limits (from the security recon)
+### Second adversarial reverification (`wf_30fbb515-ec8`)
+
+A four-agent read-only reverification of `be48688` found four confirmed
+defects; all are fixed on `938bb1a` and its successor, with clean-checkout gates
+witnessed in the same turn:
+
+- `docs/SINGLE_ADDRESS_SPACE.md` and its zh-Hant mirror still said "static
+  rewriting is the optimization, the trap is the backstop", contradicting
+  `llms.txt`. The Rust filter has TRAP / KILL_PROCESS / ALLOW verdicts keyed to
+  syscall number, with no text-range backstop, so static rewriting is required
+  for correctness. `AGENTS.md` rule one now names all three verdicts and
+  `Error::Killed`; a Go-era `stub/zig/seccomp.zig` comment is marked historical.
+- `examples/README.md` had a provenance marker injected into the inline build
+  command, so the Go-era `-net` build line was unrunnable. The real command is
+  restored as a fenced shell block; `sh -n` accepts it.
+- Provenance markers had been injected into 20 inline code spans, inventing
+  flag names that do not exist. All Go-era `-net` and `-allow-*` spans now
+  contain only the real flag, with the marker in prose on the same line, in
+  both languages.
+- `make flag-provenance-verify` passed with `FILES=0 occurrences=0` when run
+  from a foreign working directory. The gate now anchors its scan root to the
+  Makefile's directory, requires nine sentinel documents and coverage floors,
+  rejects markers inside inline flag spans with backtick-parity tracking, and
+  runs three non-vacuity self-checks. Live witnesses: repo root PASS (39 files,
+  51 occurrences), foreign cwd PASS (same counts), empty root FAIL rc=1.
+
 
 These belonged to the removed Go runtime and describe work a future Rust
 backend must reproduce. They are

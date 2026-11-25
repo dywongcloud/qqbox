@@ -289,41 +289,85 @@ stub-verify:
 # the page carries an explicit provenance note. GAP 3 of the adversarial
 # completeness critic; this is a clean-checkout gate, not a test file.
 define FLAG_PROVENANCE_PY
-import pathlib, re, sys
-# Scan EVERY shipped document, not a hand-maintained allowlist. A flag is
-# qualified only when the SAME LINE names its provenance: every occurrence is
-# checked, so a distant "Go-era" sentence cannot waive an unrelated line.
+import os, pathlib, re, sys
+# Anchor to the Makefile's directory. Scanning the caller's cwd made the gate
+# pass with zero files; a zero-file scan is a FAIL, never a PASS.
+root = pathlib.Path(os.environ.get('QQBOX_ROOT', '.')).resolve()
 pat = re.compile(r'(?<![\w-])-net\b|(?<![\w-])-allow-(?:domains|cidrs|ports)\b')
 markers = ['QQBOX_RUNTIME', 'Go-era', 'Go 執行期', '移除前', 'pre-removal Go',
            'Flag provenance', '旗標出處', 'Go runtime', 'historical Go',
            'Go 二進位', 'Go CLI', 'Go binary']
 skip = {'.git', 'target', 'node_modules', '.gm'}
+min_files, min_hits = 15, 20
+required = ['README.md', 'llms.txt', 'examples/README.md',
+            'examples/qqbox/README.md', 'examples/xfce/README.md',
+            'examples/xubuntu/README.md', 'zh-hant/README.zh-Hant.md',
+            'zh-hant/llms.zh-Hant.txt', 'zh-hant/examples/README.zh-Hant.md']
+
+def verdict(fails, files, hits):
+    return not fails and files >= min_files and hits >= min_hits
+
+# A provenance marker belongs in PROSE, never inside an inline code span that
+# also holds a flag: `Go-era -net` is not a real flag. Track backtick parity
+# across lines and skip fenced blocks so multi-line spans cannot fake a hit.
+def fake_spans(lines):
+    out, in_fence, span_open = [], False, False
+    for i, line in enumerate(lines, 1):
+        if line.lstrip().startswith('```'):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        parts = line.split('`')
+        inside = span_open
+        for k, seg in enumerate(parts):
+            if k:
+                inside = not inside
+            if inside and pat.search(seg) and any(m in seg for m in markers):
+                out.append((i, seg.strip()[:120]))
+        span_open = inside
+    return out
+
 fails = []
-files = 0
-hits = 0
-for p in sorted(pathlib.Path('.').rglob('*')):
-    if p.suffix not in {'.md', '.txt'} or any(x in p.parts for x in skip):
+for r in required:
+    if not (root / r).is_file():
+        fails.append('required document missing from scan root: ' + r)
+files = hits = 0
+for p in sorted(root.rglob('*')):
+    if p.suffix not in {'.md', '.txt'} or any(x in p.relative_to(root).parts for x in skip):
         continue
     files += 1
-    for i, line in enumerate(p.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+    rel = p.relative_to(root).as_posix()
+    lines = p.read_text(encoding='utf-8', errors='replace').splitlines()
+    for i, line in enumerate(lines, 1):
         if pat.search(line):
             hits += 1
             if not any(m in line for m in markers):
-                fails.append(str(p) + ':' + str(i) + ': ' + line.strip()[:120])
-print('FLAG_PROVENANCE_FILES=' + str(files), 'occurrences=' + str(hits), 'failures=' + str(len(fails)))
+                fails.append(rel + ':' + str(i) + ': unqualified flag line: ' + line.strip()[:120])
+    for i, seg in fake_spans(lines):
+        fails.append(rel + ':' + str(i) + ': provenance marker inside an inline flag span: ' + seg)
+print('FLAG_PROVENANCE_FILES=' + str(files), 'occurrences=' + str(hits),
+      'fake_inline_flags=' + str(sum(1 for f in fails if 'inline flag span' in f)),
+      'failures=' + str(len(fails)))
 for f in fails: print('  ' + f)
-# Non-vacuity self-check: the same per-line predicate must REJECT a synthetic
-# unqualified prose line. A gate that can only print PASS is worthless.
-probe = '`-net` is the Rust CLI switch for egress.'
-detected = bool(pat.search(probe)) and not any(m in probe for m in markers)
-print('nonvacuous_self_check=' + str(detected))
-print('FLAG_PROVENANCE_' + ('PASS' if not fails and detected else 'FAIL'))
-sys.exit(1 if fails or not detected else 0)
+if files < min_files: print('  coverage floor: files ' + str(files) + ' < ' + str(min_files))
+if hits < min_hits: print('  coverage floor: occurrences ' + str(hits) + ' < ' + str(min_hits))
+# Non-vacuity self-checks: every predicate must REJECT a synthetic bad input.
+plain = '`-net` is the Rust CLI switch for egress.'
+detected = bool(pat.search(plain)) and not any(m in plain for m in markers)
+fake = ['`Go-era -net` is not a real flag.']
+fake_detected = len(fake_spans(fake)) == 1
+floor_detected = not verdict([], 0, 0)
+print('nonvacuous_self_check=' + str(detected), 'fake_span_self_check=' + str(fake_detected),
+      'coverage_self_check=' + str(floor_detected))
+ok = verdict(fails, files, hits) and detected and fake_detected and floor_detected
+print('FLAG_PROVENANCE_' + ('PASS' if ok else 'FAIL'))
+sys.exit(0 if ok else 1)
 endef
 export FLAG_PROVENANCE_PY
 
 flag-provenance-verify:
-	@python3 -c "$$FLAG_PROVENANCE_PY"
+	@QQBOX_ROOT='$(abspath $(dir $(lastword $(MAKEFILE_LIST))))' python3 -c "$$FLAG_PROVENANCE_PY"
 
 # Rebuild the eight committed stubs with pinned Zig 0.13.0 and compare the
 # security-relevant bytes. Zig symbol tables and PE COFF timestamps carry
