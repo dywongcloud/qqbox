@@ -184,9 +184,13 @@ residual gaps fixed in `90de919`. A five-agent sweep of `4284ca7`
   the verifier program. Live witnesses: repo root and `make -C <repo>` PASS
   (39 files, 55 occurrences); `make MAKEFILE_LIST=...`, `make -e QQBOX_ROOT=...`
   and `make FLAG_PROVENANCE_PY=...` all still run the REAL verifier; a foreign
-  cwd, empty root and a fabricated root FAIL. A caller who replaces `SHELL` or
-  overrides the recipe with a late `-f` can skip any make target; that is
-  inherent to make, not a defect of this gate, and is disclosed as a residual.
+  cwd (rc=2), empty root and the r4 nine-file fabricated root (rc=1) FAIL.
+  Scope: a COMPLETE synthetic checkout carrying every sentinel, `Cargo.toml`,
+  `Makefile`, the CI workflow and enough qualified flag lines can pass if the
+  caller `cd`s into it. That is cwd control, not scan redirection; no env, make
+  variable or argv can relocate the scan. A caller who replaces `SHELL` or
+  overrides the recipe with a late `-f` can skip any make target; inherent to
+  make, not a defect of this gate, disclosed as a residual.
 - The fourth sweep found unqualified present-tense text-range claims in
   `crates/qqbox/src/backend/mod.rs`, `trap.rs`, `guest.rs`, `linux.rs` and
   `stub/windows/instrcb.zig`. All now name the syscall-number TRAP /
