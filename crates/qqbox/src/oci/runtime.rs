@@ -387,18 +387,13 @@ pub fn apply(spec: &RuntimeSpec) -> Result<(Config, Vec<String>)> {
                 }
             }
         }
+        // `ResourceLimits` has no nofile/file-descriptor ceiling field, and
+        // `pids_limit` is a process-count limit mapped from linux.resources.pids
+        // and the daemon's HostConfig. Silently storing RLIMIT_NOFILE.hard there
+        // was a semantic corruption, so every rlimits entry is rejected instead
+        // of being dropped or misapplied (fail closed, no unchecked narrowing).
         for rlimit in &process.rlimits {
-            if rlimit.kind == "RLIMIT_NOFILE" {
-                match i64::try_from(rlimit.hard) {
-                    Ok(limit) => cfg.resource_limits.pids_limit = limit,
-                    Err(_) => rejected.push(format!(
-                        "rlimits.{}.hard exceeds i64 (no unchecked narrowing)",
-                        rlimit.kind
-                    )),
-                }
-            } else {
-                rejected.push(format!("rlimits.{}", rlimit.kind));
-            }
+            rejected.push(format!("rlimits.{}", rlimit.kind));
         }
         if process.scheduler.is_some() {
             rejected.push("process.scheduler".to_string());

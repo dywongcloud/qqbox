@@ -90,10 +90,12 @@ Still open, recorded rather than hidden:
 
 - `runtime-spec validate --advisory` reports unsupported constructs but accepts the
   spec; strict mode rejects them. Some OCI runtime-spec fields (consoleSize, username,
-  inheritable/ambient capabilities, rlimits soft, seccomp content, namespace paths,
-  memory swap/reservation, rootfsPropagation, mountLabel) are parsed but not mapped
-  into `Config`. `RLIMIT_NOFILE.hard` is currently mapped to `pids_limit`, which is
-  semantically wrong.
+  inheritable/ambient capabilities, rlimits soft/hard, seccomp content, namespace
+  paths, memory swap/reservation, rootfsPropagation, mountLabel) are parsed but not
+  mapped into `Config`. Every `process.rlimits` entry is now reported as rejected:
+  `ResourceLimits` has no file-descriptor ceiling, and `RLIMIT_NOFILE.hard` used to
+  be silently stored in `pids_limit`, which is semantically wrong. `pids_limit` is
+  mapped only from `linux.resources.pids.limit` and the daemon's HostConfig.
 - Docker create bodies still drop some HostConfig fields. They are now surfaced in the
   `Warnings` array of the 201 response rather than silently ignored; `Devices`,
   `Mounts` long syntax, `Sysctls`, `Ulimits`, `Init`, `Annotations` and the mode
