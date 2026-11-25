@@ -97,8 +97,9 @@ impl Platform for LinuxBackend {
     fn install_backstop(&self) -> Result<()> {
         // A TRAP filter without a chanPage, a SIGSYS handler AND a supervisor
         // that actually serves requests would hang or kill the caller. Install
-        // all three together. The text-range prefix needs the real stub text
-        // bounds, so with no Zig stub mapped we TRAP a single syscall.
+        // all three together. The Go-era text-range prefix needs the real stub
+        // text bounds and is NOT ported; with no Zig stub mapped the installed
+        // filter traps a single syscall by number instead.
         let mut slot = match self.backstop.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),

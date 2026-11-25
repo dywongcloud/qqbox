@@ -290,9 +290,13 @@ stub-verify:
 # completeness critic; this is a clean-checkout gate, not a test file.
 override define FLAG_PROVENANCE_PY
 import os, pathlib, re, sys
-# Anchor to the FIRST makefile's directory. Scanning the caller's cwd, or a
-# late -f makefile, made the gate pass with zero real documents.
-root = pathlib.Path(os.environ.get('QQBOX_ROOT', '.')).resolve()
+# Root is the process working directory. No environment variable, make
+# variable, or argv supplies it: MAKEFILE_LIST and QQBOX_ROOT were both
+# caller-forgeable and let a fabricated root of sentinel needles pass. A
+# foreign cwd now FAILs instead of printing a vacuous PASS; use
+# `make -C <repo>` to relocate. A caller who replaces SHELL or overrides the
+# recipe with a late -f can skip ANY make target: inherent to make, disclosed.
+root = pathlib.Path.cwd().resolve()
 pat = re.compile(r'(?<![\w-])-net\b|(?<![\w-])-allow-(?:domains|cidrs|ports)\b')
 markers = ['QQBOX_RUNTIME', 'Go-era', 'Go 執行期', '移除前', 'pre-removal Go',
            'Flag provenance', '旗標出處', 'Go runtime', 'historical Go',
@@ -316,6 +320,9 @@ sentinels = {
     'zh-hant/README.zh-Hant.md': 'qqbox',
     'zh-hant/llms.zh-Hant.txt': '給回答問題用的關鍵事實',
     'zh-hant/examples/README.zh-Hant.md': '旗標出處',
+    'Makefile': 'override define FLAG_PROVENANCE_PY',
+    'Cargo.toml': 'crates/qqbox',
+    '.github/workflows/ci.yml': 'make flag-provenance-verify',
 }
 
 def verdict(fails, files, hits):
@@ -352,6 +359,9 @@ for name, needle in sentinels.items():
         fails.append('sentinel missing: ' + name)
     elif needle not in q.read_text(encoding='utf-8', errors='replace'):
         fails.append('sentinel content check failed (forged/empty root?): ' + name)
+cargo = root / 'Cargo.toml'
+if cargo.is_file() and '[workspace]' not in cargo.read_text(encoding='utf-8', errors='replace'):
+    fails.append('Cargo.toml lacks a [workspace] table')
 files = hits = 0
 for p in sorted(root.rglob('*')):
     if p.suffix not in {'.md', '.txt'} or any(x in p.relative_to(root).parts for x in skip):
@@ -378,16 +388,20 @@ detected = bool(pat.search(plain)) and not any(m in plain for m in markers)
 fake_detected = len(fake_spans(['`Go-era -net` is not a real flag.'])) == 1
 floor_detected = not verdict([], 0, 0)
 sentinel_detected = 'qqbox' not in ''
+os.environ['QQBOX_ROOT'] = '/definitely/not/the/qqbox/repo'
+env_detected = pathlib.Path.cwd().resolve() != pathlib.Path('/definitely/not/the/qqbox/repo').resolve()
 print('nonvacuous_self_check=' + str(detected), 'fake_span_self_check=' + str(fake_detected),
-      'coverage_self_check=' + str(floor_detected), 'sentinel_self_check=' + str(sentinel_detected))
-ok = verdict(fails, files, hits) and detected and fake_detected and floor_detected and sentinel_detected
+      'coverage_self_check=' + str(floor_detected), 'sentinel_self_check=' + str(sentinel_detected),
+      'env_forgery_self_check=' + str(env_detected))
+ok = (verdict(fails, files, hits) and detected and fake_detected and floor_detected
+      and sentinel_detected and env_detected)
 print('FLAG_PROVENANCE_' + ('PASS' if ok else 'FAIL'))
 sys.exit(0 if ok else 1)
 endef
 export FLAG_PROVENANCE_PY
 
 flag-provenance-verify:
-	@QQBOX_ROOT='$(abspath $(dir $(firstword $(MAKEFILE_LIST))))' python3 -c "$$FLAG_PROVENANCE_PY"
+	@python3 -c "$$FLAG_PROVENANCE_PY"
 
 # Rebuild the eight committed stubs with pinned Zig 0.13.0 and compare the
 # security-relevant bytes. Zig symbol tables and PE COFF timestamps carry

@@ -1,7 +1,10 @@
-//! SIGSYS trap handler: the Linux "trap-to-supervisor" backstop in Rust.
+//! SIGSYS trap handler for the Rust Linux backend's TRAP verdict.
 //!
-//! A guest syscall that the seccomp text-range filter TRAPs raises SIGSYS with
+//! A syscall number listed in `filter::trap_and_deny` raises SIGSYS with
 //! `si_code == SYS_SECCOMP` and `si_errno == SECCOMP_TRAP_TAG`. This handler
+//! is not a default-deny text-range backstop: a rewrite miss outside the TRAP
+//! set is ALLOWed and runs natively on the host, so static rewriting is
+//! required for correctness. The handler
 //! reads the saved registers from `ucontext_t`, publishes a `ChannelRequest`
 //! into the shared chanPage, blocks on a futex until the Rust supervisor has
 //! served it, and writes the supervisor's result into the saved `x0` so the

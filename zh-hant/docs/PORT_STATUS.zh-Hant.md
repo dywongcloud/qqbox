@@ -122,12 +122,14 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
 
 ## 第二次對抗式複驗（`wf_30fbb515-ec8`）
 
-四條唯讀驗證通道複驗 `be48688`，確認四項缺陷；皆已在提交 `e5ed464` 修正（受檢版本的說明在 `938bb1a` 完全相同），並在同一回合見證乾淨檢出閘門。隨後五條通道複驗 `e5ed464`（`wf_21566622-03f`）又找出三處殘缺，也在此修正。
+四條唯讀驗證通道複驗 `be48688`，確認四項缺陷；皆已在提交 `e5ed464` 修正（受檢版本的說明在 `938bb1a` 完全相同），並在同一回合見證乾淨檢出閘門。隨後五條通道複驗 `e5ed464`（`wf_21566622-03f`）找出三處殘缺，於 `90de919` 修正；五條通道再掃 `4284ca7`（`wf_71e7a032-369`）又找出兩處，於本次提交修正。
 
 - `docs/SINGLE_ADDRESS_SPACE.md` 與繁中鏡像仍寫「靜態重寫是最佳化，trap 是後盾」，與 `llms.txt` 矛盾。Rust 過濾器以系統呼叫編號給出 TRAP／KILL_PROCESS／ALLOW 三種判決，沒有文字範圍後盾，因此靜態重寫是正確性的必要條件。`AGENTS.md` 規則一現在逐一列出三種判決與 `Error::Killed`。第二輪掃描指出修正未擴及 `crates/qqbox/src/backend/filter.rs` 模組說明、`stub/zig/seccomp.zig`、`stub/zig/aarch64.zig`、`stub/zig/x86_64.zig`、`zh-hant/README.zh-Hant.md`、`zh-hant/docs/PERMISSIONS.zh-Hant.md` 與 `zh-hant/docs/PERF.zh-Hant.md`；這些位置現在都陳述同一套三判決契約，Go 時代的 Zig 註解亦標明為歷史出處。
 - `examples/README.md` 的出處標記被塞進行內建置指令，讓移除前 Go 執行期的 `-net` 建置列無法執行。真正的指令已還原為圍欄殼層區塊，並通過 `sh -n`（rc=0、stderr 為空）。
 - 二十個行內程式碼 span 被塞入出處標記，憑空造出不存在的旗標名稱。兩種語言的 Go 執行期 `-net` 與 `-allow-*` span 現在都只放真正的旗標，標記放在同一列的散文中；第二輪掃描獨立確認此類 span 為零。
-- 從其他工作目錄執行 `make flag-provenance-verify` 會以 `FILES=0 occurrences=0` 通過。閘門現在把掃描根目錄錨定在第一份 makefile 所在目錄、要求九份哨兵文稿與 `Cargo.toml` 工作區標記並檢查內容、要求覆蓋率下限、以反引號奇偶追蹤拒絕行內旗標 span 內的標記，並執行四項非空洞自我檢查。`override define` 阻擋命令列與環境變數替換驗證程式；`$(firstword $(MAKEFILE_LIST))` 讓後置 `-f` 無法移動根目錄；哨兵內容檢查則拒絕由空白檔案捏造的根目錄。即時見證：儲存庫根目錄、外部工作目錄、指定 `make FLAG_PROVENANCE_PY`、`make -e` 與後置 `-f` 都執行**真正的**驗證程式（PASS、39 檔、55 處），不再略過掃描；空白根目錄與捏造的九檔根目錄皆 FAIL rc=1。
+- 從其他工作目錄執行 `make flag-provenance-verify` 會以 `FILES=0 occurrences=0` 通過；第四輪掃描又指出根目錄可透過 `MAKEFILE_LIST` 或 `QQBOX_ROOT` 捏造。閘門現在只由處理程序的工作目錄決定根目錄：環境變數、make 變數與引數都無法搬動掃描範圍，外部工作目錄會 FAIL 而非空洞地通過。它要求九份哨兵文稿，加上 `Cargo.toml`、`Makefile` 與 CI 工作流程並逐一檢查內容、要求覆蓋率下限、以反引號奇偶追蹤拒絕行內旗標 span 內的標記，並執行五項非空洞自我檢查。`override define` 阻擋命令列與 `-e` 替換驗證程式。即時見證：儲存庫根目錄與 `make -C <repo>` PASS（39 檔、55 處）；指定 `make MAKEFILE_LIST`、`make -e QQBOX_ROOT`、`make FLAG_PROVENANCE_PY` 仍執行**真正的**驗證程式；外部工作目錄、空白根目錄與捏造根目錄皆 FAIL。若呼叫者替換 `SHELL` 或以後置 `-f` 覆寫配方，任何 make 目標都可以被略過；這是 make 本身的性質，不是此閘門的缺陷，已列為剩餘限制。
+- 第四輪掃描在 `crates/qqbox/src/backend/mod.rs`、`trap.rs`、`guest.rs`、`linux.rs` 與 `stub/windows/instrcb.zig` 找到未加限定的現在式文字範圍敘述。這些位置現在都指名以系統呼叫編號為準的 TRAP／KILL_PROCESS／ALLOW 過濾器，或標明為 Go 時代歷史出處。
+- `process.rlimits[RLIMIT_NOFILE].hard` 過去被靜默存入 `pids_limit`，而後者是行程數上限，語意錯誤。現在每一項 rlimits 都回報為 `rejected_fail_closed`；`pids_limit` 只來自 `linux.resources.pids.limit` 與常駐程式的 HostConfig。即時見證：`RLIMIT_NOFILE_REJECTED_PIDS_ONLY_FROM_RESOURCES_PASS`（`pids_limit=256`，絕非 4096）。
 
 
 ## 接下來要做的事

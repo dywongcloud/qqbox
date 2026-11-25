@@ -150,8 +150,9 @@ aarch64 ET_EXEC).
 A four-agent read-only reverification of `be48688` found four confirmed
 defects; all four are fixed in commit `e5ed464` (the reviewed SHA's docs were
 byte-identical on `938bb1a`), with clean-checkout gates witnessed in the same
-turn. A five-agent reverification of `e5ed464` (`wf_21566622-03f`) then found
-three residual gaps, also fixed here.
+turn. A five-agent reverification of `e5ed464` (`wf_21566622-03f`) found three
+residual gaps fixed in `90de919`. A five-agent sweep of `4284ca7`
+(`wf_71e7a032-369`) then found two more, fixed in this commit.
 
 - `docs/SINGLE_ADDRESS_SPACE.md` and its zh-Hant mirror still said "static
   rewriting is the optimization, the trap is the backstop", contradicting
@@ -172,17 +173,30 @@ three residual gaps, also fixed here.
   contain only the real flag, with the marker in prose on the same line, in
   both languages. The second sweep independently confirmed zero such spans.
 - `make flag-provenance-verify` passed with `FILES=0 occurrences=0` when run
-  from a foreign working directory. The gate now anchors its scan root to the
-  first makefile's directory, requires nine sentinel documents plus a
-  `Cargo.toml` workspace marker with content checks and coverage floors,
-  rejects markers inside inline flag spans with backtick-parity tracking, and
-  runs four non-vacuity self-checks. `override define` blocks command-line and
-  environment replacement of the verifier program; `$(firstword $(MAKEFILE_LIST))`
-  blocks a late `-f` from moving the root; sentinel content checks reject a
-  fabricated root of empty files. Live witnesses: repo root, foreign cwd,
-  `make FLAG_PROVENANCE_PY=...`, `make -e`, and a late `-f` all run the REAL
-  verifier (PASS, 39 files, 55 occurrences) instead of bypassing the scan;
-  empty root and the forged nine-file root both FAIL rc=1.
+  from a foreign working directory. The fourth sweep then showed the root could
+  be forged through `MAKEFILE_LIST` or `QQBOX_ROOT`. The gate now derives its
+  root from the process working directory alone: no environment, make variable
+  or argv can relocate the scan, and a foreign cwd FAILs instead of passing
+  vacuously. It requires nine sentinel documents plus `Cargo.toml`, `Makefile`
+  and the CI workflow with content checks, coverage floors, backtick-parity
+  rejection of markers inside inline flag spans, and five non-vacuity
+  self-checks. `override define` blocks command-line and `-e` replacement of
+  the verifier program. Live witnesses: repo root and `make -C <repo>` PASS
+  (39 files, 55 occurrences); `make MAKEFILE_LIST=...`, `make -e QQBOX_ROOT=...`
+  and `make FLAG_PROVENANCE_PY=...` all still run the REAL verifier; a foreign
+  cwd, empty root and a fabricated root FAIL. A caller who replaces `SHELL` or
+  overrides the recipe with a late `-f` can skip any make target; that is
+  inherent to make, not a defect of this gate, and is disclosed as a residual.
+- The fourth sweep found unqualified present-tense text-range claims in
+  `crates/qqbox/src/backend/mod.rs`, `trap.rs`, `guest.rs`, `linux.rs` and
+  `stub/windows/instrcb.zig`. All now name the syscall-number TRAP /
+  KILL_PROCESS / ALLOW filter, or are labelled historical Go-era provenance.
+- `process.rlimits[RLIMIT_NOFILE].hard` was silently stored in `pids_limit`, a
+  semantically wrong process-count limit. Every rlimits entry is now reported
+  as `rejected_fail_closed`; `pids_limit` comes only from
+  `linux.resources.pids.limit` and the daemon's HostConfig. Live witness:
+  `RLIMIT_NOFILE_REJECTED_PIDS_ONLY_FROM_RESOURCES_PASS` (pids_limit=256,
+  never 4096).
 
 
 ## Inherited platform limits (from the security recon)

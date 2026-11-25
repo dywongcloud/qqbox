@@ -1,9 +1,10 @@
 //! Real ELF guest launcher for the Linux trap-to-supervisor backend.
 //!
 //! Unlike the stub-based Go engine, this maps an **unmodified** static aarch64
-//! ELF into the supervisor's address space and installs a seccomp filter that
-//! TRAPs the guest's syscalls; the Rust supervisor serves them over the shared
-//! chanPage and the SIGSYS handler writes the result back into the saved `x0`.
+//! ELF into the supervisor's address space and installs a parameterized
+//! syscall-number seccomp filter that TRAPs the served syscalls (no text-range
+//! prefix); the Rust supervisor serves them over the shared chanPage and the
+//! SIGSYS handler writes the result back into the saved `x0`.
 //! No rewriting, no trampoline islands, no second kernel.
 //!
 //! Scope is deliberately narrow: ET_EXEC, static, aarch64 only; the trapped

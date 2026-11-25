@@ -5,12 +5,14 @@
 //! chanPage. The Go engine had three per-host backends: Linux
 //! (memfd/seccomp/hop), macOS (Mach/Seatbelt/HVF) and Windows (LPAC).
 //!
-//! This Rust port implements the Linux trap-to-supervisor path in full for a
-//! witnessed syscall subset: a real `memfd_create` channel, a real seccomp-BPF
-//! text-range/`RET_TRAP` filter, a real `SIGSYS` handler that saves guest
-//! registers into the chanPage, and a real Rust host-op dispatcher that serves
-//! the request and resumes the guest with its result. macOS and Windows provide
-//! real capability probes and honest boundaries (see their modules).
+//! This Rust port implements the Linux trap-to-supervisor path for a witnessed
+//! syscall subset: a real `memfd_create` channel, a seccomp-BPF filter with
+//! TRAP / KILL_PROCESS / ALLOW verdicts keyed to syscall NUMBER (no Go-era
+//! text-range prefix), a real `SIGSYS` handler that saves guest registers into
+//! the chanPage, and a real Rust host-op dispatcher that serves the request and
+//! resumes the guest with its result. `filter::trap_and_deny` is the installed
+//! filter. macOS and Windows provide real capability probes and honest
+//! boundaries (see their modules).
 //!
 //! Not yet ported: PIE/ET_DYN, trampoline islands, the full ~205-syscall
 //! table, the PROT_R hop alias, ptrace/Mach exception register save-restore,

@@ -11,8 +11,9 @@
 // The stub emits no raw `syscall` and reaches the kernel only through ntdll, so
 // a syscall returning into ntdll is the stub's own and a return anywhere else
 // is a guest stray -> die(BACKSTOP_KILL), which sandbox/run_windows.go maps to
-// ErrKilled. This is the Linux seccomp text-range check (stub/zig/seccomp.zig)
-// expressed as a module range. Unlike seccomp it is revocable, so it is a
+// ErrKilled. HISTORICAL GO-ERA PROVENANCE: this is the removed Go engine's
+// Linux seccomp text-range check (stub/zig/seccomp.zig) expressed as a module
+// range; the Rust Linux backend does not install a text-range filter. Unlike seccomp it is revocable, so it is a
 // backstop over the LPAC AppContainer, not a sole boundary; the hypervisor
 // (WHP) backend is the airtight form. arm64 has a different callback-entry ABI
 // (its own probe and thunk); until then arm64 keeps strict rewriting.
