@@ -1,10 +1,16 @@
-//! seccomp-BPF text-range backstop.
+//! seccomp-BPF filters for the Rust Linux backend.
 //!
-//! The committed Zig stub installs a process-wide filter from its own text and
-//! a stricter per-thread guest filter. A syscall issued from outside the stub's
-//! text is TRAPped to the supervisor rather than killed, so a rewrite miss is
-//! correct but slower. This module builds the same BPF shape in Rust and
-//! installs it with real `prctl`/`seccomp` syscalls on Linux.
+//! The installed filter (`trap_and_deny`) has three verdicts keyed to syscall
+//! number: TRAP for the syscalls the Rust supervisor serves (`RET_TRAP` to
+//! `SIGSYS` to chanPage), KILL_PROCESS for a fixed deny-list of direct host
+//! escapes, and ALLOW for everything else. There is NO default-deny text-range
+//! backstop: the Go-era ~205-syscall table is unported. A rewrite miss outside
+//! the TRAP set therefore runs natively on the host, so static rewriting is
+//! required for correctness, not merely an optimization.
+//!
+//! `text_range_prefix` and `allow_list` reproduce the removed Go-era Zig stub's
+//! BPF shape for provenance and static verification only. No live path installs
+//! them. `validate` is a total verifier over the emitted instruction list.
 
 use crate::error::{Error, Result};
 use crate::sandbox::SockFilter;
@@ -60,9 +66,11 @@ fn ret(k: u32) -> SockFilter {
     }
 }
 
-/// The Rust equivalent of `stub/zig/seccomp.zig:load()`'s six-instruction
-/// prefix. A syscall whose instruction pointer is outside `[lo, hi)` gets
-/// `SECCOMP_RET_TRAP | SECCOMP_TRAP_TAG`; one inside falls through to the
+/// HISTORICAL GO-ERA PROVENANCE: the Rust equivalent of
+/// `stub/zig/seccomp.zig:load()`'s six-instruction prefix, retained as a static
+/// verifier fixture. The live Rust backend does NOT install this prefix; see
+/// `trap_and_deny`. A syscall whose instruction pointer is outside `[lo, hi)`
+/// gets `SECCOMP_RET_TRAP | SECCOMP_TRAP_TAG`; one inside falls through to the
 /// caller's allow filter. Jump offsets are relative to the next instruction,
 /// matching the Zig builder exactly (jt/jf of 0 falls through).
 ///
@@ -88,8 +96,10 @@ pub fn text_range_prefix(lo: u64, hi: u64) -> Result<Vec<SockFilter>> {
     ])
 }
 
-/// An allow filter that checks the audit arch, admits the listed syscall
-/// numbers and KILLs everything else. Append after `text_range_prefix`.
+/// HISTORICAL GO-ERA PROVENANCE: an allow filter that checks the audit arch,
+/// admits the listed syscall numbers and KILLs everything else. It is a
+/// verifier fixture for the removed Go-era prefix, not an installed filter.
+/// Append after `text_range_prefix` when exercising that fixture.
 ///
 /// Layout (n = allowed.len()):
 ///   0        LD arch

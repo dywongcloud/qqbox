@@ -26,7 +26,7 @@ Go 程式樹為 445 個檔案／85,620 行；`internal/sandbox` 單一目錄就�
 | 模組 | 內容 |
 |---|---|
 | `channel.rs` | 真實 `memfd_create` + `MAP_SHARED` chanPage；`ChannelRequest`／`ChannelResponse` 使用凍結的 ABI 位移；futex 字組就是 chanPage 位元組 8 的 `state`（ST_REQ／ST_REP）。 |
-| `filter.rs` | seccomp-BPF 產生器：`text_range_prefix(lo,hi)`（六指令的 `[__ehdr_start, etext)` TRAP 前置）；`allow_list(arch, nrs)`；`trap_one(nr)`；真實 `prctl(PR_SET_NO_NEW_PRIVS)` + `seccomp(SET_MODE_FILTER, flags=0)` 安裝。 |
+| `filter.rs` | seccomp-BPF 產生器：`trap_and_deny(trapped, deny)` 才是**已安裝**的過濾器（服務的呼叫 TRAP、二十項直接逃逸拒絕清單 KILL_PROCESS、其餘 ALLOW），另有 `validate()` 全域靜態驗證器。`text_range_prefix(lo,hi)`、`allow_list(arch, nrs)` 與 `trap_one(nr)` 是 Go 時代出處與驗證用元件，文字範圍前置**未安裝**。真實 `prctl(PR_SET_NO_NEW_PRIVS)` + `seccomp(SET_MODE_FILTER, flags=0)` 安裝。 |
 | `trap.rs` | 真實 `sigaction(SIGSYS, SA_SIGINFO)` 處理器；讀取 `siginfo_t`（`si_code == SYS_SECCOMP`、`si_errno == 0x5ca1`），從 `ucontext_t` 取出 aarch64 `x0` 到 `x5`／`x8`／`pc`，發佈請求、以 futex 阻塞，並把監督器結果寫回 `x0` 讓來賓繼續。 |
 | `hostop.rs` | 建於 vfs Namespace 之上的 Rust host-op 分派器：行程識別、brk、clock、stdio read/write、經 `Namespace::resolve` 的 openat、close、fd 表；未實作的 syscall 回傳 `-ENOSYS`，不假裝成功。 |
 | `linux.rs` | 實作 `Platform` 的 `LinuxBackend`；`witness()` fork 來賓執行緒、安裝過濾器與處理器、執行真實 `getppid`、透過 chanPage 服務並回復。 |

@@ -39,9 +39,12 @@ seccomp／trap 後端會對它所映射的 ELF 區段強制 W^X，完整來賓�
 
 ## 安全預設與後盾
 
-宿主作業系統後盾是不對稱的。在 Linux 上，躲過重寫的系統呼叫會被
-`RET_TRAP` 導入 Rust 監督器，而不是終止來賓；macOS Seatbelt 與 Windows
-x86-64 instrumentation callback 會終止，Windows arm64 沒有 callback 後盾。
+宿主作業系統邊界是不對稱的。Linux 已安裝的 `seccomp` 程式比對系統呼叫
+編號：監督器服務的呼叫下 `RET_TRAP` 導入 chanPage，固定的直接逃逸拒絕清單
+下 `RET_KILL_PROCESS`，其餘 `RET_ALLOW`。Go 時代的預設拒絕文字範圍後盾並未
+移植，漏改寫的呼叫因此直接在宿主原生執行，靜態重寫是正確性的必要條件。
+macOS `Seatbelt` 與 Windows x86-64 instrumentation callback 則會終止，
+Windows arm64 沒有 callback 後盾。
 授予 API 存取權不等於授予宿主檔案讀取權，也不等於授予來賓位址空間的寫入
 權；控制平面與資料平面的授權不可混為一談。常駐程式以零信任 bearer 權杖
 保護每一條路由，還原能力則由獨立的第二組密鑰衍生，兩者不可互相推算。

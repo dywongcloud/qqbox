@@ -143,40 +143,56 @@ returns `isError: true` by design because the general `qqbox run` path returns
 `UnsupportedPlatform` (the Linux trap backend is ported only for static
 aarch64 ET_EXEC).
 
-## Inherited platform limits (from the security recon)
-### Second adversarial reverification (`wf_30fbb515-ec8`)
+## Second adversarial reverification (`wf_30fbb515-ec8`)
 
 A four-agent read-only reverification of `be48688` found four confirmed
-defects; all are fixed on `938bb1a` and its successor, with clean-checkout gates
-witnessed in the same turn:
+defects; all four are fixed in commit `e5ed464` (the reviewed SHA's docs were
+byte-identical on `938bb1a`), with clean-checkout gates witnessed in the same
+turn. A five-agent reverification of `e5ed464` (`wf_21566622-03f`) then found
+three residual gaps, also fixed here.
 
 - `docs/SINGLE_ADDRESS_SPACE.md` and its zh-Hant mirror still said "static
   rewriting is the optimization, the trap is the backstop", contradicting
   `llms.txt`. The Rust filter has TRAP / KILL_PROCESS / ALLOW verdicts keyed to
   syscall number, with no text-range backstop, so static rewriting is required
   for correctness. `AGENTS.md` rule one now names all three verdicts and
-  `Error::Killed`; a Go-era `stub/zig/seccomp.zig` comment is marked historical.
+  `Error::Killed`. The second sweep showed the correction had not reached
+  `crates/qqbox/src/backend/filter.rs` module docs, `stub/zig/seccomp.zig`,
+  `stub/zig/aarch64.zig`, `stub/zig/x86_64.zig`, `zh-hant/README.zh-Hant.md`,
+  `zh-hant/docs/PERMISSIONS.zh-Hant.md` or `zh-hant/docs/PERF.zh-Hant.md`;
+  every one now states the same three-verdict contract, and the Go-era Zig
+  comments are labelled historical provenance.
 - `examples/README.md` had a provenance marker injected into the inline build
   command, so the Go-era `-net` build line was unrunnable. The real command is
-  restored as a fenced shell block; `sh -n` accepts it.
+  restored as a fenced shell block; `sh -n` accepts it (rc=0, empty stderr).
 - Provenance markers had been injected into 20 inline code spans, inventing
   flag names that do not exist. All Go-era `-net` and `-allow-*` spans now
   contain only the real flag, with the marker in prose on the same line, in
-  both languages.
+  both languages. The second sweep independently confirmed zero such spans.
 - `make flag-provenance-verify` passed with `FILES=0 occurrences=0` when run
   from a foreign working directory. The gate now anchors its scan root to the
-  Makefile's directory, requires nine sentinel documents and coverage floors,
+  first makefile's directory, requires nine sentinel documents plus a
+  `Cargo.toml` workspace marker with content checks and coverage floors,
   rejects markers inside inline flag spans with backtick-parity tracking, and
-  runs three non-vacuity self-checks. Live witnesses: repo root PASS (39 files,
-  51 occurrences), foreign cwd PASS (same counts), empty root FAIL rc=1.
+  runs four non-vacuity self-checks. `override define` blocks command-line and
+  environment replacement of the verifier program; `$(firstword $(MAKEFILE_LIST))`
+  blocks a late `-f` from moving the root; sentinel content checks reject a
+  fabricated root of empty files. Live witnesses: repo root, foreign cwd,
+  `make FLAG_PROVENANCE_PY=...`, `make -e`, and a late `-f` all run the REAL
+  verifier (PASS, 39 files, 55 occurrences) instead of bypassing the scan;
+  empty root and the forged nine-file root both FAIL rc=1.
 
 
+## Inherited platform limits (from the security recon)
 These belonged to the removed Go runtime and describe work a future Rust
 backend must reproduce. They are
 recorded so a port does not claim parity it does not have:
 
-- Linux backstop is TRAP-to-supervisor; macOS Seatbelt and the Windows x86-64
-  instrumentation callback kill. Windows arm64 has **no** callback backstop.
+- The Go-era Linux backstop was TRAP-to-supervisor (with a text-range prefix);
+  macOS Seatbelt and the Windows x86-64 instrumentation callback killed, and
+  Windows arm64 had no callback backstop. The Rust Linux filter instead uses
+  TRAP / KILL_PROCESS / ALLOW verdicts keyed to syscall number, so a rewrite
+  miss outside the TRAP set runs natively on the host.
 - macOS self-modifying `MAP_JIT` pages run unrewritten (`stub/macos/wx.zig:22-24`);
   only stub-placed traps are served. macOS non-PIE ET_EXEC guests run in an
   Hypervisor.framework VM, i.e. a second address space.

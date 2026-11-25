@@ -13,7 +13,10 @@ Linux ABI 的監督器。這屬於 gVisor 一類的系統呼叫攔截設計。�
 
 隔離有**兩層彼此獨立的防線**：監督器的中介——封閉的檔案系統、沒有直接的宿主
 路徑、固定的裝置白名單、預設關閉網路並提供可設定的輸出允許清單；以及宿主作業
-系統的沙箱（seccomp／Seatbelt／AppContainer）作為逃逸時終止來賓的後盾。為每個
+系統的 mediation 過濾器。Linux 已安裝的 `seccomp` 程式比對系統呼叫編號：監督器
+服務的呼叫下 `RET_TRAP`、固定的直接逃逸拒絕清單下 `RET_KILL_PROCESS`、其餘
+`RET_ALLOW`；Go 時代的預設拒絕文字範圍後盾並未移植，因此靜態重寫是正確性的
+必要條件。`Seatbelt` 與 Windows instrumentation callback 則會終止來賓。為每個
 不受信任的程式或代理產生的指令，配置一次性沙箱，只揭露它需要的檔案與網路。
 
 可以當作獨立執行檔、透過容器用戶端、經由 MCP，或嵌入自己的程式使用。各宿主
@@ -281,9 +284,11 @@ rootfs、bind 掛載、overlay，以及合成的 `/proc`、`/sys`、`/dev` 都�
 只能經由明確設定的 root 或掛載取得。這讓一次執行能使用映像的檔案，同時只
 共享呼叫者選定的宿主目錄。
 
-**宿主作業系統後盾。** 這裡的不對稱是刻意的。在 Linux 上，躲過重寫的系統呼叫
-會被 TRAP 到 Rust 監督器（seccomp `RET_TRAP` → `SIGSYS` → chanPage），而**不是**
-被終止：重寫漏掉只是較慢，仍然正確。macOS Seatbelt 與 Windows x86-64
+**宿主作業系統邊界。** 這裡的不對稱是刻意的。Linux 已安裝的 `seccomp` 程式
+比對系統呼叫編號：監督器服務的呼叫下 `RET_TRAP`（`SIGSYS` 導回 chanPage），
+固定的直接逃逸拒絕清單下 `RET_KILL_PROCESS`，其餘 `RET_ALLOW`。Go 時代的
+預設拒絕文字範圍後盾並未移植，因此漏改寫的呼叫會直接在宿主原生執行；靜態
+重寫是正確性的必要條件，不是最佳化。macOS `Seatbelt` 與 Windows x86-64
 instrumentation callback 則會終止；Windows arm64 沒有 callback 後盾。在 Linux
 上，映射記憶體、持有描述項與 fork 屬於另一條永不執行來賓程式碼的 host-op
 執行緒。[AGENTS.zh-Hant.md](AGENTS.zh-Hant.md) 與

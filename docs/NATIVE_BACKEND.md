@@ -28,7 +28,7 @@ files / ~69,300 lines. Reproducing it fully is not a one-session job.
 | module | content |
 |---|---|
 | `channel.rs` | real `memfd_create` + `MAP_SHARED` chanPage; `ChannelRequest`/`ChannelResponse` at the frozen ABI offsets; futex word is the chanPage `state` at byte 8 (ST_REQ/ST_REP) |
-| `filter.rs` | seccomp-BPF builder: `text_range_prefix(lo,hi)` (the six-instruction `[__ehdr_start, etext)` TRAP prologue), `allow_list(arch, nrs)`, `trap_one(nr)`; real `prctl(PR_SET_NO_NEW_PRIVS)` + `seccomp(SET_MODE_FILTER, ...)` installation |
+| `filter.rs` | seccomp-BPF builder: `trap_and_deny(trapped, deny)` is the INSTALLED filter (TRAP served syscalls, KILL_PROCESS a 20-entry deny-list, ALLOW the rest), plus `validate()`, a total static verifier. `text_range_prefix(lo,hi)`, `allow_list(arch, nrs)` and `trap_one(nr)` are Go-era provenance / verifier fixtures; the text-range prefix is NOT installed. Real `prctl(PR_SET_NO_NEW_PRIVS)` + `seccomp(SET_MODE_FILTER, ...)` installation |
 | `trap.rs` | real `sigaction(SIGSYS, SA_SIGINFO)` handler; reads `siginfo_t` (`si_code == SYS_SECCOMP`, `si_errno == 0x5ca1`), saves aarch64 `x0..x5`/`x8`/`pc` from `ucontext_t`, publishes the request, blocks on a futex, and writes the supervisor's result into `x0` so the guest resumes |
 | `hostop.rs` | Rust host-op dispatcher over the vfs Namespace: process identity, brk, clock, stdio read/write, openat via `Namespace::resolve`, close, fd table; unimplemented syscalls return `-ENOSYS` rather than pretending |
 | `linux.rs` | `LinuxBackend` implementing `Platform`; `witness()` forks a guest thread, installs the filter + handler, executes a real `getppid`, serves it through the chanPage and resumes |

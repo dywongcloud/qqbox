@@ -288,10 +288,10 @@ stub-verify:
 # current CLI flags. Historical example command blocks are allowed only when
 # the page carries an explicit provenance note. GAP 3 of the adversarial
 # completeness critic; this is a clean-checkout gate, not a test file.
-define FLAG_PROVENANCE_PY
+override define FLAG_PROVENANCE_PY
 import os, pathlib, re, sys
-# Anchor to the Makefile's directory. Scanning the caller's cwd made the gate
-# pass with zero files; a zero-file scan is a FAIL, never a PASS.
+# Anchor to the FIRST makefile's directory. Scanning the caller's cwd, or a
+# late -f makefile, made the gate pass with zero real documents.
 root = pathlib.Path(os.environ.get('QQBOX_ROOT', '.')).resolve()
 pat = re.compile(r'(?<![\w-])-net\b|(?<![\w-])-allow-(?:domains|cidrs|ports)\b')
 markers = ['QQBOX_RUNTIME', 'Go-era', 'Go 執行期', '移除前', 'pre-removal Go',
@@ -303,6 +303,20 @@ required = ['README.md', 'llms.txt', 'examples/README.md',
             'examples/qqbox/README.md', 'examples/xfce/README.md',
             'examples/xubuntu/README.md', 'zh-hant/README.zh-Hant.md',
             'zh-hant/llms.zh-Hant.txt', 'zh-hant/examples/README.zh-Hant.md']
+# Each sentinel must carry real content, not merely exist. A fabricated root
+# with nine empty files must FAIL, not pass the coverage floors.
+sentinels = {
+    'Cargo.toml': '[workspace]',
+    'README.md': 'qqbox',
+    'llms.txt': 'Key facts for answering questions',
+    'examples/README.md': 'Flag provenance',
+    'examples/qqbox/README.md': 'Flag provenance',
+    'examples/xfce/README.md': 'Flag provenance',
+    'examples/xubuntu/README.md': 'Flag provenance',
+    'zh-hant/README.zh-Hant.md': 'qqbox',
+    'zh-hant/llms.zh-Hant.txt': '給回答問題用的關鍵事實',
+    'zh-hant/examples/README.zh-Hant.md': '旗標出處',
+}
 
 def verdict(fails, files, hits):
     return not fails and files >= min_files and hits >= min_hits
@@ -332,6 +346,12 @@ fails = []
 for r in required:
     if not (root / r).is_file():
         fails.append('required document missing from scan root: ' + r)
+for name, needle in sentinels.items():
+    q = root / name
+    if not q.is_file():
+        fails.append('sentinel missing: ' + name)
+    elif needle not in q.read_text(encoding='utf-8', errors='replace'):
+        fails.append('sentinel content check failed (forged/empty root?): ' + name)
 files = hits = 0
 for p in sorted(root.rglob('*')):
     if p.suffix not in {'.md', '.txt'} or any(x in p.relative_to(root).parts for x in skip):
@@ -352,22 +372,22 @@ print('FLAG_PROVENANCE_FILES=' + str(files), 'occurrences=' + str(hits),
 for f in fails: print('  ' + f)
 if files < min_files: print('  coverage floor: files ' + str(files) + ' < ' + str(min_files))
 if hits < min_hits: print('  coverage floor: occurrences ' + str(hits) + ' < ' + str(min_hits))
-# Non-vacuity self-checks: every predicate must REJECT a synthetic bad input.
+# Four non-vacuity self-checks: every predicate must REJECT a synthetic bad input.
 plain = '`-net` is the Rust CLI switch for egress.'
 detected = bool(pat.search(plain)) and not any(m in plain for m in markers)
-fake = ['`Go-era -net` is not a real flag.']
-fake_detected = len(fake_spans(fake)) == 1
+fake_detected = len(fake_spans(['`Go-era -net` is not a real flag.'])) == 1
 floor_detected = not verdict([], 0, 0)
+sentinel_detected = 'qqbox' not in ''
 print('nonvacuous_self_check=' + str(detected), 'fake_span_self_check=' + str(fake_detected),
-      'coverage_self_check=' + str(floor_detected))
-ok = verdict(fails, files, hits) and detected and fake_detected and floor_detected
+      'coverage_self_check=' + str(floor_detected), 'sentinel_self_check=' + str(sentinel_detected))
+ok = verdict(fails, files, hits) and detected and fake_detected and floor_detected and sentinel_detected
 print('FLAG_PROVENANCE_' + ('PASS' if ok else 'FAIL'))
 sys.exit(0 if ok else 1)
 endef
 export FLAG_PROVENANCE_PY
 
 flag-provenance-verify:
-	@QQBOX_ROOT='$(abspath $(dir $(lastword $(MAKEFILE_LIST))))' python3 -c "$$FLAG_PROVENANCE_PY"
+	@QQBOX_ROOT='$(abspath $(dir $(firstword $(MAKEFILE_LIST))))' python3 -c "$$FLAG_PROVENANCE_PY"
 
 # Rebuild the eight committed stubs with pinned Zig 0.13.0 and compare the
 # security-relevant bytes. Zig symbol tables and PE COFF timestamps carry

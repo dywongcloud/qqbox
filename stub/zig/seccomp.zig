@@ -178,23 +178,23 @@ export const lc_seccomp_guest_filter = assemble(guest);
 extern var __ehdr_start: u8;
 extern var etext: u8;
 
-// HISTORICAL GO-ERA PROVENANCE: this Zig filter is committed source but is not
-// installed by the Rust backend (see crates/qqbox/src/backend/filter.rs). The
-// text-range reasoning below describes the removed Go design only.
-// install admits lc_seccomp_filter, and only from the stub's own text, for
-// the process: its threads inherit it. A syscall from outside the stub's text
-// is a guest syscall the rewriter did not convert to a trampoline/ud2 (it
-// cannot be statically complete: it would drift through data-in-text, or it
-// cannot follow a jump table). Rather than kill -- which would make a missed
-// site fatal and force the rewriter to be provably complete -- it TRAPs: the
-// SIGSYS handler services it through the supervisor like any trampolined
-// call; under the Go-era design static rewriting was an optimization and this
-// filter was the correctness backstop. The Rust backend does NOT install this
-// filter: it uses a syscall-number filter with TRAP/KILL/ALLOW verdicts, so a
-// rewrite miss outside its TRAP set runs natively on the host. See
-// crates/qqbox/src/backend/filter.rs. The guest still cannot run a raw syscall
-// in the Go-era design; it is mediated either way. A bad architecture, or the
-// stub's own out-of-policy call, still kills.
+// HISTORICAL GO-ERA PROVENANCE: this Zig filter is committed source but is NOT
+// installed by the Rust backend (see crates/qqbox/src/backend/filter.rs).
+// Everything below describes the REMOVED Go design in the past tense only.
+//
+// install admitted lc_seccomp_filter from the stub's own text, and its threads
+// inherited it. A syscall from outside the stub's text was a guest syscall the
+// rewriter had not converted to a trampoline/ud2 (static completeness was not
+// provable: sites drifted through data-in-text or hid behind jump tables).
+// Rather than kill -- which would have made a missed site fatal -- the Go-era
+// design TRAPped it: the SIGSYS handler serviced it through the supervisor like
+// any trampolined call. Under that design static rewriting was an optimization
+// and this filter was the correctness backstop; the guest was mediated either
+// way. The Rust backend instead installs a syscall-number filter with
+// TRAP / KILL_PROCESS / ALLOW verdicts and NO text-range backstop, so a rewrite
+// miss outside its TRAP set runs natively on the host. Static rewriting is
+// therefore required for correctness in Rust. A bad architecture, or the
+// stub's own out-of-policy call, still kills in the Go-era design.
 pub fn install() void {
     if (stub.sys(nr(.prctl), PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0, 0) != 0) stub.die(121);
     load(&lc_seccomp_filter);

@@ -28,6 +28,9 @@ is process-scoped on every host:
 | macOS | Seatbelt `(deny default)` allowlist that kills an un-rewritten `svc`, bootstrap-port drop, ad-hoc codesign, `os_sync` shared channel |
 | Windows | LPAC AppContainer token plus job kill-on-close, x86-64 ProcessInstrumentationCallback `BACKSTOP_KILL`, auto-reset events, PE cache |
 
+The Linux row is the shipped Rust filter; the macOS and Windows rows describe the
+removed Go-era boundaries, which are not ported. Only Linux has a live backend.
+
 The Linux filter has **three** verdicts, not a blanket kill: the syscalls the Rust
 supervisor serves get `RET_TRAP` → `SIGSYS` → chanPage, a fixed 20-entry deny-list
 of direct host escapes gets `RET_KILL_PROCESS`, and everything else is allowed.

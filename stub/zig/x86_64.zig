@@ -926,8 +926,11 @@ pub fn onSigill(_: i32, info: *const [128]u8, uctx: [*]u8) callconv(.C) void {
     @atomicStore(u32, &t.busy, 0, .seq_cst);
 }
 
+// HISTORICAL GO-ERA PROVENANCE: the Rust backend installs a syscall-number
+// filter with TRAP/KILL_PROCESS/ALLOW verdicts and no text-range backstop;
+// this Zig stub's out-of-text TRAP filter is not installed by Rust.
 // onSigsys services a raw guest syscall the rewriter left un-rewritten: the
-// stub's seccomp filter TRAPs an out-of-text syscall here instead of killing
+// stub's Go-era seccomp filter TRAPs an out-of-text syscall here, not kills
 // it (seccomp.zig). It is the same work as a trampoline call, so it hands
 // stub.handle a site of 0 (the supervisor does not validate a 0 rip) and the
 // register file. The kernel advances the saved pc past the 2-byte syscall

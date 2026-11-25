@@ -120,17 +120,17 @@ Go 原始碼已經移除，儲存庫僅含 Rust 與 Zig。這不是「Go 仍然�
   在 macOS 上 Zig 0.13.0 的 `objcopy` 無法連結（`undefined symbol: _sigaction`），
   不支援在該宿主重建 Linux ELF stub。移植全部原始碼是另一項需要獨立把關的變更。
 
+## 第二次對抗式複驗（`wf_30fbb515-ec8`）
+
+四條唯讀驗證通道複驗 `be48688`，確認四項缺陷；皆已在提交 `e5ed464` 修正（受檢版本的說明在 `938bb1a` 完全相同），並在同一回合見證乾淨檢出閘門。隨後五條通道複驗 `e5ed464`（`wf_21566622-03f`）又找出三處殘缺，也在此修正。
+
+- `docs/SINGLE_ADDRESS_SPACE.md` 與繁中鏡像仍寫「靜態重寫是最佳化，trap 是後盾」，與 `llms.txt` 矛盾。Rust 過濾器以系統呼叫編號給出 TRAP／KILL_PROCESS／ALLOW 三種判決，沒有文字範圍後盾，因此靜態重寫是正確性的必要條件。`AGENTS.md` 規則一現在逐一列出三種判決與 `Error::Killed`。第二輪掃描指出修正未擴及 `crates/qqbox/src/backend/filter.rs` 模組說明、`stub/zig/seccomp.zig`、`stub/zig/aarch64.zig`、`stub/zig/x86_64.zig`、`zh-hant/README.zh-Hant.md`、`zh-hant/docs/PERMISSIONS.zh-Hant.md` 與 `zh-hant/docs/PERF.zh-Hant.md`；這些位置現在都陳述同一套三判決契約，Go 時代的 Zig 註解亦標明為歷史出處。
+- `examples/README.md` 的出處標記被塞進行內建置指令，讓移除前 Go 執行期的 `-net` 建置列無法執行。真正的指令已還原為圍欄殼層區塊，並通過 `sh -n`（rc=0、stderr 為空）。
+- 二十個行內程式碼 span 被塞入出處標記，憑空造出不存在的旗標名稱。兩種語言的 Go 執行期 `-net` 與 `-allow-*` span 現在都只放真正的旗標，標記放在同一列的散文中；第二輪掃描獨立確認此類 span 為零。
+- 從其他工作目錄執行 `make flag-provenance-verify` 會以 `FILES=0 occurrences=0` 通過。閘門現在把掃描根目錄錨定在第一份 makefile 所在目錄、要求九份哨兵文稿與 `Cargo.toml` 工作區標記並檢查內容、要求覆蓋率下限、以反引號奇偶追蹤拒絕行內旗標 span 內的標記，並執行四項非空洞自我檢查。`override define` 阻擋命令列與環境變數替換驗證程式；`$(firstword $(MAKEFILE_LIST))` 讓後置 `-f` 無法移動根目錄；哨兵內容檢查則拒絕由空白檔案捏造的根目錄。即時見證：儲存庫根目錄、外部工作目錄、指定 `make FLAG_PROVENANCE_PY`、`make -e` 與後置 `-f` 都執行**真正的**驗證程式（PASS、39 檔、55 處），不再略過掃描；空白根目錄與捏造的九檔根目錄皆 FAIL rc=1。
+
+
 ## 接下來要做的事
-### 第二次對抗式複驗（`wf_30fbb515-ec8`）
-
-四條唯讀驗證通道複驗 `be48688`，確認四項缺陷；皆已在 `938bb1a` 及其後續提交修正，並在同一回合見證乾淨檢出閘門：
-
-- `docs/SINGLE_ADDRESS_SPACE.md` 與繁中鏡像仍寫「靜態重寫是最佳化，trap 是後盾」，與 `llms.txt` 矛盾。Rust 過濾器以系統呼叫編號給出 TRAP／KILL_PROCESS／ALLOW 三種判決，沒有文字範圍後盾，因此靜態重寫是正確性的必要條件。`AGENTS.md` 規則一現在逐一列出三種判決與 `Error::Killed`；`stub/zig/seccomp.zig` 的 Go 時代註解已標明為歷史出處。
-- `examples/README.md` 的出處標記被塞進行內建置指令，讓移除前 Go 執行期的 `-net` 建置列無法執行。真正的指令已還原為圍欄殼層區塊，並通過 `sh -n`。
-- 二十個行內程式碼 span 被塞入出處標記，憑空造出不存在的旗標名稱。兩種語言的 Go 執行期 `-net` 與 `-allow-*` span 現在都只放真正的旗標，標記放在同一列的散文中。
-- 從其他工作目錄執行 `make flag-provenance-verify` 會以 `FILES=0 occurrences=0` 通過。閘門現在把掃描根目錄錨定在 Makefile 所在目錄、要求九份哨兵文稿與覆蓋率下限、以反引號奇偶追蹤拒絕行內旗標 span 內的標記，並執行三項非空洞自我檢查。即時見證：儲存庫根目錄 PASS（39 檔、51 處）、外部工作目錄 PASS（相同計數）、空根目錄 FAIL rc=1。
-
-
 Rust 的平臺介面（`backend::Platform`）與 Linux memfd／chanPage／`seccomp`／`SIGSYS` 啟動契約都已完成並見證。接著要收斂 macOS Mach／`Seatbelt`／HVF 與 Windows `LPAC` 的啟動契約，維持已提交的 Zig stub 位元組不變，補上 PIE／ET_DYN 與約 205 個系統呼叫處理器；每一個宿主都要通過既有的回歸語料與對抗式驗證之後，才談得上完整的「可執行來賓」。在此之前，請把本頁當作邊界，而不是待辦清單的樂觀版本。桌面範例的畫面、終端機的 `TIOCPKT` 指標形式轉送與 `SwiftShader` 軟體渲染狀態，都是先前執行時期的見證，不應被解讀為目前工作區已能完整執行來賓。
 
 ## 說明文件連結

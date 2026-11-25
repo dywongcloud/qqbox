@@ -10,10 +10,13 @@ qqbox 只改寫系統呼叫指令；其餘來賓機器碼直接在宿主 CPU 上
 加上固定的每次啟動成本，而不是一個固定的倍率。改寫器不仰賴反組譯器，
 以各架構專用的分類器找出 `syscall` 或 `svc` 指令的位置。
 
-在 Linux 上，漏掉重寫的系統呼叫會觸發 seccomp 的 `RET_TRAP`，由 `SIGSYS`
-處理器經 chanPage 交給 Rust 監督器服務；這是正確性的後盾，不是終止來賓。
-macOS 的 Seatbelt 與 Windows 的 instrumentation callback 則會終止來賓。
-這種不對稱是刻意保留的設計，詳情見
+Linux 已安裝的 `seccomp` 程式比對系統呼叫編號：監督器服務的呼叫下
+`RET_TRAP`，由 `SIGSYS` 處理器經 chanPage 交給 Rust 監督器；固定的直接逃逸
+拒絕清單下 `RET_KILL_PROCESS`，其餘 `RET_ALLOW`。Go 時代的預設拒絕文字範圍
+後盾並未移植，所以漏改寫的呼叫會直接在宿主原生執行，靜態重寫是正確性的
+必要條件，而不是最佳化；這裡沒有「漏改寫仍由後盾接住」的保證。macOS 的
+`Seatbelt` 與 Windows 的 instrumentation callback 則會終止來賓。這種不對稱
+是刻意保留的設計，詳情見
 [NATIVE_BACKEND.zh-Hant.md](NATIVE_BACKEND.zh-Hant.md)。
 
 ## 歷史量測（已移除的 Go 執行期，不是本 Rust 樹）
